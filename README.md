@@ -28,5 +28,3 @@ npm run dev
 ## API Documentation
 
 Visit: http://localhost:8081/api-docs
-
-- HoiBK
