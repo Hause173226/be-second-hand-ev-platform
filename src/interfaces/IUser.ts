@@ -3,7 +3,7 @@ export interface IUser {
   phone: string;
   email?: string;
   citizenId?: string;
-  password: string; // Required for authentication
+  password?: string; // Optional for phone authentication
   dateOfBirth?: Date;
   role?: "user" | "admin";
   gender?: "male" | "female" | "other";
@@ -15,4 +15,7 @@ export interface IUser {
   otpExpires?: Date;
   refreshToken?: string; // Added for JWT refresh token
   avatar?: string;
+  // SSO fields
+  googleId?: string;
+  facebookId?: string;
 }

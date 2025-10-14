@@ -1,5 +1,6 @@
 import { User } from "../models/User";
 import bcrypt from "bcryptjs";
+import { log } from "console";
 import jwt from "jsonwebtoken";
 import nodemailer from "nodemailer";
 
@@ -27,6 +28,30 @@ const sendOTPEmail = async (to: string, otp: string) => {
     });
   } catch (error) {
     console.error("Error sending email:", error);
+  }
+};
+
+// Mock SMS service
+const sendOTPSMS = async (phone: string, otp: string) => {
+  try {
+    // Format phone number (add +84 for Vietnam)
+    const formattedPhone = phone.startsWith("+")
+      ? phone
+      : `+84${phone.replace(/^0/, "")}`;
+
+    // Mock SMS - chỉ log ra console để test
+    console.log(`📱 SMS Mock: Gửi OTP ${otp} đến ${formattedPhone}`);
+    console.log(
+      `📱 Nội dung: "Mã xác thực của bạn là: ${otp}. Mã có hiệu lực trong 5 phút."`
+    );
+
+    // Trong production, có thể lưu OTP vào database để admin xem
+    // await OTPLog.create({ phone: formattedPhone, otp, timestamp: new Date() });
+
+    return true;
+  } catch (error) {
+    console.error("Error sending SMS:", error);
+    throw new Error("Không thể gửi SMS. Vui lòng kiểm tra số điện thoại.");
   }
 };
 
@@ -62,19 +87,52 @@ export const userService = {
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
+    // Tạo OTP cho email verification
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 phút
+
     const user = await User.create({
       fullName,
       phone,
       email,
       password: hashedPassword,
       role: "user",
+      isActive: false, // Chưa active cho đến khi verify email
+      otpCode: otp,
+      otpExpires: expires,
       ...rest,
     });
 
-    // Xóa password trước khi trả về
+    // Gửi email verification
+    await transporter.sendMail({
+      from: process.env.EMAIL_USERNAME,
+      to: email,
+      subject: "Xác thực tài khoản - Second Hand EV Platform",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Xác thực tài khoản</h2>
+          <p>Xin chào ${fullName},</p>
+          <p>Cảm ơn bạn đã đăng ký tài khoản tại Second Hand EV Platform!</p>
+          <p>Mã xác thực của bạn là: <strong style="font-size: 24px; color: #007bff;">${otp}</strong></p>
+          <p>Mã này có hiệu lực trong 15 phút.</p>
+          <p>Nếu bạn không thực hiện đăng ký này, vui lòng bỏ qua email này.</p>
+          <hr style="margin: 20px 0;">
+          <p style="color: #666; font-size: 12px;">© 2024 Second Hand EV Platform</p>
+        </div>
+      `,
+    });
+
+    // Xóa password và OTP trước khi trả về
     const userObj = user.toObject() as any;
     delete userObj.password;
-    return userObj;
+    delete userObj.otpCode;
+    delete userObj.otpExpires;
+
+    return {
+      user: userObj,
+      message:
+        "Đăng ký thành công! Vui lòng kiểm tra email để xác thực tài khoản.",
+    };
   },
 
   generateTokens: async (user: any) => {
@@ -101,6 +159,11 @@ export const userService = {
     const user = await User.findOne({ email, role: userRole });
     if (!user)
       throw new Error("Email, mật khẩu hoặc quyền truy cập không đúng");
+
+    // Kiểm tra user có password không
+    if (!user.password) {
+      throw new Error("Tài khoản này chưa có mật khẩu");
+    }
 
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch)
@@ -267,6 +330,11 @@ export const userService = {
       throw new Error("User not found");
     }
 
+    // Kiểm tra user có password không
+    if (!user.password) {
+      throw new Error("Tài khoản này chưa có mật khẩu");
+    }
+
     // Kiểm tra mật khẩu hiện tại có đúng không
     const isCurrentPasswordMatch = await bcrypt.compare(
       currentPassword,
@@ -292,5 +360,242 @@ export const userService = {
     await user.save();
 
     return { message: "Đổi mật khẩu thành công" };
+  },
+
+  // ===== PHONE AUTHENTICATION METHODS =====
+
+  // Đăng ký bằng số điện thoại
+  signUpWithPhone: async (userData: any) => {
+    const { fullName, phone, ...rest } = userData;
+
+    if (!fullName) {
+      throw new Error("Thiếu fullName bắt buộc");
+    }
+    if (!phone) {
+      throw new Error("Thiếu phone bắt buộc");
+    }
+
+    // Kiểm tra phone đã tồn tại chưa
+    const existingUser = await User.findOne({ phone });
+    if (existingUser) {
+      throw new Error("Số điện thoại đã tồn tại");
+    }
+
+    // Tạo OTP cho xác thực
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+
+    // Tạo user với trạng thái chưa active
+    const user = await User.create({
+      fullName,
+      phone,
+      password: "", // Không cần password cho phone auth
+      role: "user",
+      isActive: false, // Chưa active cho đến khi verify OTP
+      otpCode: otp,
+      otpExpires: expires,
+      ...rest,
+    });
+
+    // Gửi OTP qua SMS
+    await sendOTPSMS(phone, otp);
+
+    // Xóa password và OTP trước khi trả về
+    const userObj = user.toObject() as any;
+    delete userObj.password;
+    delete userObj.otpCode;
+    delete userObj.otpExpires;
+
+    return {
+      user: userObj,
+      message: "OTP đã được gửi về số điện thoại của bạn",
+    };
+  },
+
+  // Xác thực OTP cho đăng ký bằng phone
+  verifyPhoneOTP: async (phone: string, otp: string) => {
+    const user = await User.findOne({
+      phone,
+      otpCode: otp,
+      otpExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      throw new Error("OTP không hợp lệ hoặc đã hết hạn");
+    }
+
+    // Active user và xóa OTP
+    user.isActive = true;
+    user.otpCode = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    // Tạo tokens
+    const { accessToken, refreshToken } = await userService.generateTokens(
+      user
+    );
+
+    const userObj = user.toObject() as any;
+    delete userObj.password;
+    delete userObj.refreshToken;
+
+    return {
+      user: userObj,
+      accessToken,
+      refreshToken,
+      message: "Xác thực thành công",
+    };
+  },
+
+  // Đăng nhập bằng số điện thoại (gửi OTP)
+  signInWithPhone: async (phone: string) => {
+    const user = await User.findOne({ phone, isActive: true });
+    if (!user) {
+      throw new Error("Số điện thoại không tồn tại hoặc chưa được kích hoạt");
+    }
+
+    // Tạo OTP mới
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+
+    user.otpCode = otp;
+    user.otpExpires = expires;
+    await user.save();
+
+    // Gửi OTP qua SMS
+    await sendOTPSMS(phone, otp);
+
+    return { message: "OTP đã được gửi về số điện thoại của bạn" };
+  },
+
+  // Xác thực OTP cho đăng nhập bằng phone
+  verifySignInOTP: async (phone: string, otp: string) => {
+    const user = await User.findOne({
+      phone,
+      otpCode: otp,
+      otpExpires: { $gt: new Date() },
+      isActive: true,
+    });
+
+    if (!user) {
+      throw new Error("OTP không hợp lệ hoặc đã hết hạn");
+    }
+
+    // Xóa OTP
+    user.otpCode = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    // Tạo tokens
+    const { accessToken, refreshToken } = await userService.generateTokens(
+      user
+    );
+
+    const userObj = user.toObject() as any;
+    delete userObj.password;
+    delete userObj.refreshToken;
+
+    return {
+      user: userObj,
+      accessToken,
+      refreshToken,
+      message: "Đăng nhập thành công",
+    };
+  },
+
+  // Gửi lại OTP cho phone
+  resendPhoneOTP: async (phone: string) => {
+    const user = await User.findOne({ phone });
+    if (!user) {
+      throw new Error("Số điện thoại không tồn tại");
+    }
+
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+
+    user.otpCode = otp;
+    user.otpExpires = expires;
+    await user.save();
+
+    await sendOTPSMS(phone, otp);
+
+    return { message: "OTP mới đã được gửi về số điện thoại của bạn" };
+  },
+
+  // ===== EMAIL VERIFICATION FOR SIGNUP =====
+
+  // Gửi email verification sau khi đăng ký
+  sendEmailVerification: async (email: string) => {
+    const user = await User.findOne({ email });
+    if (!user) {
+      throw new Error("Email không tồn tại");
+    }
+
+    if (user.isActive) {
+      throw new Error("Tài khoản đã được kích hoạt");
+    }
+
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 15 * 60 * 1000); // 15 phút
+
+    user.otpCode = otp;
+    user.otpExpires = expires;
+    await user.save();
+
+    // Gửi email verification
+    await transporter.sendMail({
+      from: process.env.EMAIL_USERNAME,
+      to: email,
+      subject: "Xác thực tài khoản - Second Hand EV Platform",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #333;">Xác thực tài khoản</h2>
+          <p>Xin chào ${user.fullName},</p>
+          <p>Cảm ơn bạn đã đăng ký tài khoản tại Second Hand EV Platform!</p>
+          <p>Mã xác thực của bạn là: <strong style="font-size: 24px; color: #007bff;">${otp}</strong></p>
+          <p>Mã này có hiệu lực trong 15 phút.</p>
+          <p>Nếu bạn không thực hiện đăng ký này, vui lòng bỏ qua email này.</p>
+          <hr style="margin: 20px 0;">
+          <p style="color: #666; font-size: 12px;">© 2024 Second Hand EV Platform</p>
+        </div>
+      `,
+    });
+
+    return { message: "Email xác thực đã được gửi" };
+  },
+
+  // Xác thực email
+  verifyEmail: async (email: string, otp: string) => {
+    const user = await User.findOne({
+      email,
+      otpCode: otp,
+      otpExpires: { $gt: new Date() },
+    });
+
+    if (!user) {
+      throw new Error("OTP không hợp lệ hoặc đã hết hạn");
+    }
+
+    // Active user và xóa OTP
+    user.isActive = true;
+    user.otpCode = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    // Tạo tokens
+    const { accessToken, refreshToken } = await userService.generateTokens(
+      user
+    );
+
+    const userObj = user.toObject() as any;
+    delete userObj.password;
+    delete userObj.refreshToken;
+
+    return {
+      user: userObj,
+      accessToken,
+      refreshToken,
+      message: "Email đã được xác thực thành công",
+    };
   },
 };

@@ -6,7 +6,7 @@ const userSchema = new Schema<IUser>(
     fullName: { type: String, required: true },
     phone: { type: String, required: true, unique: true },
     email: { type: String, unique: true },
-    password: { type: String, required: true }, // Thêm trường password
+    password: { type: String }, // Password không bắt buộc (cho phone auth)
     citizenId: { type: String },
     dateOfBirth: { type: Date },
     role: { type: String, enum: ["user", "admin"], default: "user" },
@@ -17,6 +17,9 @@ const userSchema = new Schema<IUser>(
     otpExpires: { type: Date },
     refreshToken: { type: String }, // Added for JWT refresh token
     avatar: { type: String },
+    // SSO fields
+    googleId: { type: String, unique: true, sparse: true },
+    facebookId: { type: String, unique: true, sparse: true },
   },
   { timestamps: true }
 );

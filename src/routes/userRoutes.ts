@@ -1,4 +1,5 @@
 import express from "express";
+import { ssoService } from "../services/ssoService";
 import {
   getAllUsers,
   signIn,
@@ -12,8 +13,21 @@ import {
   changePassword,
   refreshToken,
   getProfile,
+  signUpWithPhone,
+  verifyPhoneOTP,
+  signInWithPhone,
+  verifySignInOTP,
+  resendPhoneOTP,
+  sendEmailVerification,
+  verifyEmail,
 } from "../controllers/userController";
 import { authenticateJWT } from "../middlewares/authenticate";
+import {
+  validateSignUp,
+  validateSignUpPhone,
+  validateOTP,
+  validateSignIn,
+} from "../middlewares/validation";
 
 const userRoutes = express.Router();
 
@@ -32,16 +46,31 @@ const userRoutes = express.Router();
  *             properties:
  *               fullName:
  *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
+ *                 example: "Nguyễn Văn A"
  *               phone:
  *                 type: string
+ *                 pattern: "^(0[3|5|7|8|9])[0-9]{8}$"
+ *                 example: "0987654321"
  *               email:
  *                 type: string
+ *                 format: email
+ *                 example: "user@example.com"
  *               password:
  *                 type: string
+ *                 minLength: 6
+ *                 maxLength: 50
+ *                 example: "password123"
+ *               termsAgreed:
+ *                 type: boolean
+ *                 example: true
  *             required:
  *               - fullName
  *               - phone
+ *               - email
  *               - password
+ *               - termsAgreed
  *     responses:
  *       201:
  *         description: Đăng ký thành công
@@ -436,17 +465,414 @@ const userRoutes = express.Router();
  *         description: Internal server error
  */
 
+/**
+ * @swagger
+ * /api/users/signup-phone:
+ *   post:
+ *     summary: Đăng ký tài khoản bằng số điện thoại
+ *     tags: [Phone Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullName:
+ *                 type: string
+ *               phone:
+ *                 type: string
+ *             required:
+ *               - fullName
+ *               - phone
+ *     responses:
+ *       201:
+ *         description: Đăng ký thành công, OTP đã được gửi
+ *       400:
+ *         description: Số điện thoại đã tồn tại hoặc thiếu thông tin
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/verify-phone-otp:
+ *   post:
+ *     summary: Xác thực OTP cho đăng ký bằng số điện thoại
+ *     tags: [Phone Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *             required:
+ *               - phone
+ *               - otp
+ *     responses:
+ *       200:
+ *         description: Xác thực thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: OTP không hợp lệ hoặc đã hết hạn
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/signin-phone:
+ *   post:
+ *     summary: Đăng nhập bằng số điện thoại (gửi OTP)
+ *     tags: [Phone Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *             required:
+ *               - phone
+ *     responses:
+ *       200:
+ *         description: OTP đã được gửi về số điện thoại
+ *       400:
+ *         description: Số điện thoại không tồn tại hoặc chưa được kích hoạt
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/verify-signin-otp:
+ *   post:
+ *     summary: Xác thực OTP cho đăng nhập bằng số điện thoại
+ *     tags: [Phone Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *             required:
+ *               - phone
+ *               - otp
+ *     responses:
+ *       200:
+ *         description: Đăng nhập thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: OTP không hợp lệ hoặc đã hết hạn
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/resend-phone-otp:
+ *   post:
+ *     summary: Gửi lại OTP cho số điện thoại
+ *     tags: [Phone Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               phone:
+ *                 type: string
+ *             required:
+ *               - phone
+ *     responses:
+ *       200:
+ *         description: OTP mới đã được gửi
+ *       400:
+ *         description: Số điện thoại không tồn tại
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/send-email-verification:
+ *   post:
+ *     summary: Gửi email xác thực tài khoản
+ *     tags: [Email Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *             required:
+ *               - email
+ *     responses:
+ *       200:
+ *         description: Email xác thực đã được gửi
+ *       400:
+ *         description: Email không tồn tại hoặc đã được kích hoạt
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/verify-email:
+ *   post:
+ *     summary: Xác thực email bằng OTP
+ *     tags: [Email Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *             required:
+ *               - email
+ *               - otp
+ *     responses:
+ *       200:
+ *         description: Email đã được xác thực thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: OTP không hợp lệ hoặc đã hết hạn
+ *       500:
+ *         description: Lỗi server
+ */
+
 // Auth routes
-userRoutes.post("/signup", signUp);
-userRoutes.post("/signin", signIn);
+userRoutes.post("/signup", validateSignUp, signUp);
+userRoutes.post("/signin", validateSignIn, signIn);
 userRoutes.post("/refresh-token", refreshToken);
 userRoutes.post("/forgot-password", forgotPassword);
 userRoutes.post("/resend-otp", resendOTP);
 userRoutes.post("/reset-password", resetPasswordWithOTP);
 userRoutes.post("/signout", authenticateJWT, signOut);
 
+// Phone authentication routes
+userRoutes.post("/signup-phone", validateSignUpPhone, signUpWithPhone);
+userRoutes.post("/verify-phone-otp", validateOTP, verifyPhoneOTP);
+userRoutes.post("/signin-phone", signInWithPhone);
+userRoutes.post("/verify-signin-otp", validateOTP, verifySignInOTP);
+userRoutes.post("/resend-phone-otp", resendPhoneOTP);
+
+// Email verification routes
+userRoutes.post("/send-email-verification", sendEmailVerification);
+userRoutes.post("/verify-email", validateOTP, verifyEmail);
+
+/**
+ * @swagger
+ * /api/users/google:
+ *   post:
+ *     summary: Đăng nhập bằng Google
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - profile
+ *             properties:
+ *               profile:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     example: "google_user_id"
+ *                   emails:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "user@gmail.com"
+ *                   name:
+ *                     type: object
+ *                     properties:
+ *                       givenName:
+ *                         type: string
+ *                         example: "John"
+ *                       familyName:
+ *                         type: string
+ *                         example: "Doe"
+ *                   photos:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "https://example.com/photo.jpg"
+ *     responses:
+ *       200:
+ *         description: Đăng nhập Google thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Lỗi đăng nhập Google
+ */
+
+/**
+ * @swagger
+ * /api/users/facebook:
+ *   post:
+ *     summary: Đăng nhập bằng Facebook
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - profile
+ *             properties:
+ *               profile:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     example: "facebook_user_id"
+ *                   emails:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "user@facebook.com"
+ *                   name:
+ *                     type: object
+ *                     properties:
+ *                       givenName:
+ *                         type: string
+ *                         example: "John"
+ *                       familyName:
+ *                         type: string
+ *                         example: "Doe"
+ *                   photos:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "https://example.com/photo.jpg"
+ *     responses:
+ *       200:
+ *         description: Đăng nhập Facebook thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Lỗi đăng nhập Facebook
+ */
+
 // Profile routes
 userRoutes.get("/profile", authenticateJWT, getProfile);
+
+// SSO routes
+userRoutes.post("/google", async (req, res) => {
+  try {
+    const { profile } = req.body;
+    const result = await ssoService.handleGoogleCallback(profile);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+userRoutes.post("/facebook", async (req, res) => {
+  try {
+    const { profile } = req.body;
+    const result = await ssoService.handleFacebookCallback(profile);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
 
 // Protected routes
 userRoutes.get("/", authenticateJWT, getAllUsers);

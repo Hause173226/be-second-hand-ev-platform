@@ -228,3 +228,147 @@ export const getProfile = async (req: Request, res: Response) => {
     }
   }
 };
+
+// ===== PHONE AUTHENTICATION CONTROLLERS =====
+
+export const signUpWithPhone = async (req: Request, res: Response) => {
+  try {
+    const { fullName, phone } = req.body;
+
+    if (!fullName || !phone) {
+      res.status(400).json({ error: "Thiếu thông tin bắt buộc" });
+      return;
+    }
+
+    const result = await userService.signUpWithPhone(req.body);
+    res.status(201).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+export const verifyPhoneOTP = async (req: Request, res: Response) => {
+  try {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+      res.status(400).json({ error: "Thiếu số điện thoại hoặc OTP" });
+      return;
+    }
+
+    const result = await userService.verifyPhoneOTP(phone, otp);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+export const signInWithPhone = async (req: Request, res: Response) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      res.status(400).json({ error: "Thiếu số điện thoại" });
+      return;
+    }
+
+    const result = await userService.signInWithPhone(phone);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+export const verifySignInOTP = async (req: Request, res: Response) => {
+  try {
+    const { phone, otp } = req.body;
+
+    if (!phone || !otp) {
+      res.status(400).json({ error: "Thiếu số điện thoại hoặc OTP" });
+      return;
+    }
+
+    const result = await userService.verifySignInOTP(phone, otp);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+export const resendPhoneOTP = async (req: Request, res: Response) => {
+  try {
+    const { phone } = req.body;
+
+    if (!phone) {
+      res.status(400).json({ error: "Thiếu số điện thoại" });
+      return;
+    }
+
+    const result = await userService.resendPhoneOTP(phone);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+// ===== EMAIL VERIFICATION CONTROLLERS =====
+
+export const sendEmailVerification = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: "Thiếu email" });
+      return;
+    }
+
+    const result = await userService.sendEmailVerification(email);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+export const verifyEmail = async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      res.status(400).json({ error: "Thiếu email hoặc OTP" });
+      return;
+    }
+
+    const result = await userService.verifyEmail(email, otp);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
