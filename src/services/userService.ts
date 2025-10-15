@@ -556,7 +556,7 @@ export const userService = {
           <p>Mã này có hiệu lực trong 15 phút.</p>
           <p>Nếu bạn không thực hiện đăng ký này, vui lòng bỏ qua email này.</p>
           <hr style="margin: 20px 0;">
-          <p style="color: #666; font-size: 12px;">© 2024 Second Hand EV Platform</p>
+          <p style="color: #666; font-size: 12px;">© 2025 Second Hand EV Platform</p>
         </div>
       `,
     });
