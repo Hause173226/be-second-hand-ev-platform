@@ -7,7 +7,9 @@ import { errorHandler } from "./middlewares/errorHandler";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
 import cors from "cors";
-
+import path from "path";
+import listingRoutes from "./routes/listingRoutes";
+import adminListingRoutes from "./routes/adminListingRoutes";
 const app = express();
 
 app.use(
@@ -28,7 +30,9 @@ app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/users", userRoutes);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
+app.use("/uploads", express.static(path.join(process.cwd(), "src", "uploads")));
+app.use("/api/listings", listingRoutes);
+app.use("/api/admin", adminListingRoutes);
 app.use(errorHandler);
 
 export default app;
