@@ -1,7 +1,3 @@
-/**
- * Heuristic + hook để sau này cắm model thật.
- * Đầu vào: { type, year, mileageKm, batteryCapacityKWh, condition, make, model }
- */
 type Input = {
   type: "Car" | "Battery";
   year?: number;
@@ -12,55 +8,76 @@ type Input = {
   model?: string;
 };
 
-export const priceAIService = {
-  async suggest(input: Input) {
-    // baseline theo loại
-    let base = input.type === "Car" ? 20000 : 2000; // USD
+type Suggest = {
+  suggested: number;
+  range: { min: number; max: number };
+  currency: "USD";
+  confidence: "low" | "medium" | "high";
+  factors: Record<string, unknown>;
+  note: string;
+};
 
-    // năm sản xuất (khấu hao ~5%/năm sau 3 năm)
+export const priceAIService = {
+  suggest(input: Input): Suggest {
+    // 1) Baseline
+    const baseFloor = input.type === "Car" ? 2000 : 500; // sàn an toàn
+    let base = input.type === "Car" ? 20000 : 2000;      // USD
+
+    // 2) Khấu hao theo năm: -5%/năm sau năm thứ 3
     const now = new Date().getFullYear();
     if (input.year) {
       const age = Math.max(0, now - input.year);
       if (age > 3) base *= Math.pow(0.95, age - 3);
     }
 
-    // mileage (mỗi 10k km trừ 3%)
-    if (input.mileageKm && input.type === "Car") {
-      const blocks = Math.floor(input.mileageKm / 10000);
+    // 3) Km: -3% mỗi 10k km (chỉ Car)
+    if (input.type === "Car" && input.mileageKm) {
+      const blocks = Math.floor(input.mileageKm / 10_000);
       base *= Math.pow(0.97, blocks);
     }
 
-    // batteryCapacity (mỗi 10kWh tăng 4%)
+    // 4) Dung lượng pin: +4% mỗi 10kWh
     if (input.batteryCapacityKWh) {
       const blocks = Math.floor(input.batteryCapacityKWh / 10);
-      base *= 1 + blocks * 0.04;
+      base *= (1 + blocks * 0.04);
     }
 
-    // condition factor
-    const condFactor = {
-      New: 1.15, LikeNew: 1.0, Used: 0.85, Worn: 0.7,
-    } as const;
+    // 5) Tình trạng
+    const condFactor = { New: 1.15, LikeNew: 1.0, Used: 0.85, Worn: 0.7 } as const;
     if (input.condition) base *= condFactor[input.condition];
 
-    // hiệu chỉnh theo make/model (ví dụ)
-    const premiumBrands = ["Tesla", "BMW", "Mercedes"];
-    if (input.make && premiumBrands.includes(input.make)) base *= 1.08;
+    // 6) Thương hiệu (case-insensitive)
+    const premiumBrands = ["tesla", "bmw", "mercedes"];
+    if (input.make && premiumBrands.includes(input.make.toLowerCase())) {
+      base *= 1.08;
+    }
 
-    // range ±7%
-    const low = Math.round(base * 0.93);
-    const high = Math.round(base * 1.07);
-    const suggested = Math.round((low + high) / 2);
+    // 7) Clamp & làm tròn đẹp
+    const clamped = Math.max(baseFloor, base);
+    const round100 = (n: number) => Math.round(n / 100) * 100;
+
+    const min = round100(clamped * 0.93);
+    const max = round100(clamped * 1.07);
+    const suggested = round100((min + max) / 2);
+
+    // 8) Confidence theo số feature đầu vào
+    const filled = [
+      input.year, input.mileageKm, input.batteryCapacityKWh,
+      input.condition, input.make, input.model
+    ].filter(v => v !== undefined && v !== null).length;
+
+    const confidence: Suggest["confidence"] =
+      filled >= 5 ? "high" : filled >= 3 ? "medium" : "low";
 
     return {
       suggested,
-      range: { low, high },
+      range: { min, max },
       currency: "USD",
+      confidence,
       factors: {
-        type: input.type, year: input.year, mileageKm: input.mileageKm,
-        batteryCapacityKWh: input.batteryCapacityKWh, condition: input.condition,
-        make: input.make, model: input.model,
+        ...input,
       },
-      note: "Heuristic estimate. Có thể thay bằng model AI sau này.",
+      note: "Heuristic estimate; có thể thay bằng model AI sau.",
     };
   },
 };

@@ -1,6 +1,8 @@
 // src/interfaces/IListing.ts
 import { Types } from "mongoose";
 
+export type TradeMethod = "meet" | "ship" | "consignment";
+
 export interface IListing {
   _id?: Types.ObjectId;
   sellerId: Types.ObjectId; // hoặc: string | Types.ObjectId
@@ -14,14 +16,18 @@ export interface IListing {
   condition?: "New" | "LikeNew" | "Used" | "Worn";
   photos: { url: string; kind: "photo" | "doc" }[];
   documents?: { url: string; kind: "photo" | "doc" }[];
+
+  // Location: bỏ lat/lng như bạn yêu cầu
   location?: {
     city?: string;
     district?: string;
     address?: string;
-    lat?: number;
-    lng?: number;
   };
-  priceListed: number;
+
+  // Phần 15
+  priceListed: number;                // giá niêm yết (>= 0)
+  tradeMethod?: TradeMethod;          // "meet" | "ship" | "consignment"
+
   status:
     | "Draft"
     | "PendingReview"
@@ -30,6 +36,7 @@ export interface IListing {
     | "Sold"
     | "Expired"
     | "Rejected";
+
   notes?: string;
   rejectReason?: string;
   publishedAt?: Date;

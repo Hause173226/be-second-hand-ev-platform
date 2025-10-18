@@ -12,7 +12,6 @@ const mediaSchema = new Schema(
 
 const listingSchema = new Schema<IListing>(
   {
-    // ✅ Dùng Schema.Types.ObjectId, KHÔNG dùng $Types hay Types.ObjectId ở đây
     sellerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
 
     type: { type: String, enum: ["Car", "Battery"], required: true },
@@ -38,13 +37,18 @@ const listingSchema = new Schema<IListing>(
       city: { type: String },
       district: { type: String },
       address: { type: String },
-      lat: { type: Number },
-      lng: { type: Number },
+      // ❌ Bỏ lat/lng theo yêu cầu
     },
 
-    priceListed: { type: Number, required: true },
+    priceListed: { type: Number, required: true, min: 0 },
 
-    // ⚠️ enum trong Mongoose cần MẢNG RUNTIME, không dùng type TS
+    // ✅ Thêm tradeMethod (phần 15)
+    tradeMethod: {
+      type: String,
+      enum: ["meet", "ship", "consignment"],
+      default: "meet",
+    },
+
     status: {
       type: String,
       enum: [
@@ -60,8 +64,6 @@ const listingSchema = new Schema<IListing>(
     },
 
     notes: { type: String },
-
-    // thêm cho UC03
     rejectReason: { type: String },
     publishedAt: { type: Date },
   },
