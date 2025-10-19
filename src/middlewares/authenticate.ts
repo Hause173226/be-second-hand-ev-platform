@@ -31,6 +31,7 @@ export const authenticateJWT: RequestHandler = (req, res, next) => {
       ...decoded,
     };
 
+
     next();
     return;
   } catch {
@@ -38,3 +39,4 @@ export const authenticateJWT: RequestHandler = (req, res, next) => {
     return;
   }
 };
+

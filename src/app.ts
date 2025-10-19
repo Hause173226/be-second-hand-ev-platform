@@ -7,6 +7,7 @@ import path from "path";
 import userRoutes from "./routes/userRoutes";
 import listingRoutes from "./routes/listingRoutes";
 import adminListingRoutes from "./routes/adminListingRoutes";
+import searchHistoryRoutes from "./routes/searchHistoryRoutes";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
 import { errorHandler } from "./middlewares/errorHandler";
@@ -45,6 +46,7 @@ app.use("/uploads", express.static(uploadsDir));
 app.use("/api/users", userRoutes);
 app.use("/api/listings", listingRoutes);
 app.use("/api/admin", adminListingRoutes);
+app.use("/api/search", searchHistoryRoutes);
 
 // Swagger
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

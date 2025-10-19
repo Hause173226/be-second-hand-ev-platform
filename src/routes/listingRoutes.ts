@@ -2,6 +2,7 @@
 import express, { RequestHandler } from "express";
 import { body } from "express-validator";
 import { authenticateJWT } from "../middlewares/authenticate";
+import { optionalAuth } from "../middlewares/optionalAuth";
 import { requireProfile } from "../middlewares/requireProfile";
 import { validate } from "../middlewares/validate";
 import { upload } from "../utils/upload";
@@ -11,6 +12,9 @@ import {
   submitListing,
   myListings,
   priceSuggestionAI,
+  searchListings,
+  getFilterOptions,
+  getListingById,
 } from "../controllers/listingController";
 
 const listingRoutes = express.Router();
@@ -252,5 +256,265 @@ listingRoutes.post(
   validate as RequestHandler, // để đồng nhất pipeline
   priceSuggestionAI as unknown as RequestHandler
 );
+
+/**
+ * @swagger
+ * /api/listings:
+ *   get:
+ *     summary: Tìm kiếm và lọc sản phẩm đã được duyệt
+ *     description: |
+ *       API công khai để tìm kiếm sản phẩm với các bộ lọc và phân trang.
+ *       Tự động lưu lịch sử tìm kiếm nếu user đã đăng nhập và có keyword.
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: query
+ *         name: keyword
+ *         schema:
+ *           type: string
+ *         description: Từ khóa tìm kiếm (hãng, model, ghi chú)
+ *       - in: query
+ *         name: make
+ *         schema:
+ *           type: string
+ *         description: Hãng xe
+ *       - in: query
+ *         name: model
+ *         schema:
+ *           type: string
+ *         description: Model xe
+ *       - in: query
+ *         name: year
+ *         schema:
+ *           type: number
+ *         description: Năm sản xuất
+ *       - in: query
+ *         name: batteryCapacityKWh
+ *         schema:
+ *           type: number
+ *         description: Dung lượng pin (kWh)
+ *       - in: query
+ *         name: mileageKm
+ *         schema:
+ *           type: number
+ *         description: Số km đã chạy (tối đa)
+ *       - in: query
+ *         name: minPrice
+ *         schema:
+ *           type: number
+ *         description: Giá tối thiểu
+ *       - in: query
+ *         name: maxPrice
+ *         schema:
+ *           type: number
+ *         description: Giá tối đa
+ *       - in: query
+ *         name: city
+ *         schema:
+ *           type: string
+ *         description: Thành phố
+ *       - in: query
+ *         name: district
+ *         schema:
+ *           type: string
+ *         description: Quận/huyện
+ *       - in: query
+ *         name: condition
+ *         schema:
+ *           type: string
+ *           enum: [New, LikeNew, Used, Worn]
+ *         description: Tình trạng xe
+ *       - in: query
+ *         name: sortBy
+ *         schema:
+ *           type: string
+ *           enum: [newest, oldest, price_low, price_high, reputation]
+ *           default: newest
+ *         description: Sắp xếp theo
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: number
+ *           default: 1
+ *         description: Trang hiện tại
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: number
+ *           default: 12
+ *         description: Số sản phẩm mỗi trang
+ *     responses:
+ *       200:
+ *         description: Danh sách sản phẩm với thông tin phân trang
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 listings:
+ *                   type: array
+ *                   items:
+ *                     $ref: '#/components/schemas/Listing'
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     currentPage:
+ *                       type: number
+ *                     totalPages:
+ *                       type: number
+ *                     totalCount:
+ *                       type: number
+ *                     hasNextPage:
+ *                       type: boolean
+ *                     hasPrevPage:
+ *                       type: boolean
+ *                     limit:
+ *                       type: number
+ *                 filters:
+ *                   type: object
+ *                   description: Các filter đã áp dụng
+ */
+listingRoutes.get("/", optionalAuth as RequestHandler, searchListings as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/listings/filter-options:
+ *   get:
+ *     summary: Lấy danh sách các giá trị filter có sẵn
+ *     description: API để lấy các giá trị có thể chọn cho dropdown filter
+ *     tags: [Listings]
+ *     responses:
+ *       200:
+ *         description: Danh sách các giá trị filter
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 makes:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 models:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 years:
+ *                   type: array
+ *                   items:
+ *                     type: number
+ *                 batteryCapacities:
+ *                   type: array
+ *                   items:
+ *                     type: number
+ *                 conditions:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 cities:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 districts:
+ *                   type: array
+ *                   items:
+ *                     type: string
+ *                 priceRange:
+ *                   type: object
+ *                   properties:
+ *                     min:
+ *                       type: number
+ *                     max:
+ *                       type: number
+ */
+listingRoutes.get("/filter-options", getFilterOptions as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/listings/{id}:
+ *   get:
+ *     summary: Lấy chi tiết sản phẩm theo ID
+ *     description: API công khai để xem chi tiết một sản phẩm đã được duyệt
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[0-9a-fA-F]{24}$'
+ *         description: ID của sản phẩm (MongoDB ObjectId)
+ *     responses:
+ *       200:
+ *         description: Chi tiết sản phẩm
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Listing'
+ *       400:
+ *         description: ID không hợp lệ
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "ID không hợp lệ"
+ *       404:
+ *         description: Sản phẩm không tồn tại hoặc chưa được duyệt
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Sản phẩm không tồn tại hoặc chưa được duyệt"
+ */
+
+/**
+ * @swagger
+ * /api/listings/{id}:
+ *   get:
+ *     summary: Lấy chi tiết sản phẩm theo ID
+ *     description: API công khai để xem chi tiết một sản phẩm đã được duyệt
+ *     tags: [Listings]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *           pattern: '^[0-9a-fA-F]{24}$'
+ *         description: ID của sản phẩm (MongoDB ObjectId)
+ *     responses:
+ *       200:
+ *         description: Chi tiết sản phẩm
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Listing'
+ *       400:
+ *         description: ID không hợp lệ
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "ID không hợp lệ"
+ *       404:
+ *         description: Sản phẩm không tồn tại hoặc chưa được duyệt
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Sản phẩm không tồn tại hoặc chưa được duyệt"
+ */
+listingRoutes.get("/:id", getListingById as unknown as RequestHandler);
 
 export default listingRoutes;
