@@ -117,7 +117,7 @@ listingRoutes.post(
  *     requestBody:
  *       required: true
  *       content:
- *         application/json:
+ *         multipart/form-data:               # 👈 đổi sang multipart để nhận ảnh
  *           schema:
  *             type: object
  *             properties:
@@ -132,11 +132,11 @@ listingRoutes.post(
  *               priceListed: { type: number, minimum: 0 }                # (15)
  *               tradeMethod: { type: string, enum: [meet, ship, consignment] } # (15)
  *               location:
- *                 type: object
- *                 properties:
- *                   city: { type: string }
- *                   district: { type: string }
- *                   address: { type: string }
+ *                 type: string
+ *                 description: JSON string {"city","district","address"}  # gửi dạng text như POST
+ *               photos:
+ *                 type: array
+ *                 items: { type: string, format: binary }                 # ảnh mới (nếu có)
  *     responses:
  *       200: { description: Cập nhật thành công }
  *       401: { description: Unauthorized }
@@ -160,9 +160,13 @@ const updateValidators = [
     .optional()
     .custom((v) => {
       if (v == null) return true;
-      if (typeof v !== "object") return false;
-      // Nếu có location thì yêu cầu tối thiểu các field cơ bản
-      return !!(v.city && v.district && v.address);
+      // Vì PATCH giờ là multipart, location tới đây là string JSON
+      try {
+        const o = typeof v === "string" ? JSON.parse(v) : v;
+        return !!(o?.city && o?.district && o?.address);
+      } catch {
+        return false;
+      }
     }),
 ];
 
@@ -170,6 +174,7 @@ listingRoutes.patch(
   "/:id",
   authenticate as RequestHandler,
   requireProfile as RequestHandler,
+  upload.array("photos", 10),             // 👈 thêm để nhận ảnh (multipart)
   ...updateValidators,
   validate as RequestHandler,
   updateListing as unknown as RequestHandler
