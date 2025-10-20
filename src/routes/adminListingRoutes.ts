@@ -1,7 +1,7 @@
 // src/routes/adminListingRoutes.ts
 import express from "express";
 import { body } from "express-validator";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 import { requireAdmin } from "../middlewares/role";
 import { validate } from "../middlewares/validate";
 import {
@@ -37,7 +37,7 @@ const adminListingRoutes = express.Router();
  */
 adminListingRoutes.get(
   "/listings/pending",
-  authenticateJWT,
+  authenticate,
   requireAdmin,
   pendingQueue
 );
@@ -70,7 +70,7 @@ adminListingRoutes.get(
  */
 adminListingRoutes.post(
   "/listings/:id/approve",
-  authenticateJWT,
+  authenticate,
   requireAdmin,
   approveListing
 );
@@ -113,7 +113,7 @@ adminListingRoutes.post(
  */
 adminListingRoutes.post(
   "/listings/:id/reject",
-  authenticateJWT,
+  authenticate,
   requireAdmin,
   // validate body.reason nếu có
   body("reason").optional().isString().trim().isLength({ max: 500 }),
