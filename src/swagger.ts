@@ -4,30 +4,42 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "BE Bus Ticket Sales System API",
+      title: "Second Hand EV Platform API",
       version: "1.0.0",
-      description: "API documentation for BE Bus Ticket Sales System",
+      description: "Tài liệu API cho nền tảng mua bán xe điện cũ",
     },
     tags: [
       {
         name: "Auth",
-        description: "Authentication endpoints"
+        description: "Các endpoint xác thực và đăng nhập"
       },
       {
         name: "User Profile",
-        description: "User profile management endpoints"
+        description: "Các endpoint quản lý thông tin cá nhân"
       },
       {
         name: "Users",
-        description: "User management endpoints (Admin only)"
+        description: "Các endpoint quản lý người dùng (chỉ dành cho Admin)"
       },
       {
         name: "Listings",
-        description: "Listing management and search endpoints"
+        description: "Các endpoint quản lý và tìm kiếm danh sách xe"
       },
       {
         name: "Search History",
-        description: "Search history management endpoints"
+        description: "Các endpoint quản lý lịch sử tìm kiếm"
+      },
+      {
+        name: "Appointments",
+        description: "Các endpoint quản lý lịch hẹn xem xe"
+      },
+      {
+        name: "Chat",
+        description: "Các endpoint chat và tin nhắn"
+      },
+      {
+        name: "Offers",
+        description: "Các endpoint quản lý đề nghị giá và đàm phán"
       },
 
     ],
@@ -45,36 +57,38 @@ const options = {
           properties: {
             _id: {
               type: "string",
-              description: "User ID"
+              description: "ID người dùng"
             },
             fullName: {
               type: "string",
-              description: "Full name"
+              description: "Họ và tên"
             },
             phone: {
               type: "string",
-              description: "Phone number"
+              description: "Số điện thoại"
             },
             email: {
               type: "string",
-              description: "Email address"
+              description: "Địa chỉ email"
             },
             role: {
               type: "string",
               enum: ["user", "admin"],
-              description: "User role"
+              description: "Vai trò người dùng"
             },
             avatar: {
               type: "string",
-              description: "Avatar URL"
+              description: "URL ảnh đại diện"
             },
             createdAt: {
               type: "string",
-              format: "date-time"
+              format: "date-time",
+              description: "Ngày tạo"
             },
             updatedAt: {
               type: "string",
-              format: "date-time"
+              format: "date-time",
+              description: "Ngày cập nhật"
             }
           }
         },
@@ -83,45 +97,45 @@ const options = {
           properties: {
             _id: {
               type: "string",
-              description: "Listing ID"
+              description: "ID danh sách xe"
             },
             sellerId: {
               $ref: "#/components/schemas/User",
-              description: "Seller information"
+              description: "Thông tin người bán"
             },
             type: {
               type: "string",
               enum: ["Car", "Battery"],
-              description: "Type of listing"
+              description: "Loại sản phẩm"
             },
             make: {
               type: "string",
-              description: "Brand/Make"
+              description: "Thương hiệu"
             },
             model: {
               type: "string",
-              description: "Model"
+              description: "Mẫu xe"
             },
             year: {
               type: "number",
-              description: "Manufacturing year"
+              description: "Năm sản xuất"
             },
             batteryCapacityKWh: {
               type: "number",
-              description: "Battery capacity in kWh"
+              description: "Dung lượng pin (kWh)"
             },
             mileageKm: {
               type: "number",
-              description: "Mileage in kilometers"
+              description: "Số km đã đi"
             },
             chargeCycles: {
               type: "number",
-              description: "Number of charge cycles"
+              description: "Số lần sạc"
             },
             condition: {
               type: "string",
               enum: ["New", "LikeNew", "Used", "Worn"],
-              description: "Condition of the item"
+              description: "Tình trạng xe"
             },
             photos: {
               type: "array",
@@ -130,31 +144,31 @@ const options = {
                 properties: {
                   url: {
                     type: "string",
-                    description: "Photo URL"
+                    description: "URL ảnh"
                   },
                   kind: {
                     type: "string",
                     enum: ["photo", "doc"],
-                    description: "Media type"
+                    description: "Loại file"
                   }
                 }
               },
-              description: "List of photos"
+              description: "Danh sách ảnh"
             },
             location: {
               type: "object",
               properties: {
                 city: {
                   type: "string",
-                  description: "City"
+                  description: "Thành phố"
                 },
                 district: {
                   type: "string",
-                  description: "District"
+                  description: "Quận/Huyện"
                 },
                 address: {
                   type: "string",
-                  description: "Address"
+                  description: "Địa chỉ"
                 }
               },
               description: "Location information"
@@ -197,24 +211,24 @@ const options = {
           properties: {
             _id: {
               type: "string",
-              description: "Search history ID"
+              description: "ID lịch sử tìm kiếm"
             },
             userId: {
               type: "string",
-              description: "User ID"
+              description: "ID người dùng"
             },
             searchQuery: {
               type: "string",
-              description: "Search keyword"
+              description: "Từ khóa tìm kiếm"
             },
             searchType: {
               type: "string",
               enum: ["listing", "user", "general"],
-              description: "Type of search"
+              description: "Loại tìm kiếm"
             },
             filters: {
               type: "object",
-              description: "Applied filters",
+              description: "Bộ lọc đã áp dụng",
               properties: {
                 make: { type: "string" },
                 model: { type: "string" },
@@ -231,16 +245,16 @@ const options = {
             },
             resultsCount: {
               type: "number",
-              description: "Number of results found"
+              description: "Số kết quả tìm được"
             },
             searchDate: {
               type: "string",
               format: "date-time",
-              description: "Date of search"
+              description: "Ngày tìm kiếm"
             },
             isSuccessful: {
               type: "boolean",
-              description: "Whether search was successful"
+              description: "Tìm kiếm có thành công không"
             },
             createdAt: {
               type: "string",
@@ -249,6 +263,561 @@ const options = {
             updatedAt: {
               type: "string",
               format: "date-time"
+            }
+          }
+        },
+        Appointment: {
+          type: "object",
+          properties: {
+            _id: {
+              type: "string",
+              description: "ID lịch hẹn"
+            },
+            listingId: {
+              $ref: "#/components/schemas/Listing",
+              description: "Thông tin xe"
+            },
+            buyerId: {
+              $ref: "#/components/schemas/User",
+              description: "Thông tin người mua"
+            },
+            sellerId: {
+              $ref: "#/components/schemas/User",
+              description: "Thông tin người bán"
+            },
+            chatId: {
+              type: "string",
+              description: "ID chat"
+            },
+            scheduledDate: {
+              type: "string",
+              format: "date-time",
+              description: "Ngày giờ hẹn xem xe"
+            },
+            location: {
+              type: "object",
+              properties: {
+                address: {
+                  type: "string",
+                  description: "Địa chỉ đầy đủ"
+                },
+                city: {
+                  type: "string",
+                  description: "Thành phố"
+                },
+                district: {
+                  type: "string",
+                  description: "Quận/Huyện"
+                },
+                coordinates: {
+                  type: "object",
+                  properties: {
+                    lat: {
+                      type: "number",
+                      description: "Vĩ độ"
+                    },
+                    lng: {
+                      type: "number",
+                      description: "Kinh độ"
+                    }
+                  },
+                  description: "GPS coordinates"
+                }
+              },
+              required: ["address", "city", "district"],
+              description: "Địa điểm hẹn"
+            },
+            status: {
+              type: "string",
+              enum: ["pending", "confirmed", "cancelled", "completed"],
+              description: "Trạng thái lịch hẹn"
+            },
+            notes: {
+              type: "string",
+              description: "Additional notes"
+            },
+            createdAt: {
+              type: "string",
+              format: "date-time"
+            },
+            updatedAt: {
+              type: "string",
+              format: "date-time"
+            }
+          }
+        },
+        CreateAppointmentRequest: {
+          type: "object",
+          required: ["listingId", "chatId", "scheduledDate", "location"],
+          properties: {
+            listingId: {
+              type: "string",
+              description: "ID danh sách xe"
+            },
+            chatId: {
+              type: "string",
+              description: "ID chat"
+            },
+            scheduledDate: {
+              type: "string",
+              format: "date-time",
+              description: "Ngày giờ hẹn xem xe"
+            },
+            location: {
+              type: "object",
+              properties: {
+                address: {
+                  type: "string",
+                  description: "Địa chỉ đầy đủ"
+                },
+                city: {
+                  type: "string",
+                  description: "Thành phố"
+                },
+                district: {
+                  type: "string",
+                  description: "Quận/Huyện"
+                },
+                coordinates: {
+                  type: "object",
+                  properties: {
+                    lat: {
+                      type: "number",
+                      description: "Vĩ độ"
+                    },
+                    lng: {
+                      type: "number",
+                      description: "Kinh độ"
+                    }
+                  },
+                  description: "GPS coordinates"
+                }
+              },
+              required: ["address", "city", "district"],
+              description: "Địa điểm hẹn"
+            },
+            notes: {
+              type: "string",
+              description: "Additional notes"
+            }
+          }
+        },
+        UpdateAppointmentStatusRequest: {
+          type: "object",
+          required: ["status"],
+          properties: {
+            status: {
+              type: "string",
+              enum: ["pending", "confirmed", "cancelled", "completed"],
+              description: "New appointment status"
+            },
+            notes: {
+              type: "string",
+              description: "Additional notes"
+            }
+          }
+        },
+        AppointmentListResponse: {
+          type: "object",
+          properties: {
+            appointments: {
+              type: "array",
+              items: {
+                $ref: "#/components/schemas/Appointment"
+              }
+            },
+            totalPages: {
+              type: "number",
+              description: "Total number of pages"
+            },
+            currentPage: {
+              type: "number",
+              description: "Current page number"
+            },
+            total: {
+              type: "number",
+              description: "Total number of appointments"
+            }
+          }
+        },
+        ErrorResponse: {
+          type: "object",
+          properties: {
+            error: {
+              type: "string",
+              description: "Thông báo lỗi"
+            }
+          }
+        },
+        SuccessResponse: {
+          type: "object",
+          properties: {
+            message: {
+              type: "string",
+              description: "Thông báo thành công"
+            }
+          }
+        },
+        Chat: {
+          type: "object",
+          properties: {
+            _id: {
+              type: "string",
+              description: "ID chat"
+            },
+            listingId: {
+              $ref: "#/components/schemas/Listing",
+              description: "Thông tin xe"
+            },
+            buyerId: {
+              $ref: "#/components/schemas/User",
+              description: "Thông tin người mua"
+            },
+            sellerId: {
+              $ref: "#/components/schemas/User",
+              description: "Thông tin người bán"
+            },
+            lastMessage: {
+              type: "object",
+              properties: {
+                content: {
+                  type: "string",
+                  description: "Last message content"
+                },
+                senderId: {
+                  type: "string",
+                  description: "Sender ID"
+                },
+                timestamp: {
+                  type: "string",
+                  format: "date-time",
+                  description: "Thời gian tin nhắn"
+                }
+              },
+              description: "Last message in the chat"
+            },
+            isActive: {
+              type: "boolean",
+              description: "Whether chat is active"
+            },
+            createdAt: {
+              type: "string",
+              format: "date-time"
+            },
+            updatedAt: {
+              type: "string",
+              format: "date-time"
+            }
+          }
+        },
+        Message: {
+          type: "object",
+          properties: {
+            _id: {
+              type: "string",
+              description: "Message ID"
+            },
+            chatId: {
+              type: "string",
+              description: "ID chat"
+            },
+            senderId: {
+              $ref: "#/components/schemas/User",
+              description: "Sender information"
+            },
+            content: {
+              type: "string",
+              description: "Nội dung tin nhắn"
+            },
+            messageType: {
+              type: "string",
+              enum: ["text", "image", "file", "offer", "appointment"],
+              description: "Type of message"
+            },
+            isRead: {
+              type: "boolean",
+              description: "Whether message has been read"
+            },
+            metadata: {
+              type: "object",
+              properties: {
+                offerId: {
+                  type: "string",
+                  description: "ID đề nghị liên quan"
+                },
+                appointmentId: {
+                  type: "string",
+                  description: "ID lịch hẹn liên quan"
+                },
+                imageUrl: {
+                  type: "string",
+                  description: "Image URL"
+                },
+                fileName: {
+                  type: "string",
+                  description: "File name"
+                }
+              },
+              description: "Metadata tin nhắn"
+            },
+            createdAt: {
+              type: "string",
+              format: "date-time"
+            },
+            updatedAt: {
+              type: "string",
+              format: "date-time"
+            }
+          }
+        },
+        Offer: {
+          type: "object",
+          properties: {
+            _id: {
+              type: "string",
+              description: "ID đề nghị giá"
+            },
+            listingId: {
+              $ref: "#/components/schemas/Listing",
+              description: "Thông tin xe"
+            },
+            buyerId: {
+              $ref: "#/components/schemas/User",
+              description: "Thông tin người mua"
+            },
+            sellerId: {
+              $ref: "#/components/schemas/User",
+              description: "Thông tin người bán"
+            },
+            chatId: {
+              type: "string",
+              description: "ID chat"
+            },
+            offeredPrice: {
+              type: "number",
+              description: "Giá đề nghị"
+            },
+            message: {
+              type: "string",
+              description: "Tin nhắn đề nghị"
+            },
+            status: {
+              type: "string",
+              enum: ["pending", "accepted", "rejected", "countered", "expired"],
+              description: "Trạng thái đề nghị"
+            },
+            counterOffer: {
+              type: "object",
+              properties: {
+                price: {
+                  type: "number",
+                  description: "Counter offer price"
+                },
+                message: {
+                  type: "string",
+                  description: "Counter offer message"
+                },
+                offeredBy: {
+                  type: "string",
+                  description: "User who made the counter offer"
+                },
+                offeredAt: {
+                  type: "string",
+                  format: "date-time",
+                  description: "Counter offer timestamp"
+                }
+              },
+              description: "Counter offer details"
+            },
+            expiresAt: {
+              type: "string",
+              format: "date-time",
+              description: "Offer expiration date"
+            },
+            createdAt: {
+              type: "string",
+              format: "date-time"
+            },
+            updatedAt: {
+              type: "string",
+              format: "date-time"
+            }
+          }
+        },
+        CreateOfferRequest: {
+          type: "object",
+          required: ["listingId", "chatId", "offeredPrice"],
+          properties: {
+            listingId: {
+              type: "string",
+              description: "ID danh sách xe"
+            },
+            chatId: {
+              type: "string",
+              description: "ID chat"
+            },
+            offeredPrice: {
+              type: "number",
+              minimum: 0,
+              description: "Giá đề nghị"
+            },
+            message: {
+              type: "string",
+              description: "Tin nhắn đề nghị"
+            },
+            expiresInDays: {
+              type: "number",
+              minimum: 1,
+              maximum: 30,
+              default: 7,
+              description: "Days until offer expires"
+            }
+          }
+        },
+        RespondToOfferRequest: {
+          type: "object",
+          required: ["action"],
+          properties: {
+            action: {
+              type: "string",
+              enum: ["accept", "reject", "counter"],
+              description: "Response action"
+            },
+            counterPrice: {
+              type: "number",
+              minimum: 0,
+              description: "Counter offer price (required for counter action)"
+            },
+            message: {
+              type: "string",
+              description: "Response message"
+            }
+          }
+        },
+        RespondToCounterOfferRequest: {
+          type: "object",
+          required: ["action"],
+          properties: {
+            action: {
+              type: "string",
+              enum: ["accept", "reject"],
+              description: "Response action"
+            }
+          }
+        },
+        SendMessageRequest: {
+          type: "object",
+          required: ["content"],
+          properties: {
+            content: {
+              type: "string",
+              description: "Nội dung tin nhắn"
+            },
+            messageType: {
+              type: "string",
+              enum: ["text", "image", "file", "offer", "appointment"],
+              default: "text",
+              description: "Type of message"
+            },
+            metadata: {
+              type: "object",
+              properties: {
+                offerId: {
+                  type: "string",
+                  description: "ID đề nghị liên quan"
+                },
+                appointmentId: {
+                  type: "string",
+                  description: "ID lịch hẹn liên quan"
+                },
+                imageUrl: {
+                  type: "string",
+                  description: "Image URL"
+                },
+                fileName: {
+                  type: "string",
+                  description: "File name"
+                }
+              },
+              description: "Metadata tin nhắn"
+            }
+          }
+        },
+        ChatListResponse: {
+          type: "object",
+          properties: {
+            chats: {
+              type: "array",
+              items: {
+                $ref: "#/components/schemas/Chat"
+              }
+            },
+            totalPages: {
+              type: "number",
+              description: "Total number of pages"
+            },
+            currentPage: {
+              type: "number",
+              description: "Current page number"
+            },
+            total: {
+              type: "number",
+              description: "Total number of chats"
+            }
+          }
+        },
+        MessageListResponse: {
+          type: "object",
+          properties: {
+            messages: {
+              type: "array",
+              items: {
+                $ref: "#/components/schemas/Message"
+              }
+            },
+            totalPages: {
+              type: "number",
+              description: "Total number of pages"
+            },
+            currentPage: {
+              type: "number",
+              description: "Current page number"
+            },
+            total: {
+              type: "number",
+              description: "Total number of messages"
+            }
+          }
+        },
+        OfferListResponse: {
+          type: "object",
+          properties: {
+            offers: {
+              type: "array",
+              items: {
+                $ref: "#/components/schemas/Offer"
+              }
+            },
+            totalPages: {
+              type: "number",
+              description: "Total number of pages"
+            },
+            currentPage: {
+              type: "number",
+              description: "Current page number"
+            },
+            total: {
+              type: "number",
+              description: "Total number of offers"
+            }
+          }
+        },
+        UnreadCountResponse: {
+          type: "object",
+          properties: {
+            unreadCount: {
+              type: "number",
+              description: "Number of unread messages"
             }
           }
         }

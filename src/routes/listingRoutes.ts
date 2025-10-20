@@ -1,7 +1,7 @@
 // src/routes/listingRoutes.ts
 import express, { RequestHandler } from "express";
 import { body } from "express-validator";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 import { optionalAuth } from "../middlewares/optionalAuth";
 import { requireProfile } from "../middlewares/requireProfile";
 import { validate } from "../middlewares/validate";
@@ -93,7 +93,7 @@ const createValidators = [
 
 listingRoutes.post(
   "/",
-  authenticateJWT as RequestHandler,
+  authenticate as RequestHandler,
   requireProfile as RequestHandler,
   upload.array("photos", 10),
   ...createValidators,
@@ -168,7 +168,7 @@ const updateValidators = [
 
 listingRoutes.patch(
   "/:id",
-  authenticateJWT as RequestHandler,
+  authenticate as RequestHandler,
   requireProfile as RequestHandler,
   ...updateValidators,
   validate as RequestHandler,
@@ -198,7 +198,7 @@ listingRoutes.patch(
  */
 listingRoutes.post(
   "/:id/submit",
-  authenticateJWT as RequestHandler,
+  authenticate as RequestHandler,
   requireProfile as RequestHandler,
   submitListing as unknown as RequestHandler
 );
@@ -217,7 +217,7 @@ listingRoutes.post(
  */
 listingRoutes.get(
   "/mine",
-  authenticateJWT as RequestHandler,
+  authenticate as RequestHandler,
   myListings as unknown as RequestHandler
 );
 
@@ -252,7 +252,7 @@ listingRoutes.get(
  */
 listingRoutes.post(
   "/price-suggest",
-  authenticateJWT as RequestHandler,
+  authenticate as RequestHandler,
   validate as RequestHandler, // để đồng nhất pipeline
   priceSuggestionAI as unknown as RequestHandler
 );

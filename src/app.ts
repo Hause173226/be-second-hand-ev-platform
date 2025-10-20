@@ -8,6 +8,9 @@ import userRoutes from "./routes/userRoutes";
 import listingRoutes from "./routes/listingRoutes";
 import adminListingRoutes from "./routes/adminListingRoutes";
 import searchHistoryRoutes from "./routes/searchHistoryRoutes";
+import chatRoutes from "./routes/chatRoutes";
+import appointmentRoutes from "./routes/appointmentRoutes";
+import offerRoutes from "./routes/offerRoutes";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
 import { errorHandler } from "./middlewares/errorHandler";
@@ -47,6 +50,9 @@ app.use("/api/users", userRoutes);
 app.use("/api/listings", listingRoutes);
 app.use("/api/admin", adminListingRoutes);
 app.use("/api/search", searchHistoryRoutes);
+app.use("/api/chat", chatRoutes);
+app.use("/api/appointments", appointmentRoutes);
+app.use("/api/offers", offerRoutes);
 
 // Swagger
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

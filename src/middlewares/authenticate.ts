@@ -12,7 +12,7 @@ type JWTPayload = JwtPayload & {
   [k: string]: any;
 };
 
-export const authenticateJWT: RequestHandler = (req, res, next) => {
+export const authenticate: RequestHandler = (req, res, next) => {
   const authHeader = req.headers.authorization;
   if (!authHeader?.startsWith("Bearer ")) {
     res.status(401).json({ error: "Không có token" });

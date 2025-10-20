@@ -13,7 +13,7 @@ import {
   refreshToken,
   getProfile,
 } from "../controllers/userController";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 
 const userRoutes = express.Router();
 
@@ -443,15 +443,15 @@ userRoutes.post("/refresh-token", refreshToken);
 userRoutes.post("/forgot-password", forgotPassword);
 userRoutes.post("/resend-otp", resendOTP);
 userRoutes.post("/reset-password", resetPasswordWithOTP);
-userRoutes.post("/signout", authenticateJWT, signOut);
+userRoutes.post("/signout", authenticate, signOut);
 
 // Profile routes
-userRoutes.get("/profile", authenticateJWT, getProfile);
+userRoutes.get("/profile", authenticate, getProfile);
 
 // Protected routes
-userRoutes.get("/", authenticateJWT, getAllUsers);
-userRoutes.get("/:id", authenticateJWT, getUserById);
-userRoutes.put("/:id", authenticateJWT, updateUser);
-userRoutes.put("/change-password/:id", authenticateJWT, changePassword);
+userRoutes.get("/", authenticate, getAllUsers);
+userRoutes.get("/:id", authenticate, getUserById);
+userRoutes.put("/:id", authenticate, updateUser);
+userRoutes.put("/change-password/:id", authenticate, changePassword);
 
 export default userRoutes;

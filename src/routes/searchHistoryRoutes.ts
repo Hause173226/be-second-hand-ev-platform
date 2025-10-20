@@ -1,7 +1,7 @@
 // src/routes/searchHistoryRoutes.ts
 import express, { RequestHandler } from "express";
 import { body } from "express-validator";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 import { validate } from "../middlewares/validate";
 import {
     saveSearchHistory,
@@ -107,7 +107,7 @@ const saveValidators = [
 
 searchHistoryRoutes.post(
     "/history/save",
-    authenticateJWT as RequestHandler,
+    authenticate as RequestHandler,
     ...saveValidators,
     validate as RequestHandler,
     saveSearchHistory as unknown as RequestHandler
@@ -156,7 +156,7 @@ searchHistoryRoutes.post(
  */
 searchHistoryRoutes.get(
     "/history",
-    authenticateJWT as RequestHandler,
+    authenticate as RequestHandler,
     getUserSearchHistory as unknown as RequestHandler
 );
 
@@ -191,7 +191,7 @@ searchHistoryRoutes.get(
  */
 searchHistoryRoutes.delete(
     "/history/clear",
-    authenticateJWT as RequestHandler,
+    authenticate as RequestHandler,
     clearUserSearchHistory as unknown as RequestHandler
 );
 
@@ -221,7 +221,7 @@ searchHistoryRoutes.delete(
  */
 searchHistoryRoutes.delete(
     "/history/:id",
-    authenticateJWT as RequestHandler,
+    authenticate as RequestHandler,
     deleteSearchHistoryItem as unknown as RequestHandler
 );
 
@@ -370,7 +370,7 @@ searchHistoryRoutes.get(
  */
 searchHistoryRoutes.get(
     "/stats",
-    authenticateJWT as RequestHandler,
+    authenticate as RequestHandler,
     getSearchStats as unknown as RequestHandler
 );
 
