@@ -8,6 +8,9 @@ import { SearchHistory } from "../models/SearchHistory";
 import { suggestHeuristic } from "../services/priceAI.heuristic";
 import { PriceAIInput } from "../services/priceAI.types";
 
+// 🔥 Firebase upload service
+import { uploadImageToFirebase } from "../services/fileStorage";
+
 const isOwner = (userId?: string, sellerId?: any) =>
   userId && sellerId && sellerId.toString() === userId.toString();
 
@@ -26,6 +29,7 @@ const toBool = (v: unknown) =>
 /**
  * Tạo listing (status = Draft)
  * (Phần 15) Parse & validate priceListed + tradeMethod
+ * (Firebase) Upload ảnh lên Firebase Storage, lưu URL
  */
 export const createListing: RequestHandler = async (req, res, next) => {
   try {
@@ -40,10 +44,6 @@ export const createListing: RequestHandler = async (req, res, next) => {
       res.status(400).json({ message: "Cần tối thiểu 3 ảnh" });
       return;
     }
-    const photos = files.map((f) => ({
-      url: `/uploads/${f.filename}`,
-      kind: "photo" as const,
-    }));
 
     const {
       type,
@@ -54,8 +54,8 @@ export const createListing: RequestHandler = async (req, res, next) => {
       mileageKm,
       chargeCycles,
       condition,
-      priceListed,     // ⬅️ phần 15
-      tradeMethod,     // ⬅️ phần 15
+      priceListed, // ⬅️ phần 15
+      tradeMethod, // ⬅️ phần 15
       sellerConfirm,
       location,
     } = req.body;
@@ -66,7 +66,7 @@ export const createListing: RequestHandler = async (req, res, next) => {
     // (15) ép & validate priceListed
     const priceListedNum =
       typeof priceListed === "string" ? Number(priceListed) : Number(priceListed);
-    if (Number.isNaN(priceListedNum) || priceListedNum < 0) {
+    if (!Number.isFinite(priceListedNum) || priceListedNum < 0) {
       res.status(400).json({ message: "priceListed không hợp lệ" });
       return;
     }
@@ -81,6 +81,16 @@ export const createListing: RequestHandler = async (req, res, next) => {
       typeof tradeMethod === "string" && ALLOWED_TRADE.includes(tradeMethod as any)
         ? (tradeMethod as any)
         : "meet";
+
+    // 🔥 Upload ảnh lên Firebase, lấy URL
+    const photos: { url: string; kind: "photo" }[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i];
+      const safeName = f.originalname?.replace(/[^\w.\-]/g, "_") || `photo_${i}.jpg`;
+      const key = `listings/${sellerId}/${Date.now()}_${i}_${safeName}`;
+      const url = await uploadImageToFirebase(f, key, true); // public URL
+      photos.push({ url, kind: "photo" });
+    }
 
     const listing = await Listing.create({
       sellerId,
@@ -111,6 +121,7 @@ export const createListing: RequestHandler = async (req, res, next) => {
 /**
  * Cập nhật listing (chỉ khi Draft/Rejected)
  * (Phần 15) Cho phép sửa priceListed + tradeMethod
+ * (Firebase) Nếu PATCH có gửi ảnh (multipart) thì upload và append vào photos
  */
 export const updateListing: RequestHandler = async (req, res, next) => {
   try {
@@ -131,6 +142,21 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       return;
     }
 
+    // 🔥 Nếu route PATCH dùng upload.array("photos", 10) và client gửi ảnh mới
+    const files = (req.files as Express.Multer.File[]) || [];
+    if (Array.isArray(files) && files.length > 0) {
+      const newPhotos = await Promise.all(
+        files.map(async (f, i) => {
+          const safeName = f.originalname?.replace(/[^\w.\-]/g, "_") || `photo_${i}.jpg`;
+          const key = `listings/${listing.sellerId}/${Date.now()}_${i}_${safeName}`;
+          const url = await uploadImageToFirebase(f, key, true);
+          return { url, kind: "photo" as const };
+        })
+      );
+      // Append thay vì replace
+      listing.photos = [...(listing.photos || []), ...newPhotos];
+    }
+
     const allowed: Array<
       | "type"
       | "make"
@@ -146,20 +172,20 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       | "notes"
       | "sellerConfirm"
     > = [
-        "type",
-        "make",
-        "model",
-        "year",
-        "batteryCapacityKWh",
-        "mileageKm",
-        "chargeCycles",
-        "condition",
-        "priceListed",
-        "tradeMethod",
-        "location",
-        "notes",
-        "sellerConfirm",
-      ];
+      "type",
+      "make",
+      "model",
+      "year",
+      "batteryCapacityKWh",
+      "mileageKm",
+      "chargeCycles",
+      "condition",
+      "priceListed",
+      "tradeMethod",
+      "location",
+      "notes",
+      "sellerConfirm",
+    ];
 
     for (const k of allowed) {
       if (typeof (req.body as any)[k] === "undefined") continue;
@@ -180,7 +206,7 @@ export const updateListing: RequestHandler = async (req, res, next) => {
           typeof (req.body as any).priceListed === "string"
             ? Number((req.body as any).priceListed)
             : Number((req.body as any).priceListed);
-        if (Number.isNaN(n) || n < 0) {
+        if (!Number.isFinite(n) || n < 0) {
           res.status(400).json({ message: "priceListed không hợp lệ" });
           return;
         }
@@ -242,7 +268,8 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       return;
     }
     if (
-      (listing.priceListed === undefined || listing.priceListed === null) ||
+      listing.priceListed === undefined ||
+      listing.priceListed === null ||
       !listing.location?.city ||
       !listing.location?.district ||
       !listing.location?.address
@@ -315,7 +342,6 @@ export const priceSuggestionAI: RequestHandler = async (req, res, next) => {
 
 /* ----------------------- SEARCH & FILTER API ----------------------- */
 
-
 export const searchListings: RequestHandler = async (req, res, next) => {
   try {
     const {
@@ -332,12 +358,12 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       condition,
       sortBy = "newest",
       page = "1",
-      limit = "12"
+      limit = "12",
     } = req.query;
 
     // Build filter object
     const filter: any = {
-      status: "Published" // Chỉ lấy sản phẩm đã được duyệt
+      status: "Published", // Chỉ lấy sản phẩm đã được duyệt
     };
 
     // Text search với keyword
@@ -345,34 +371,43 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       filter.$or = [
         { make: { $regex: keyword, $options: "i" } },
         { model: { $regex: keyword, $options: "i" } },
-        { notes: { $regex: keyword, $options: "i" } }
+        { notes: { $regex: keyword, $options: "i" } },
       ];
     }
 
     // Filter theo các trường cụ thể
     if (make) filter.make = { $regex: make, $options: "i" };
     if (model) filter.model = { $regex: model, $options: "i" };
-    if (year) filter.year = parseInt(year as string);
-    if (batteryCapacityKWh) filter.batteryCapacityKWh = parseInt(batteryCapacityKWh as string);
-    if (mileageKm) filter.mileageKm = { $lte: parseInt(mileageKm as string) };
+
+    if (year) {
+      const y = parseInt(year as string, 10);
+      if (Number.isFinite(y)) filter.year = y;
+    }
+    if (batteryCapacityKWh) {
+      const b = parseInt(batteryCapacityKWh as string, 10);
+      if (Number.isFinite(b)) filter.batteryCapacityKWh = b;
+    }
+    if (mileageKm) {
+      const m = parseInt(mileageKm as string, 10);
+      if (Number.isFinite(m)) filter.mileageKm = { $lte: m };
+    }
+
     if (condition) filter.condition = condition;
 
     // Price range filter
     if (minPrice || maxPrice) {
-      filter.priceListed = {};
-      if (minPrice) filter.priceListed.$gte = parseInt(minPrice as string);
-      if (maxPrice) filter.priceListed.$lte = parseInt(maxPrice as string);
+      const g: any = {};
+      const min = minPrice ? parseInt(minPrice as string, 10) : undefined;
+      const max = maxPrice ? parseInt(maxPrice as string, 10) : undefined;
+      if (Number.isFinite(min as number)) g.$gte = min;
+      if (Number.isFinite(max as number)) g.$lte = max;
+      if (Object.keys(g).length) filter.priceListed = g;
     }
 
     // Location filter
     if (city || district) {
-      filter["location.city"] = city ? { $regex: city, $options: "i" } : undefined;
-      filter["location.district"] = district ? { $regex: district, $options: "i" } : undefined;
-
-      // Remove undefined values
-      Object.keys(filter).forEach(key => {
-        if (filter[key] === undefined) delete filter[key];
-      });
+      if (city) filter["location.city"] = { $regex: city as string, $options: "i" };
+      if (district) filter["location.district"] = { $regex: district as string, $options: "i" };
     }
 
     // Build sort object
@@ -391,8 +426,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         sort = { priceListed: -1 };
         break;
       case "reputation":
-        // Sắp xếp theo độ uy tín (có thể dựa trên số lượng view, rating, etc.)
-        // Tạm thời sắp xếp theo publishedAt
+        // Sắp xếp theo độ uy tín (tạm thời theo publishedAt)
         sort = { publishedAt: -1 };
         break;
       default:
@@ -400,8 +434,8 @@ export const searchListings: RequestHandler = async (req, res, next) => {
     }
 
     // Pagination
-    const pageNum = parseInt(page as string) || 1;
-    const limitNum = parseInt(limit as string) || 12;
+    const pageNum = parseInt(page as string, 10) || 1;
+    const limitNum = parseInt(limit as string, 10) || 12;
     const skip = (pageNum - 1) * limitNum;
 
     // Execute query with population
@@ -420,7 +454,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
     const userId = (req as any).user?._id;
     if (keyword && keyword.toString().trim()) {
       try {
-        // Nếu user đã đăng nhập, lưu với userId, nếu không lưu với userId = null
         await SearchHistory.create({
           userId: userId || null,
           searchQuery: keyword.toString().trim(),
@@ -428,27 +461,26 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           filters: {
             make: make as string,
             model: model as string,
-            year: year ? parseInt(year as string) : undefined,
-            batteryCapacityKWh: batteryCapacityKWh ? parseInt(batteryCapacityKWh as string) : undefined,
-            mileageKm: mileageKm ? parseInt(mileageKm as string) : undefined,
-            minPrice: minPrice ? parseInt(minPrice as string) : undefined,
-            maxPrice: maxPrice ? parseInt(maxPrice as string) : undefined,
+            year: year ? parseInt(year as string, 10) : undefined,
+            batteryCapacityKWh: batteryCapacityKWh ? parseInt(batteryCapacityKWh as string, 10) : undefined,
+            mileageKm: mileageKm ? parseInt(mileageKm as string, 10) : undefined,
+            minPrice: minPrice ? parseInt(minPrice as string, 10) : undefined,
+            maxPrice: maxPrice ? parseInt(maxPrice as string, 10) : undefined,
             city: city as string,
             district: district as string,
             condition: condition as string,
-            sortBy: sortBy as string
+            sortBy: sortBy as string,
           },
           resultsCount: totalCount,
           searchDate: new Date(),
-          isSuccessful: true
+          isSuccessful: true,
         });
-        console.log(`Search history saved for keyword: ${keyword}, userId: ${userId || 'anonymous'}`);
+        console.log(`Search history saved for keyword: ${keyword}, userId: ${userId || "anonymous"}`);
       } catch (err) {
         // Không làm fail API chính nếu lưu lịch sử bị lỗi
         console.error("Error saving search history:", err);
       }
     }
-
 
     // Response with pagination info
     res.json({
@@ -459,7 +491,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         totalCount,
         hasNextPage: pageNum < totalPages,
         hasPrevPage: pageNum > 1,
-        limit: limitNum
+        limit: limitNum,
       },
       filters: {
         keyword,
@@ -473,8 +505,8 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         city,
         district,
         condition,
-        sortBy
-      }
+        sortBy,
+      },
     });
   } catch (err) {
     next(err);
@@ -484,23 +516,28 @@ export const searchListings: RequestHandler = async (req, res, next) => {
 /**
  * Lấy danh sách các giá trị filter có sẵn (để populate dropdown)
  */
-export const getFilterOptions: RequestHandler = async (req, res, next) => {
+export const getFilterOptions: RequestHandler = async (_req, res, next) => {
   try {
     const publishedListings = await Listing.find({ status: "Published" }).lean();
 
-    // Extract unique values for each filter
+    // Extract unique values cho dropdown
     const makes = [...new Set(publishedListings.map(l => l.make).filter(Boolean))].sort();
     const models = [...new Set(publishedListings.map(l => l.model).filter(Boolean))].sort();
-    const years = [...new Set(publishedListings.map(l => l.year).filter(Boolean))].sort((a, b) => (b || 0) - (a || 0));
-    const batteryCapacities = [...new Set(publishedListings.map(l => l.batteryCapacityKWh).filter(Boolean))].sort((a, b) => (a || 0) - (b || 0));
+    const years = [...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number"))]
+      .sort((a, b) => b - a);
+    const batteryCapacities = [
+      ...new Set(
+        publishedListings.map(l => l.batteryCapacityKWh).filter((v): v is number => typeof v === "number")
+      ),
+    ].sort((a, b) => a - b);
     const conditions = [...new Set(publishedListings.map(l => l.condition).filter(Boolean))];
     const cities = [...new Set(publishedListings.map(l => l.location?.city).filter(Boolean))].sort();
     const districts = [...new Set(publishedListings.map(l => l.location?.district).filter(Boolean))].sort();
 
-    // Price range
-    const prices = publishedListings.map(l => l.priceListed).filter(Boolean);
-    const minPrice = Math.min(...prices);
-    const maxPrice = Math.max(...prices);
+    // Price range an toàn khi rỗng
+    const priceVals = publishedListings.map(l => l.priceListed).filter((v): v is number => typeof v === "number");
+    const minPrice = priceVals.length ? Math.min(...priceVals) : 0;
+    const maxPrice = priceVals.length ? Math.max(...priceVals) : 0;
 
     res.json({
       makes,
@@ -510,10 +547,7 @@ export const getFilterOptions: RequestHandler = async (req, res, next) => {
       conditions,
       cities,
       districts,
-      priceRange: {
-        min: minPrice,
-        max: maxPrice
-      }
+      priceRange: { min: minPrice, max: maxPrice },
     });
   } catch (err) {
     next(err);
@@ -534,7 +568,7 @@ export const getListingById: RequestHandler = async (req, res, next) => {
 
     const listing = await Listing.findOne({
       _id: id,
-      status: "Published" // Chỉ lấy sản phẩm đã được duyệt
+      status: "Published", // Chỉ lấy sản phẩm đã được duyệt
     })
       .populate("sellerId", "fullName phone email avatar createdAt")
       .lean();
@@ -549,4 +583,3 @@ export const getListingById: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
-
