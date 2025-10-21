@@ -1,9 +1,9 @@
 export interface IUser {
   fullName: string;
   phone: string;
-  email?: string;
+  email: string;
   citizenId?: string;
-  password?: string; // Optional for phone authentication
+  password: string;
   dateOfBirth?: Date;
   role?: "user" | "admin";
   gender?: "male" | "female" | "other";

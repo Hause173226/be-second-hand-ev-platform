@@ -4,9 +4,9 @@ import { IUser } from "../interfaces/IUser";
 const userSchema = new Schema<IUser>(
   {
     fullName: { type: String, required: true },
-    phone: { type: String, required: true, unique: true },
-    email: { type: String, unique: true },
-    password: { type: String }, // Password không bắt buộc (cho phone auth)
+    phone: { type: String, required: true },
+    email: { type: String, unique: true, required: true },
+    password: { type: String, required: true },
     citizenId: { type: String },
     dateOfBirth: { type: Date },
     role: { type: String, enum: ["user", "admin"], default: "user" },

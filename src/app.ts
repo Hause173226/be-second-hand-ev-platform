@@ -3,8 +3,7 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import userRoutes from "./routes/userRoutes";
-import profileRoutes from "./routes/profileRoutes";
-import debugRoutes from "./routes/debugRoutes";
+
 import { errorHandler } from "./middlewares/errorHandler";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
@@ -29,8 +28,6 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 app.use("/api/users", userRoutes);
-app.use("/api/profiles", profileRoutes);
-app.use("/api/debug", debugRoutes);
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 app.use(errorHandler);

@@ -13,18 +13,12 @@ import {
   changePassword,
   refreshToken,
   getProfile,
-  signUpWithPhone,
-  verifyPhoneOTP,
-  signInWithPhone,
-  verifySignInOTP,
-  resendPhoneOTP,
   sendEmailVerification,
   verifyEmail,
 } from "../controllers/userController";
 import { authenticateJWT } from "../middlewares/authenticate";
 import {
   validateSignUp,
-  validateSignUpPhone,
   validateOTP,
   validateSignIn,
 } from "../middlewares/validation";
@@ -467,171 +461,6 @@ const userRoutes = express.Router();
 
 /**
  * @swagger
- * /api/users/signup-phone:
- *   post:
- *     summary: Đăng ký tài khoản bằng số điện thoại
- *     tags: [Phone Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               fullName:
- *                 type: string
- *               phone:
- *                 type: string
- *             required:
- *               - fullName
- *               - phone
- *     responses:
- *       201:
- *         description: Đăng ký thành công, OTP đã được gửi
- *       400:
- *         description: Số điện thoại đã tồn tại hoặc thiếu thông tin
- *       500:
- *         description: Lỗi server
- */
-
-/**
- * @swagger
- * /api/users/verify-phone-otp:
- *   post:
- *     summary: Xác thực OTP cho đăng ký bằng số điện thoại
- *     tags: [Phone Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               phone:
- *                 type: string
- *               otp:
- *                 type: string
- *             required:
- *               - phone
- *               - otp
- *     responses:
- *       200:
- *         description: Xác thực thành công
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 user:
- *                   type: object
- *                 accessToken:
- *                   type: string
- *                 refreshToken:
- *                   type: string
- *                 message:
- *                   type: string
- *       400:
- *         description: OTP không hợp lệ hoặc đã hết hạn
- *       500:
- *         description: Lỗi server
- */
-
-/**
- * @swagger
- * /api/users/signin-phone:
- *   post:
- *     summary: Đăng nhập bằng số điện thoại (gửi OTP)
- *     tags: [Phone Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               phone:
- *                 type: string
- *             required:
- *               - phone
- *     responses:
- *       200:
- *         description: OTP đã được gửi về số điện thoại
- *       400:
- *         description: Số điện thoại không tồn tại hoặc chưa được kích hoạt
- *       500:
- *         description: Lỗi server
- */
-
-/**
- * @swagger
- * /api/users/verify-signin-otp:
- *   post:
- *     summary: Xác thực OTP cho đăng nhập bằng số điện thoại
- *     tags: [Phone Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               phone:
- *                 type: string
- *               otp:
- *                 type: string
- *             required:
- *               - phone
- *               - otp
- *     responses:
- *       200:
- *         description: Đăng nhập thành công
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 user:
- *                   type: object
- *                 accessToken:
- *                   type: string
- *                 refreshToken:
- *                   type: string
- *                 message:
- *                   type: string
- *       400:
- *         description: OTP không hợp lệ hoặc đã hết hạn
- *       500:
- *         description: Lỗi server
- */
-
-/**
- * @swagger
- * /api/users/resend-phone-otp:
- *   post:
- *     summary: Gửi lại OTP cho số điện thoại
- *     tags: [Phone Auth]
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               phone:
- *                 type: string
- *             required:
- *               - phone
- *     responses:
- *       200:
- *         description: OTP mới đã được gửi
- *       400:
- *         description: Số điện thoại không tồn tại
- *       500:
- *         description: Lỗi server
- */
-
-/**
- * @swagger
  * /api/users/send-email-verification:
  *   post:
  *     summary: Gửi email xác thực tài khoản
@@ -706,13 +535,6 @@ userRoutes.post("/forgot-password", forgotPassword);
 userRoutes.post("/resend-otp", resendOTP);
 userRoutes.post("/reset-password", resetPasswordWithOTP);
 userRoutes.post("/signout", authenticateJWT, signOut);
-
-// Phone authentication routes
-userRoutes.post("/signup-phone", validateSignUpPhone, signUpWithPhone);
-userRoutes.post("/verify-phone-otp", validateOTP, verifyPhoneOTP);
-userRoutes.post("/signin-phone", signInWithPhone);
-userRoutes.post("/verify-signin-otp", validateOTP, verifySignInOTP);
-userRoutes.post("/resend-phone-otp", resendPhoneOTP);
 
 // Email verification routes
 userRoutes.post("/send-email-verification", sendEmailVerification);

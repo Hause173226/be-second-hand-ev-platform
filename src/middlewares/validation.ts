@@ -47,31 +47,6 @@ export const validateSignUp = (
   next();
 };
 
-export const validateSignUpPhone = (
-  req: Request,
-  res: Response,
-  next: NextFunction
-): void => {
-  const { fullName, phone } = req.body;
-
-  // Validate full name
-  const fullNameValidation = validation.validateFullName(fullName);
-  if (!fullNameValidation.isValid) {
-    res.status(400).json({ error: fullNameValidation.message });
-    return;
-  }
-
-  // Validate phone
-  if (!validation.validatePhone(phone)) {
-    res
-      .status(400)
-      .json({ error: "Số điện thoại không đúng định dạng (VD: 0987654321)" });
-    return;
-  }
-
-  next();
-};
-
 export const validateOTP = (
   req: Request,
   res: Response,
