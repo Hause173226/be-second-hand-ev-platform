@@ -102,7 +102,12 @@ export const userService = {
     if (!user)
       throw new Error("Email, mật khẩu hoặc quyền truy cập không đúng");
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const userPassword = user.password || user.passwordHash;
+    if (!userPassword) {
+      throw new Error("Email, mật khẩu hoặc quyền truy cập không đúng");
+    }
+
+    const isMatch = await bcrypt.compare(password, userPassword);
     if (!isMatch)
       throw new Error("Email, mật khẩu hoặc quyền truy cập không đúng");
 
@@ -268,16 +273,21 @@ export const userService = {
     }
 
     // Kiểm tra mật khẩu hiện tại có đúng không
+    const userPassword = user.password || user.passwordHash;
+    if (!userPassword) {
+      throw new Error("User password not found");
+    }
+
     const isCurrentPasswordMatch = await bcrypt.compare(
       currentPassword,
-      user.password
+      userPassword
     );
     if (!isCurrentPasswordMatch) {
       throw new Error("Current password is incorrect");
     }
 
     // Kiểm tra mật khẩu mới không trùng với mật khẩu hiện tại
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
+    const isSamePassword = await bcrypt.compare(newPassword, userPassword);
     if (isSamePassword) {
       throw new Error("Mật khẩu mới phải khác mật khẩu hiện tại");
     }
