@@ -9,7 +9,12 @@ const userSchema = new Schema<IUser>(
     emailVerified: { type: Boolean, default: false },
     phoneVerified: { type: Boolean, default: false },
     passwordHash: { type: String },
-    roles: { type: [String], default: ["member"], required: true },
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+      required: true,
+    },
     status: {
       type: String,
       enum: ["ACTIVE", "SUSPENDED", "DELETED"],
@@ -23,7 +28,6 @@ const userSchema = new Schema<IUser>(
     password: { type: String }, // Legacy field
     citizenId: { type: String },
     dateOfBirth: { type: Date },
-    role: { type: String, enum: ["user", "admin"] }, // Legacy field
     gender: { type: String, enum: ["male", "female", "other"] },
     address: { type: String },
     isActive: { type: Boolean, default: true }, // Legacy field
@@ -31,36 +35,34 @@ const userSchema = new Schema<IUser>(
     otpExpires: { type: Date },
     refreshToken: { type: String },
     avatar: { type: String },
+    googleId: { type: String },
+    facebookId: { type: String },
   },
   { timestamps: { createdAt: "createdAt", updatedAt: "updatedAt" } }
 );
 
 // Virtual fields để map giữa old và new schema
 userSchema.virtual("legacyPassword").get(function () {
-  return this.passwordHash || this.password;
-});
-
-userSchema.virtual("legacyRole").get(function () {
-  return this.roles && this.roles.length > 0 ? this.roles[0] : this.role;
+  const user = this as any;
+  return user.passwordHash || user.password;
 });
 
 userSchema.virtual("legacyIsActive").get(function () {
-  return this.status === "ACTIVE";
+  const user = this as any;
+  return user.status === "ACTIVE";
 });
 
 // Pre-save middleware để sync data
 userSchema.pre("save", function (next) {
+  const user = this as any;
+
   // Sync từ legacy fields sang new fields
-  if (this.password && !this.passwordHash) {
-    this.passwordHash = this.password;
+  if (user.password && !user.passwordHash) {
+    user.passwordHash = user.password;
   }
 
-  if (this.role && (!this.roles || this.roles.length === 0)) {
-    this.roles = [this.role];
-  }
-
-  if (this.isActive !== undefined && !this.status) {
-    this.status = this.isActive ? "ACTIVE" : "SUSPENDED";
+  if (user.isActive !== undefined && !user.status) {
+    user.status = user.isActive ? "ACTIVE" : "SUSPENDED";
   }
 
   next();

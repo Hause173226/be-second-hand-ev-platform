@@ -7,7 +7,7 @@ export interface IUser {
   emailVerified?: boolean;
   phoneVerified?: boolean;
   passwordHash?: string;
-  roles: string[];
+  role: "user" | "admin";
   status: "ACTIVE" | "SUSPENDED" | "DELETED";
   lastLoginAt?: Date;
   createdAt?: Date;
@@ -18,7 +18,6 @@ export interface IUser {
   password?: string;
   citizenId?: string;
   dateOfBirth?: Date;
-  role?: string;
   gender?: string;
   address?: string;
   isActive?: boolean;
@@ -26,4 +25,6 @@ export interface IUser {
   otpExpires?: Date;
   refreshToken?: string;
   avatar?: string;
+  googleId?: string;
+  facebookId?: string;
 }

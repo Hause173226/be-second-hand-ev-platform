@@ -23,7 +23,6 @@ export const profileService = {
       if (!user) {
         throw new Error("User not found");
       }
-
       profile = await Profile.create({
         userId,
         kycLevel: "NONE",
@@ -54,6 +53,21 @@ export const profileService = {
         (profile as any)[field] = personalData[field];
       }
     });
+
+    // Sync địa chỉ với User model nếu có địa chỉ mặc định
+    if (
+      personalData.address &&
+      profile.addresses &&
+      profile.addresses.length > 0
+    ) {
+      const defaultAddress = profile.addresses.find((addr) => addr.isDefault);
+      if (defaultAddress) {
+        // Cập nhật địa chỉ đơn giản trong User model
+        await User.findByIdAndUpdate(userId, {
+          address: `${defaultAddress.fullAddress}, ${defaultAddress.ward}, ${defaultAddress.district}, ${defaultAddress.city}`,
+        });
+      }
+    }
 
     await profile.save();
     return profile;
@@ -269,6 +283,14 @@ export const profileService = {
       profile.addresses = [];
     }
     profile.addresses.push(address);
+
+    // Sync địa chỉ mặc định với User model
+    if (address.isDefault) {
+      await User.findByIdAndUpdate(userId, {
+        address: `${address.fullAddress}, ${address.ward}, ${address.district}, ${address.city}`,
+      });
+    }
+
     await profile.save();
     return profile;
   },

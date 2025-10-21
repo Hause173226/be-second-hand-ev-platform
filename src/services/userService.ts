@@ -303,4 +303,49 @@ export const userService = {
 
     return { message: "Đổi mật khẩu thành công" };
   },
+
+  sendEmailVerification: async (email: string) => {
+    const user = await User.findOne({ email });
+    if (!user) throw new Error("Email không tồn tại");
+
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+
+    user.otpCode = otp;
+    user.otpExpires = expires;
+    await user.save();
+
+    await sendOTPEmail(email, otp);
+
+    return { message: "Email xác thực đã được gửi" };
+  },
+
+  verifyEmail: async (email: string, otp: string) => {
+    const user = await User.findOne({
+      email,
+      otpCode: otp,
+      otpExpires: { $gt: new Date() },
+    });
+    if (!user) throw new Error("OTP không hợp lệ hoặc đã hết hạn");
+
+    user.emailVerified = true;
+    user.otpCode = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    const { accessToken, refreshToken } = await userService.generateTokens(
+      user
+    );
+
+    const userObj = user.toObject() as any;
+    delete userObj.password;
+    delete userObj.refreshToken;
+
+    return {
+      user: userObj,
+      accessToken,
+      refreshToken,
+      message: "Email đã được xác thực thành công",
+    };
+  },
 };
