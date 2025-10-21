@@ -11,16 +11,32 @@ const options = {
     tags: [
       {
         name: "Auth",
-        description: "Authentication endpoints"
+        description: "Authentication endpoints",
       },
       {
         name: "User Profile",
-        description: "User profile management endpoints"
+        description: "User profile management endpoints",
       },
       {
         name: "Users",
-        description: "User management endpoints (Admin only)"
-      }
+        description: "User management endpoints (Admin only)",
+      },
+      {
+        name: "Profile",
+        description: "Profile management endpoints",
+      },
+      {
+        name: "KYC",
+        description: "KYC verification endpoints",
+      },
+      {
+        name: "Address",
+        description: "Address management endpoints",
+      },
+      {
+        name: "Payment",
+        description: "Payment method management endpoints",
+      },
     ],
     components: {
       securitySchemes: {
