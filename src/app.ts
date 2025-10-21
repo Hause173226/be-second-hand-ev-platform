@@ -3,7 +3,6 @@ import dotenv from "dotenv";
 dotenv.config();
 
 import userRoutes from "./routes/userRoutes";
-import profileRoutes from "./routes/profileRoutes";
 import { errorHandler } from "./middlewares/errorHandler";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
