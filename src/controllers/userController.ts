@@ -228,3 +228,45 @@ export const getProfile = async (req: Request, res: Response) => {
     }
   }
 };
+
+// ===== EMAIL VERIFICATION CONTROLLERS =====
+
+export const sendEmailVerification = async (req: Request, res: Response) => {
+  try {
+    const { email } = req.body;
+
+    if (!email) {
+      res.status(400).json({ error: "Thiếu email" });
+      return;
+    }
+
+    const result = await userService.sendEmailVerification(email);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
+
+export const verifyEmail = async (req: Request, res: Response) => {
+  try {
+    const { email, otp } = req.body;
+
+    if (!email || !otp) {
+      res.status(400).json({ error: "Thiếu email hoặc OTP" });
+      return;
+    }
+
+    const result = await userService.verifyEmail(email, otp);
+    res.status(200).json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};
