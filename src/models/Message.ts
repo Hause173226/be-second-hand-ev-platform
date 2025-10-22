@@ -8,6 +8,27 @@ const metadataSchema = new Schema(
         appointmentId: { type: Schema.Types.ObjectId, ref: "Appointment" },
         imageUrl: { type: String },
         fileName: { type: String },
+        fileSize: { type: Number },
+        fileType: { type: String },
+        originalFileName: { type: String },
+        editedAt: { type: Date },
+        deletedAt: { type: Date },
+        isDeleted: { type: Boolean, default: false },
+        deletedBy: { type: Schema.Types.ObjectId, ref: "User" },
+        reactions: [{
+            userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+            emoji: { type: String, required: true },
+            createdAt: { type: Date, default: Date.now }
+        }],
+        // Thêm support cho files array
+        files: [{
+            filename: { type: String },
+            originalname: { type: String },
+            url: { type: String },
+            size: { type: Number },
+            mimetype: { type: String },
+            formattedSize: { type: String }
+        }]
     },
     { _id: false }
 );

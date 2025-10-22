@@ -3,7 +3,7 @@ import { Types } from "mongoose";
 
 export interface IChat {
     _id?: Types.ObjectId;
-    listingId: Types.ObjectId;
+    listingId?: Types.ObjectId; // Không bắt buộc cho chat trực tiếp
     buyerId: Types.ObjectId;
     sellerId: Types.ObjectId;
     lastMessage?: {
@@ -12,6 +12,7 @@ export interface IChat {
         timestamp: Date;
     };
     isActive: boolean;
+    chatType?: "listing" | "direct"; // Thêm chatType
     createdAt?: Date;
     updatedAt?: Date;
 }
@@ -28,6 +29,27 @@ export interface IMessage {
         appointmentId?: Types.ObjectId;
         imageUrl?: string;
         fileName?: string;
+        fileSize?: number;
+        fileType?: string;
+        originalFileName?: string;
+        editedAt?: Date;
+        deletedAt?: Date;
+        isDeleted?: boolean;
+        deletedBy?: Types.ObjectId;
+        reactions?: {
+            userId: Types.ObjectId;
+            emoji: string;
+            createdAt: Date;
+        }[];
+        // Thêm support cho files array
+        files?: {
+            filename: string;
+            originalname: string;
+            url: string;
+            size: number;
+            mimetype: string;
+            formattedSize: string;
+        }[];
     };
     createdAt?: Date;
     updatedAt?: Date;
