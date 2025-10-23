@@ -95,7 +95,7 @@ export const userService = {
     );
     if (!user) throw new Error("Email hoặc mật khẩu không đúng");
 
-    const userPassword = user.password || user.passwordHash;
+    const userPassword = user.password;
     if (!userPassword) throw new Error("Tài khoản không có mật khẩu hợp lệ");
 
     const isMatch = await bcrypt.compare(password, userPassword);
@@ -104,7 +104,9 @@ export const userService = {
     if (role && user.role !== role)
       throw new Error("Quyền truy cập không phù hợp với tài khoản");
 
-    const { accessToken, refreshToken } = await userService.generateTokens(user);
+    const { accessToken, refreshToken } = await userService.generateTokens(
+      user
+    );
 
     const userObj = user.toObject() as any;
     delete userObj.password;
@@ -233,4 +235,6 @@ export const userService = {
     const user = await User.findById(userId).select("+password +refreshToken");
     if (!user) throw new Error("User not found");
 
-    const userPassword = user.password || user
+    const userPassword = user.password;
+  },
+};
