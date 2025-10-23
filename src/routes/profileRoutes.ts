@@ -18,7 +18,7 @@ import {
   updatePaymentMethod,
   deletePaymentMethod,
 } from "../controllers/profileController";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 
 const profileRoutes = express.Router();
 
@@ -708,39 +708,39 @@ const profileRoutes = express.Router();
  */
 
 // Profile routes
-profileRoutes.get("/", authenticateJWT, getProfile);
-profileRoutes.put("/", authenticateJWT, updatePersonalInfo);
-profileRoutes.get("/stats", authenticateJWT, getProfileStats);
-profileRoutes.get("/permissions", authenticateJWT, checkPostingPermission);
+profileRoutes.get("/", authenticate, getProfile);
+profileRoutes.put("/", authenticate, updatePersonalInfo);
+profileRoutes.get("/stats", authenticate, getProfileStats);
+profileRoutes.get("/permissions", authenticate, checkPostingPermission);
 
 // KYC routes
-profileRoutes.post("/kyc", authenticateJWT, uploadKYCDocuments);
-profileRoutes.post("/kyc/scan-cccd", authenticateJWT, uploadAndScanCCCD);
+profileRoutes.post("/kyc", authenticate, uploadKYCDocuments);
+profileRoutes.post("/kyc/scan-cccd", authenticate, uploadAndScanCCCD);
 profileRoutes.post(
   "/kyc/retry-scan/:documentId",
-  authenticateJWT,
+  authenticate,
   retryCCCDScanning
 );
-profileRoutes.get("/kyc", authenticateJWT, getKYCInfo);
-profileRoutes.put("/kyc/:userId", authenticateJWT, updateKYCStatus);
+profileRoutes.get("/kyc", authenticate, getKYCInfo);
+profileRoutes.put("/kyc/:userId", authenticate, updateKYCStatus);
 
 // Address routes
-profileRoutes.get("/addresses", authenticateJWT, getAddresses);
-profileRoutes.post("/addresses", authenticateJWT, addAddress);
-profileRoutes.put("/addresses/:addressId", authenticateJWT, updateAddress);
-profileRoutes.delete("/addresses/:addressId", authenticateJWT, deleteAddress);
+profileRoutes.get("/addresses", authenticate, getAddresses);
+profileRoutes.post("/addresses", authenticate, addAddress);
+profileRoutes.put("/addresses/:addressId", authenticate, updateAddress);
+profileRoutes.delete("/addresses/:addressId", authenticate, deleteAddress);
 
 // Payment method routes
-profileRoutes.get("/payment-methods", authenticateJWT, getPaymentMethods);
-profileRoutes.post("/payment-methods", authenticateJWT, addPaymentMethod);
+profileRoutes.get("/payment-methods", authenticate, getPaymentMethods);
+profileRoutes.post("/payment-methods", authenticate, addPaymentMethod);
 profileRoutes.put(
   "/payment-methods/:paymentId",
-  authenticateJWT,
+  authenticate,
   updatePaymentMethod
 );
 profileRoutes.delete(
   "/payment-methods/:paymentId",
-  authenticateJWT,
+  authenticate,
   deletePaymentMethod
 );
 
