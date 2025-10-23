@@ -87,32 +87,22 @@ export const userService = {
     return { accessToken, refreshToken };
   },
 
-  /**
-   * Đăng nhập:
-   * - Không lọc theo role trong truy vấn.
-   * - Nếu client truyền role => so sánh sau khi tìm thấy user.
-   */
   signIn: async (email: string, password: string, role?: string) => {
     const emailNorm = normalizeEmail(email);
 
-    // luôn select password/role những field có thể đặt select:false trong schema
     const user = await User.findOne({ email: emailNorm }).select(
       "+password +role +refreshToken +isActive +emailVerified"
     );
-
     if (!user) throw new Error("Email hoặc mật khẩu không đúng");
 
-    const isMatch = await bcrypt.compare(password, user.password);
+    const userPassword = user.password || user.passwordHash;
+    if (!userPassword) throw new Error("Tài khoản không có mật khẩu hợp lệ");
+
+    const isMatch = await bcrypt.compare(password, userPassword);
     if (!isMatch) throw new Error("Email hoặc mật khẩu không đúng");
 
-    // Nếu client yêu cầu đăng nhập với role cụ thể thì kiểm tra khớp
-    if (role && user.role !== role) {
+    if (role && user.role !== role)
       throw new Error("Quyền truy cập không phù hợp với tài khoản");
-    }
-
-    // Nếu bạn có các cờ kiểm soát khác thì bật kiểm tra ở đây:
-    // if (user.isActive === false) throw new Error("Tài khoản đang bị khóa");
-    // if (user.emailVerified === false) throw new Error("Email chưa xác minh");
 
     const { accessToken, refreshToken } = await userService.generateTokens(user);
 
@@ -120,11 +110,7 @@ export const userService = {
     delete userObj.password;
     delete userObj.refreshToken;
 
-    return {
-      user: userObj,
-      accessToken,
-      refreshToken,
-    };
+    return { user: userObj, accessToken, refreshToken };
   },
 
   refreshToken: async (refreshToken: string) => {
@@ -137,13 +123,12 @@ export const userService = {
 
       const user = await User.findOne({
         _id: decoded.userId,
-        refreshToken: refreshToken,
+        refreshToken,
       }).select("+refreshToken");
 
       if (!user) throw new Error("Invalid refresh token");
 
-      const tokens = await userService.generateTokens(user);
-      return tokens;
+      return await userService.generateTokens(user);
     } catch {
       throw new Error("Invalid refresh token");
     }
@@ -165,7 +150,7 @@ export const userService = {
     if (!user) throw new Error("Email không tồn tại");
 
     const otp = generateOTP();
-    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+    const expires = new Date(Date.now() + 5 * 60 * 1000);
 
     user.otpCode = otp;
     user.otpExpires = expires;
@@ -218,20 +203,16 @@ export const userService = {
     const user = await User.findById(userId);
     if (!user) throw new Error("User not found");
 
-    if (updateData.password) {
+    if (updateData.password)
       throw new Error("Sử dụng changePassword để đổi mật khẩu");
-    }
-    if (updateData.isActive !== undefined) {
+    if (updateData.isActive !== undefined)
       throw new Error("Sử dụng changeUserStatus để thay đổi trạng thái");
-    }
 
     Object.keys(updateData).forEach((key) => {
       if (
         updateData[key] !== undefined &&
         updateData[key] !== null &&
-        key !== "password" &&
-        key !== "isActive" &&
-        key !== "refreshToken"
+        !["password", "isActive", "refreshToken"].includes(key)
       ) {
         (user as any)[key] = updateData[key];
       }
@@ -252,24 +233,4 @@ export const userService = {
     const user = await User.findById(userId).select("+password +refreshToken");
     if (!user) throw new Error("User not found");
 
-    const isCurrentPasswordMatch = await bcrypt.compare(
-      currentPassword,
-      user.password
-    );
-    if (!isCurrentPasswordMatch) {
-      throw new Error("Current password is incorrect");
-    }
-
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
-    if (isSamePassword) {
-      throw new Error("Mật khẩu mới phải khác mật khẩu hiện tại");
-    }
-
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
-    user.refreshToken = undefined;
-
-    await user.save();
-    return { message: "Đổi mật khẩu thành công" };
-  },
-};
+    const userPassword = user.password || user

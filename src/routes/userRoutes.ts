@@ -1,4 +1,5 @@
 import express from "express";
+import { ssoService } from "../services/ssoService";
 import {
   getAllUsers,
   signIn,
@@ -11,9 +12,16 @@ import {
   updateUser,
   changePassword,
   refreshToken,
+  sendEmailVerification,
+  verifyEmail,
   getProfile,
 } from "../controllers/userController";
-import { authenticate } from "../middlewares/authenticate";
+import { authenticateJWT } from "../middlewares/authenticate";
+import {
+  validateSignUp,
+  validateOTP,
+  validateSignIn,
+} from "../middlewares/validation";
 
 const userRoutes = express.Router();
 
@@ -32,16 +40,31 @@ const userRoutes = express.Router();
  *             properties:
  *               fullName:
  *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
+ *                 example: "Nguyễn Văn A"
  *               phone:
  *                 type: string
+ *                 pattern: "^(0[3|5|7|8|9])[0-9]{8}$"
+ *                 example: "0987654321"
  *               email:
  *                 type: string
+ *                 format: email
+ *                 example: "user@example.com"
  *               password:
  *                 type: string
+ *                 minLength: 6
+ *                 maxLength: 50
+ *                 example: "password123"
+ *               termsAgreed:
+ *                 type: boolean
+ *                 example: true
  *             required:
  *               - fullName
  *               - phone
+ *               - email
  *               - password
+ *               - termsAgreed
  *     responses:
  *       201:
  *         description: Đăng ký thành công
@@ -385,73 +408,246 @@ const userRoutes = express.Router();
 
 /**
  * @swagger
- * /api/users/profile:
- *   get:
- *     summary: Lấy thông tin profile của user hiện tại
- *     tags: [User Profile]
- *     security:
- *       - bearerAuth: []
+ * /api/users/send-email-verification:
+ *   post:
+ *     summary: Gửi email xác thực tài khoản
+ *     tags: [Email Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *             required:
+ *               - email
  *     responses:
  *       200:
- *         description: Thông tin profile được trả về thành công
+ *         description: Email xác thực đã được gửi
+ *       400:
+ *         description: Email không tồn tại hoặc đã được kích hoạt
+ *       500:
+ *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/verify-email:
+ *   post:
+ *     summary: Xác thực email bằng OTP
+ *     tags: [Email Verification]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               email:
+ *                 type: string
+ *               otp:
+ *                 type: string
+ *             required:
+ *               - email
+ *               - otp
+ *     responses:
+ *       200:
+ *         description: Email đã được xác thực thành công
  *         content:
  *           application/json:
  *             schema:
  *               type: object
  *               properties:
- *                 _id:
+ *                 user:
+ *                   type: object
+ *                 accessToken:
  *                   type: string
- *                 fullName:
+ *                 refreshToken:
  *                   type: string
- *                 phone:
+ *                 message:
  *                   type: string
- *                 email:
- *                   type: string
- *                 citizenId:
- *                   type: string
- *                 dateOfBirth:
- *                   type: string
- *                   format: date
- *                 gender:
- *                   type: string
- *                   enum: [male, female, other]
- *                 address:
- *                   type: string
- *                 role:
- *                   type: string
- *                   enum: [user, admin]
- *                 isActive:
- *                   type: boolean
- *                 createdAt:
- *                   type: string
- *                   format: date-time
- *                 updatedAt:
- *                   type: string
- *                   format: date-time
- *       401:
- *         description: Unauthorized - Token không hợp lệ
- *       404:
- *         description: User not found
+ *       400:
+ *         description: OTP không hợp lệ hoặc đã hết hạn
  *       500:
- *         description: Internal server error
+ *         description: Lỗi server
  */
 
 // Auth routes
-userRoutes.post("/signup", signUp);
-userRoutes.post("/signin", signIn);
+userRoutes.post("/signup", validateSignUp, signUp);
+userRoutes.post("/signin", validateSignIn, signIn);
 userRoutes.post("/refresh-token", refreshToken);
 userRoutes.post("/forgot-password", forgotPassword);
 userRoutes.post("/resend-otp", resendOTP);
 userRoutes.post("/reset-password", resetPasswordWithOTP);
-userRoutes.post("/signout", authenticate, signOut);
+userRoutes.post("/signout", authenticateJWT, signOut);
 
-// Profile routes
-userRoutes.get("/profile", authenticate, getProfile);
+// Email verification routes
+userRoutes.post("/send-email-verification", sendEmailVerification);
+userRoutes.post("/verify-email", validateOTP, verifyEmail);
+
+/**
+ * @swagger
+ * /api/users/google:
+ *   post:
+ *     summary: Đăng nhập bằng Google
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - profile
+ *             properties:
+ *               profile:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     example: "google_user_id"
+ *                   emails:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "user@gmail.com"
+ *                   name:
+ *                     type: object
+ *                     properties:
+ *                       givenName:
+ *                         type: string
+ *                         example: "John"
+ *                       familyName:
+ *                         type: string
+ *                         example: "Doe"
+ *                   photos:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "https://example.com/photo.jpg"
+ *     responses:
+ *       200:
+ *         description: Đăng nhập Google thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Lỗi đăng nhập Google
+ */
+
+/**
+ * @swagger
+ * /api/users/facebook:
+ *   post:
+ *     summary: Đăng nhập bằng Facebook
+ *     tags: [Users]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - profile
+ *             properties:
+ *               profile:
+ *                 type: object
+ *                 properties:
+ *                   id:
+ *                     type: string
+ *                     example: "facebook_user_id"
+ *                   emails:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "user@facebook.com"
+ *                   name:
+ *                     type: object
+ *                     properties:
+ *                       givenName:
+ *                         type: string
+ *                         example: "John"
+ *                       familyName:
+ *                         type: string
+ *                         example: "Doe"
+ *                   photos:
+ *                     type: array
+ *                     items:
+ *                       type: object
+ *                       properties:
+ *                         value:
+ *                           type: string
+ *                           example: "https://example.com/photo.jpg"
+ *     responses:
+ *       200:
+ *         description: Đăng nhập Facebook thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
+ *                 message:
+ *                   type: string
+ *       400:
+ *         description: Lỗi đăng nhập Facebook
+ */
+
+// Profile routes - moved to profileRoutes.ts
+
+// SSO routes
+userRoutes.post("/google", async (req, res) => {
+  try {
+    const { profile } = req.body;
+    const result = await ssoService.handleGoogleCallback(profile);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
+userRoutes.post("/facebook", async (req, res) => {
+  try {
+    const { profile } = req.body;
+    const result = await ssoService.handleFacebookCallback(profile);
+    res.json(result);
+  } catch (error) {
+    res.status(400).json({ error: (error as Error).message });
+  }
+});
+
 
 // Protected routes
-userRoutes.get("/", authenticate, getAllUsers);
-userRoutes.get("/:id", authenticate, getUserById);
-userRoutes.put("/:id", authenticate, updateUser);
-userRoutes.put("/change-password/:id", authenticate, changePassword);
+userRoutes.get("/", authenticateJWT, getAllUsers);
+userRoutes.get("/profile", authenticateJWT, getProfile);
+userRoutes.get("/:id", authenticateJWT, getUserById);
+userRoutes.put("/:id", authenticateJWT, updateUser);
+userRoutes.put("/change-password/:id", authenticateJWT, changePassword);
 
 export default userRoutes;
