@@ -14,6 +14,7 @@ import {
   refreshToken,
   sendEmailVerification,
   verifyEmail,
+  getProfile,
 } from "../controllers/userController";
 import { authenticateJWT } from "../middlewares/authenticate";
 import {
@@ -641,8 +642,10 @@ userRoutes.post("/facebook", async (req, res) => {
   }
 });
 
+
 // Protected routes
 userRoutes.get("/", authenticateJWT, getAllUsers);
+userRoutes.get("/profile", authenticateJWT, getProfile);
 userRoutes.get("/:id", authenticateJWT, getUserById);
 userRoutes.put("/:id", authenticateJWT, updateUser);
 userRoutes.put("/change-password/:id", authenticateJWT, changePassword);
