@@ -16,7 +16,7 @@ import {
   verifyEmail,
   getProfile,
 } from "../controllers/userController";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 import {
   validateSignUp,
   validateOTP,
@@ -481,7 +481,7 @@ userRoutes.post("/refresh-token", refreshToken);
 userRoutes.post("/forgot-password", forgotPassword);
 userRoutes.post("/resend-otp", resendOTP);
 userRoutes.post("/reset-password", resetPasswordWithOTP);
-userRoutes.post("/signout", authenticateJWT, signOut);
+userRoutes.post("/signout", authenticate, signOut);
 
 // Email verification routes
 userRoutes.post("/send-email-verification", sendEmailVerification);
@@ -642,12 +642,10 @@ userRoutes.post("/facebook", async (req, res) => {
   }
 });
 
-
 // Protected routes
-userRoutes.get("/", authenticateJWT, getAllUsers);
-userRoutes.get("/profile", authenticateJWT, getProfile);
-userRoutes.get("/:id", authenticateJWT, getUserById);
-userRoutes.put("/:id", authenticateJWT, updateUser);
-userRoutes.put("/change-password/:id", authenticateJWT, changePassword);
+userRoutes.get("/", authenticate, getAllUsers);
+userRoutes.get("/:id", authenticate, getUserById);
+userRoutes.put("/:id", authenticate, updateUser);
+userRoutes.put("/change-password/:id", authenticate, changePassword);
 
 export default userRoutes;

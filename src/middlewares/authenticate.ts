@@ -5,8 +5,8 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
 type JWTPayload = JwtPayload & {
-  _id?: string;        // nếu lúc ký dùng _id
-  userId?: string;     // nếu lúc ký dùng userId
+  _id?: string; // nếu lúc ký dùng _id
+  userId?: string; // nếu lúc ký dùng userId
   role?: "user" | "admin";
   isActive?: boolean;
   [k: string]: any;
@@ -31,7 +31,6 @@ export const authenticate: RequestHandler = (req, res, next) => {
       ...decoded,
     };
 
-
     next();
     return;
   } catch {
@@ -39,4 +38,3 @@ export const authenticate: RequestHandler = (req, res, next) => {
     return;
   }
 };
-
