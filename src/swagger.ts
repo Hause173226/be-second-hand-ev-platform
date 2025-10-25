@@ -1,4 +1,3 @@
-<<<<<<< Updated upstream
 import swaggerJSDoc from "swagger-jsdoc";
 
 const options = {
@@ -834,7 +833,6 @@ const options = {
 };
 
 export const swaggerSpec = swaggerJSDoc(options);
-=======
 import swaggerJSDoc from "swagger-jsdoc";
 
 const options = {
@@ -963,4 +961,4 @@ const options = {
 };
 
 export const swaggerSpec = swaggerJSDoc(options);
->>>>>>> Stashed changes
+

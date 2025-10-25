@@ -1,4 +1,3 @@
-<<<<<<< Updated upstream
 // src/app.ts
 import "dotenv/config";
 import express from "express";
@@ -64,7 +63,6 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use(errorHandler);
 
 export default app;
-=======
 // src/app.ts
 import "dotenv/config";
 import express from "express";
@@ -140,4 +138,4 @@ app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 app.use(errorHandler);
 
 export default app;
->>>>>>> Stashed changes
+
