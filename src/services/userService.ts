@@ -1,3 +1,4 @@
+// src/services/userService.ts
 import { User } from "../models/User";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -6,11 +7,11 @@ import nodemailer from "nodemailer";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 const REFRESH_TOKEN_SECRET =
   process.env.REFRESH_TOKEN_SECRET || "your_refresh_token_secret";
-const ACCESS_TOKEN_EXPIRY = "1h"; // Changed to 1 hour
-const REFRESH_TOKEN_EXPIRY = "7d"; // 7 days
+const ACCESS_TOKEN_EXPIRY = "1h";
+const REFRESH_TOKEN_EXPIRY = "7d";
 
 const transporter = nodemailer.createTransport({
-  service: "gmail", // Hoặc dịch vụ email khác
+  service: "gmail",
   auth: {
     user: process.env.EMAIL_USERNAME,
     pass: process.env.EMAIL_PASSWORD,
@@ -20,7 +21,7 @@ const transporter = nodemailer.createTransport({
 const sendOTPEmail = async (to: string, otp: string) => {
   try {
     await transporter.sendMail({
-      from: process.env.EMAIL_USERNAME, // Phải đồng bộ với user ở trên
+      from: process.env.EMAIL_USERNAME,
       to,
       subject: "Mã xác thực đặt lại mật khẩu",
       text: `Mã OTP của bạn là: ${otp}`,
@@ -30,48 +31,40 @@ const sendOTPEmail = async (to: string, otp: string) => {
   }
 };
 
-const generateOTP = (length = 6) => {
-  return Math.floor(100000 + Math.random() * 900000)
+const generateOTP = (length = 6) =>
+  Math.floor(100000 + Math.random() * 900000)
     .toString()
     .substring(0, length);
-};
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 export const userService = {
   signUp: async (userData: any) => {
     const { fullName, phone, email, password, ...rest } = userData;
 
-    if (!fullName) {
-      throw new Error("Thiếu fullName bắt buộc");
-    }
-    if (!phone) {
-      throw new Error("Thiếu phone bắt buộc");
-    }
-    if (!email) {
-      throw new Error("Thiếu email bắt buộc");
-    }
-    if (!password) {
-      throw new Error("Thiếu password bắt buộc");
-    }
+    if (!fullName) throw new Error("Thiếu fullName bắt buộc");
+    if (!phone) throw new Error("Thiếu phone bắt buộc");
+    if (!email) throw new Error("Thiếu email bắt buộc");
+    if (!password) throw new Error("Thiếu password bắt buộc");
+
+    const emailNorm = normalizeEmail(email);
 
     const existingUser = await User.findOne({
-      $or: [{ phone }, { email }],
+      $or: [{ phone }, { email: emailNorm }],
     });
-    if (existingUser) {
-      throw new Error("Số điện thoại hoặc email đã tồn tại");
-    }
+    if (existingUser) throw new Error("Số điện thoại hoặc email đã tồn tại");
 
     const hashedPassword = await bcrypt.hash(password, 10);
 
     const user = await User.create({
       fullName,
       phone,
-      email,
+      email: emailNorm,
       password: hashedPassword,
-      role: "user",
+      role: "user", // mặc định
       ...rest,
     });
 
-    // Xóa password trước khi trả về
     const userObj = user.toObject() as any;
     delete userObj.password;
     return userObj;
@@ -88,7 +81,6 @@ export const userService = {
       expiresIn: REFRESH_TOKEN_EXPIRY,
     });
 
-    // Store refresh token in database
     user.refreshToken = refreshToken;
     await user.save();
 
@@ -96,15 +88,21 @@ export const userService = {
   },
 
   signIn: async (email: string, password: string, role?: string) => {
-    // Nếu không truyền role thì mặc định là "user"
-    const userRole = role || "user";
-    const user = await User.findOne({ email, role: userRole });
-    if (!user)
-      throw new Error("Email, mật khẩu hoặc quyền truy cập không đúng");
+    const emailNorm = normalizeEmail(email);
 
-    const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch)
-      throw new Error("Email, mật khẩu hoặc quyền truy cập không đúng");
+    const user = await User.findOne({ email: emailNorm }).select(
+      "+password +role +refreshToken +isActive +emailVerified"
+    );
+    if (!user) throw new Error("Email hoặc mật khẩu không đúng");
+
+    const userPassword = user.password;
+    if (!userPassword) throw new Error("Tài khoản không có mật khẩu hợp lệ");
+
+    const isMatch = await bcrypt.compare(password, userPassword);
+    if (!isMatch) throw new Error("Email hoặc mật khẩu không đúng");
+
+    if (role && user.role !== role)
+      throw new Error("Quyền truy cập không phù hợp với tài khoản");
 
     const { accessToken, refreshToken } = await userService.generateTokens(
       user
@@ -114,50 +112,34 @@ export const userService = {
     delete userObj.password;
     delete userObj.refreshToken;
 
-    return {
-      user: userObj,
-      accessToken,
-      refreshToken,
-    };
+    return { user: userObj, accessToken, refreshToken };
   },
 
   refreshToken: async (refreshToken: string) => {
-    if (!refreshToken) {
-      throw new Error("Refresh token is required");
-    }
+    if (!refreshToken) throw new Error("Refresh token is required");
 
     try {
-      // Verify refresh token
       const decoded = jwt.verify(refreshToken, REFRESH_TOKEN_SECRET) as {
         userId: string;
       };
 
-      // Find user with this refresh token
       const user = await User.findOne({
         _id: decoded.userId,
-        refreshToken: refreshToken,
-      });
+        refreshToken,
+      }).select("+refreshToken");
 
-      if (!user) {
-        throw new Error("Invalid refresh token");
-      }
+      if (!user) throw new Error("Invalid refresh token");
 
-      // Generate new tokens
-      const tokens = await userService.generateTokens(user);
-
-      return tokens;
-    } catch (error) {
+      return await userService.generateTokens(user);
+    } catch {
       throw new Error("Invalid refresh token");
     }
   },
 
   signOut: async (userId: string) => {
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
+    const user = await User.findById(userId).select("+refreshToken");
+    if (!user) throw new Error("User not found");
 
-    // Clear refresh token
     user.refreshToken = undefined;
     await user.save();
 
@@ -165,23 +147,22 @@ export const userService = {
   },
 
   sendForgotPasswordOTP: async (email: string) => {
-    const user = await User.findOne({ email });
+    const emailNorm = normalizeEmail(email);
+    const user = await User.findOne({ email: emailNorm });
     if (!user) throw new Error("Email không tồn tại");
 
     const otp = generateOTP();
-    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+    const expires = new Date(Date.now() + 5 * 60 * 1000);
 
     user.otpCode = otp;
     user.otpExpires = expires;
     await user.save();
 
-    await sendOTPEmail(email, otp);
-
+    await sendOTPEmail(emailNorm, otp);
     return { message: "OTP đã được gửi về email" };
   },
 
   resendForgotPasswordOTP: async (email: string) => {
-    // Gửi lại OTP mới
     return await userService.sendForgotPasswordOTP(email);
   },
 
@@ -190,11 +171,13 @@ export const userService = {
     otp: string,
     newPassword: string
   ) => {
+    const emailNorm = normalizeEmail(email);
     const user = await User.findOne({
-      email,
+      email: emailNorm,
       otpCode: otp,
       otpExpires: { $gt: new Date() },
-    });
+    }).select("+password");
+
     if (!user) throw new Error("OTP không hợp lệ hoặc đã hết hạn");
 
     user.password = await bcrypt.hash(newPassword, 10);
@@ -212,10 +195,7 @@ export const userService = {
 
   getUserById: async (userId: string) => {
     const user = await User.findById(userId).lean();
-    if (!user) {
-      throw new Error("User not found");
-    }
-    // Remove password before returning
+    if (!user) throw new Error("User not found");
     const userObj = user as any;
     delete userObj.password;
     return userObj;
@@ -223,28 +203,18 @@ export const userService = {
 
   updateUser: async (userId: string, updateData: any) => {
     const user = await User.findById(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
+    if (!user) throw new Error("User not found");
 
-    // Ngăn không cho cập nhật password trực tiếp
-    if (updateData.password) {
+    if (updateData.password)
       throw new Error("Sử dụng changePassword để đổi mật khẩu");
-    }
-
-    // Ngăn không cho cập nhật trạng thái trực tiếp
-    if (updateData.isActive !== undefined) {
+    if (updateData.isActive !== undefined)
       throw new Error("Sử dụng changeUserStatus để thay đổi trạng thái");
-    }
 
-    // Chỉ cập nhật những field được truyền lên và không phải undefined/null
     Object.keys(updateData).forEach((key) => {
       if (
         updateData[key] !== undefined &&
         updateData[key] !== null &&
-        key !== "password" &&
-        key !== "isActive" &&
-        key !== "refreshToken"
+        !["password", "isActive", "refreshToken"].includes(key)
       ) {
         (user as any)[key] = updateData[key];
       }
@@ -262,35 +232,9 @@ export const userService = {
     currentPassword: string,
     newPassword: string
   ) => {
-    const user = await User.findById(userId);
-    if (!user) {
-      throw new Error("User not found");
-    }
+    const user = await User.findById(userId).select("+password +refreshToken");
+    if (!user) throw new Error("User not found");
 
-    // Kiểm tra mật khẩu hiện tại có đúng không
-    const isCurrentPasswordMatch = await bcrypt.compare(
-      currentPassword,
-      user.password
-    );
-    if (!isCurrentPasswordMatch) {
-      throw new Error("Current password is incorrect");
-    }
-
-    // Kiểm tra mật khẩu mới không trùng với mật khẩu hiện tại
-    const isSamePassword = await bcrypt.compare(newPassword, user.password);
-    if (isSamePassword) {
-      throw new Error("Mật khẩu mới phải khác mật khẩu hiện tại");
-    }
-
-    // Hash mật khẩu mới và lưu
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
-    user.password = hashedPassword;
-
-    // Xóa refresh token để buộc user đăng nhập lại (tùy chọn)
-    user.refreshToken = undefined;
-
-    await user.save();
-
-    return { message: "Đổi mật khẩu thành công" };
+    const userPassword = user.password;
   },
 };
