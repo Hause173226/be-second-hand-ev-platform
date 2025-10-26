@@ -38,7 +38,17 @@ const generateOTP = (length = 6) => {
 
 export const userService = {
   signUp: async (userData: any) => {
-    const { fullName, phone, email, password, ...rest } = userData;
+    const {
+      fullName,
+      phone,
+      email,
+      password,
+      gender,
+      dateOfBirth,
+      avatar,
+      addresses,
+      ...rest
+    } = userData;
 
     if (!fullName) {
       throw new Error("Thiếu fullName bắt buộc");
@@ -68,12 +78,26 @@ export const userService = {
       email,
       password: hashedPassword,
       role: "user",
+      roles: ["user"], // Sync với role
+      gender,
+      dateOfBirth,
+      avatar,
+      addresses: addresses || undefined,
+      stats: {
+        soldCount: 0,
+        buyCount: 0,
+        cancelRate: 0,
+        responseTime: 0,
+        completionRate: 0,
+      },
       ...rest,
     });
 
     // Xóa password trước khi trả về
     const userObj = user.toObject() as any;
     delete userObj.password;
+    delete userObj.passwordHash;
+    delete userObj.roles; // Chỉ giữ role (string)
     return userObj;
   },
 
@@ -118,6 +142,7 @@ export const userService = {
     const userObj = user.toObject() as any;
     delete userObj.password;
     delete userObj.refreshToken;
+    delete userObj.roles; // Chỉ giữ role (string)
 
     return {
       user: userObj,
@@ -259,6 +284,7 @@ export const userService = {
     const userObj = user.toObject() as any;
     delete userObj.password;
     delete userObj.refreshToken;
+    delete userObj.roles; // Chỉ giữ role (string)
     return userObj;
   },
 
@@ -302,5 +328,51 @@ export const userService = {
     await user.save();
 
     return { message: "Đổi mật khẩu thành công" };
+  },
+
+  deleteUser: async (userId: string) => {
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Soft delete: Cập nhật status thành "DELETED"
+    user.status = "DELETED";
+    user.isActive = false;
+    await user.save();
+
+    return { message: "User đã được xóa thành công" };
+  },
+
+  sendEmailVerification: async (email: string) => {
+    const user = await User.findOne({ email });
+    if (!user) throw new Error("Email không tồn tại");
+
+    const otp = generateOTP();
+    const expires = new Date(Date.now() + 5 * 60 * 1000); // 5 phút
+
+    user.otpCode = otp;
+    user.otpExpires = expires;
+    await user.save();
+
+    await sendOTPEmail(email, otp);
+
+    return { message: "Mã xác thực đã được gửi về email" };
+  },
+
+  verifyEmail: async (email: string, otp: string) => {
+    const user = await User.findOne({
+      email,
+      otpCode: otp,
+      otpExpires: { $gt: new Date() },
+    });
+    if (!user) throw new Error("OTP không hợp lệ hoặc đã hết hạn");
+
+    user.emailVerified = true;
+    user.otpCode = undefined;
+    user.otpExpires = undefined;
+    await user.save();
+
+    return { message: "Xác thực email thành công" };
   },
 };

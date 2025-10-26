@@ -43,8 +43,12 @@ export const ssoService = {
         user
       );
 
+      const userObj = user.toObject() as any;
+      delete userObj.roles; // Chỉ giữ role (string)
+      delete userObj.phoneVerified; // Đã bỏ field này
+
       return {
-        user: user.toObject(),
+        user: userObj,
         accessToken,
         refreshToken,
         message: "Đăng nhập Google thành công",
@@ -89,8 +93,12 @@ export const ssoService = {
         user
       );
 
+      const userObj = user.toObject() as any;
+      delete userObj.roles; // Chỉ giữ role (string)
+      delete userObj.phoneVerified; // Đã bỏ field này
+
       return {
-        user: user.toObject(),
+        user: userObj,
         accessToken,
         refreshToken,
         message: "Đăng nhập Facebook thành công",

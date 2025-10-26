@@ -1,3 +1,15 @@
+export interface IAddress {
+  _id?: string;
+  fullAddress: string;
+  ward: string;
+  district: string;
+  city: string;
+  province: string;
+  isActive: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
 export interface IUser {
   _id?: string;
 
@@ -5,7 +17,6 @@ export interface IUser {
   email?: string;
   phone?: string;
   emailVerified?: boolean;
-  phoneVerified?: boolean;
   passwordHash?: string;
   roles: string[];
   status: "ACTIVE" | "SUSPENDED" | "DELETED";
@@ -20,10 +31,24 @@ export interface IUser {
   dateOfBirth?: Date;
   role?: string;
   gender?: string;
-  address?: string;
   isActive?: boolean;
   otpCode?: string;
   otpExpires?: Date;
   refreshToken?: string;
   avatar?: string;
+
+  // SSO IDs
+  googleId?: string;
+  facebookId?: string;
+
+  // Profile stats
+  rating?: number;
+  stats?: {
+    soldCount: number;
+    buyCount: number;
+    cancelRate: number;
+    responseTime: number;
+    completionRate: number;
+  };
+  addresses?: IAddress;
 }

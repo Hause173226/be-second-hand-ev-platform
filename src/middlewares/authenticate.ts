@@ -25,3 +25,20 @@ export const authenticateJWT = (
     return; // <-- Thêm dòng này
   }
 };
+
+export const checkAdmin = (req: Request, res: Response, next: NextFunction) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Không có token" });
+    return;
+  }
+
+  if (user.role !== "admin") {
+    res
+      .status(403)
+      .json({ error: "Không có quyền truy cập. Chỉ admin mới được phép." });
+    return;
+  }
+
+  next();
+};

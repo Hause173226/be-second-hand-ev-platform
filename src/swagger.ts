@@ -25,18 +25,6 @@ const options = {
         name: "Profile",
         description: "Profile management endpoints",
       },
-      {
-        name: "KYC",
-        description: "KYC verification endpoints",
-      },
-      {
-        name: "Address",
-        description: "Address management endpoints",
-      },
-      {
-        name: "Payment",
-        description: "Payment method management endpoints",
-      },
     ],
     components: {
       securitySchemes: {

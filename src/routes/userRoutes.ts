@@ -15,8 +15,9 @@ import {
   getProfile,
   sendEmailVerification,
   verifyEmail,
+  deleteUser,
 } from "../controllers/userController";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticateJWT, checkAdmin } from "../middlewares/authenticate";
 import {
   validateSignUp,
   validateOTP,
@@ -56,6 +57,38 @@ const userRoutes = express.Router();
  *                 minLength: 6
  *                 maxLength: 50
  *                 example: "password123"
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female, other]
+ *                 example: "male"
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *                 example: "1990-01-01"
+ *               avatar:
+ *                 type: string
+ *                 example: "https://example.com/avatar.jpg"
+ *               addresses:
+ *                 type: object
+ *                 properties:
+ *                   fullAddress:
+ *                     type: string
+ *                     example: "123 Đường ABC"
+ *                   ward:
+ *                     type: string
+ *                     example: "Phường 1"
+ *                   district:
+ *                     type: string
+ *                     example: "Quận 1"
+ *                   city:
+ *                     type: string
+ *                     example: "TP.HCM"
+ *                   province:
+ *                     type: string
+ *                     example: "Hồ Chí Minh"
+ *                   isActive:
+ *                     type: boolean
+ *                     example: true
  *               termsAgreed:
  *                 type: boolean
  *                 example: true
@@ -696,10 +729,47 @@ userRoutes.post("/facebook", async (req, res) => {
   }
 });
 
+/**
+ * @swagger
+ * /api/users/{id}:
+ *   delete:
+ *     summary: Xóa user (Admin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của user cần xóa
+ *     responses:
+ *       200:
+ *         description: User đã được xóa thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "User đã được xóa thành công"
+ *       400:
+ *         description: User không tìm thấy hoặc lỗi khác
+ *       401:
+ *         description: Không có token hoặc token không hợp lệ
+ *       403:
+ *         description: Không có quyền truy cập. Chỉ admin mới được phép.
+ *       500:
+ *         description: Lỗi server
+ */
+
 // Protected routes
 userRoutes.get("/", authenticateJWT, getAllUsers);
 userRoutes.get("/:id", authenticateJWT, getUserById);
 userRoutes.put("/:id", authenticateJWT, updateUser);
 userRoutes.put("/change-password/:id", authenticateJWT, changePassword);
+userRoutes.delete("/:id", authenticateJWT, checkAdmin, deleteUser);
 
 export default userRoutes;
