@@ -1,4 +1,3 @@
-
 // src/app.ts
 import "dotenv/config";
 import express from "express";
@@ -13,13 +12,11 @@ import searchHistoryRoutes from "./routes/searchHistoryRoutes";
 import chatRoutes from "./routes/chatRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
 import offerRoutes from "./routes/offerRoutes";
-
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
 import { errorHandler } from "./middlewares/errorHandler";
 
 const app = express();
-
 
 // 🧩 CORS — hợp nhất từ 2 bản
 const allowlist = [
@@ -44,16 +41,13 @@ app.use(
   })
 );
 
-
 // 🧠 Body parsers
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-
 // 📁 Static files (ảnh upload, v.v.)
 const uploadsDir = path.resolve(process.cwd(), "uploads");
 app.use("/uploads", express.static(uploadsDir));
-
 
 // 🚏 Routes — gộp tất cả routes của 2 bản
 app.use("/api/users", userRoutes);
@@ -65,13 +59,10 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/offers", offerRoutes);
 
-
 // 📘 Swagger Docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-
 
 // ❗ Error handler — luôn để cuối
 app.use(errorHandler);
 
 export default app;
-
