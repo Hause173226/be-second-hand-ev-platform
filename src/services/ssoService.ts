@@ -23,7 +23,7 @@ export const ssoService = {
         // User đã tồn tại - cập nhật Google ID nếu chưa có
         if (!user.googleId) {
           user.googleId = id;
-          user.isActive = true; // Auto activate cho SSO
+          (user as any).status = "ACTIVE"; // Auto activate cho SSO
           await user.save();
         }
       } else {
@@ -34,7 +34,7 @@ export const ssoService = {
           googleId: id,
           avatar: photos[0].value,
           role: "user",
-          isActive: true, // Auto activate cho SSO
+          status: "ACTIVE", // Auto activate cho SSO
         });
       }
 
@@ -45,7 +45,6 @@ export const ssoService = {
 
       const userObj = user.toObject() as any;
       delete userObj.roles; // Chỉ giữ role (string)
-      delete userObj.phoneVerified; // Đã bỏ field này
 
       return {
         user: userObj,
@@ -73,7 +72,7 @@ export const ssoService = {
         // User đã tồn tại - cập nhật Facebook ID nếu chưa có
         if (!user.facebookId) {
           user.facebookId = id;
-          user.isActive = true; // Auto activate cho SSO
+          (user as any).status = "ACTIVE"; // Auto activate cho SSO
           await user.save();
         }
       } else {
@@ -84,7 +83,7 @@ export const ssoService = {
           facebookId: id,
           avatar: photos[0].value,
           role: "user",
-          isActive: true, // Auto activate cho SSO
+          status: "ACTIVE", // Auto activate cho SSO
         });
       }
 
@@ -95,7 +94,6 @@ export const ssoService = {
 
       const userObj = user.toObject() as any;
       delete userObj.roles; // Chỉ giữ role (string)
-      delete userObj.phoneVerified; // Đã bỏ field này
 
       return {
         user: userObj,

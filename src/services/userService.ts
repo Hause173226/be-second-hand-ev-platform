@@ -48,7 +48,7 @@ export const userService = {
       gender,
       dateOfBirth,
       avatar,
-      addresses,
+      address,
       ...rest
     } = userData;
 
@@ -56,6 +56,8 @@ export const userService = {
     if (!phone) throw new Error("Thiếu phone bắt buộc");
     if (!email) throw new Error("Thiếu email bắt buộc");
     if (!password) throw new Error("Thiếu password bắt buộc");
+    if (!address || !address.fullAddress)
+      throw new Error("Thiếu địa chỉ bắt buộc");
 
     const emailNorm = normalizeEmail(email);
 
@@ -72,11 +74,11 @@ export const userService = {
       email: emailNorm,
       password: hashedPassword,
       role: "user",
-      roles: ["user"], // Sync với role
+      // Sync với role
       gender,
       dateOfBirth,
       avatar,
-      addresses: addresses || undefined,
+      address: address || undefined,
       stats: {
         soldCount: 0,
         buyCount: 0,
@@ -84,13 +86,11 @@ export const userService = {
         responseTime: 0,
         completionRate: 0,
       },
-      role: "user", // mặc định
       ...rest,
     });
 
     const userObj = user.toObject() as any;
     delete userObj.password;
-    delete userObj.passwordHash;
     delete userObj.roles; // Chỉ giữ role (string)
     return userObj;
   },
@@ -116,11 +116,11 @@ export const userService = {
     const emailNorm = normalizeEmail(email);
 
     const user = await User.findOne({ email: emailNorm }).select(
-      "+password +role +refreshToken +isActive +emailVerified"
+      "+password +role +refreshToken +emailVerified"
     );
     if (!user) throw new Error("Email hoặc mật khẩu không đúng");
 
-    const userPassword = user.password || user.passwordHash;
+    const userPassword = user.password;
     if (!userPassword) throw new Error("Tài khoản không có mật khẩu hợp lệ");
 
     const isMatch = await bcrypt.compare(password, userPassword);
@@ -129,7 +129,9 @@ export const userService = {
     if (role && user.role !== role)
       throw new Error("Quyền truy cập không phù hợp với tài khoản");
 
-    const { accessToken, refreshToken } = await userService.generateTokens(user);
+    const { accessToken, refreshToken } = await userService.generateTokens(
+      user
+    );
 
     const userObj = user.toObject() as any;
     delete userObj.password;
@@ -213,7 +215,7 @@ export const userService = {
   },
 
   getAllUsers: async () => {
-    const users = await User.find({ isActive: true }).lean();
+    const users = await User.find({ status: "ACTIVE" }).lean();
     return users;
   },
 
@@ -231,14 +233,17 @@ export const userService = {
 
     if (updateData.password)
       throw new Error("Sử dụng changePassword để đổi mật khẩu");
-    if (updateData.isActive !== undefined)
-      throw new Error("Sử dụng changeUserStatus để thay đổi trạng thái");
+    if (
+      updateData.status &&
+      !["ACTIVE", "SUSPENDED", "DELETED"].includes(updateData.status)
+    )
+      throw new Error("Status không hợp lệ");
 
     Object.keys(updateData).forEach((key) => {
       if (
         updateData[key] !== undefined &&
         updateData[key] !== null &&
-        !["password", "isActive", "refreshToken"].includes(key)
+        !["password", "refreshToken"].includes(key)
       ) {
         (user as any)[key] = updateData[key];
       }
@@ -261,7 +266,7 @@ export const userService = {
     if (!user) throw new Error("User not found");
 
     // Kiểm tra mật khẩu hiện tại có đúng không
-    const userPassword = user.password || user.passwordHash;
+    const userPassword = user.password;
     if (!userPassword) {
       throw new Error("User password not found");
     }
@@ -299,8 +304,7 @@ export const userService = {
     }
 
     // Soft delete: Cập nhật status thành "DELETED"
-    user.status = "DELETED";
-    user.isActive = false;
+    (user as any).status = "DELETED";
     await user.save();
 
     return { message: "User đã được xóa thành công" };
@@ -338,4 +342,3 @@ export const userService = {
     return { message: "Xác thực email thành công" };
   },
 };
-    const userPassword = user.password || user

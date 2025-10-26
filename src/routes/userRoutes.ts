@@ -15,11 +15,9 @@ import {
   sendEmailVerification,
   verifyEmail,
   deleteUser,
-} from "../controllers/userController";
-import { authenticateJWT, checkAdmin } from "../middlewares/authenticate";
   getProfile,
 } from "../controllers/userController";
-import { authenticate } from "../middlewares/authenticate";
+import { authenticate, checkAdmin } from "../middlewares/authenticate";
 import {
   validateSignUp,
   validateOTP,
@@ -70,7 +68,7 @@ const userRoutes = express.Router();
  *               avatar:
  *                 type: string
  *                 example: "https://example.com/avatar.jpg"
- *               addresses:
+ *               address:
  *                 type: object
  *                 properties:
  *                   fullAddress:
@@ -88,9 +86,12 @@ const userRoutes = express.Router();
  *                   province:
  *                     type: string
  *                     example: "Hồ Chí Minh"
- *                   isActive:
- *                     type: boolean
- *                     example: true
+ *                 required:
+ *                   - fullAddress
+ *                   - ward
+ *                   - district
+ *                   - city
+ *                   - province
  *               termsAgreed:
  *                 type: boolean
  *                 example: true
@@ -99,6 +100,7 @@ const userRoutes = express.Router();
  *               - phone
  *               - email
  *               - password
+ *               - address
  *               - termsAgreed
  *     responses:
  *       201:
@@ -715,8 +717,10 @@ userRoutes.post("/facebook", async (req, res) => {
 
 // Protected routes
 userRoutes.get("/", authenticate, getAllUsers);
+userRoutes.get("/profile", authenticate, getProfile);
 userRoutes.get("/:id", authenticate, getUserById);
 userRoutes.put("/:id", authenticate, updateUser);
 userRoutes.put("/change-password/:id", authenticate, changePassword);
+userRoutes.delete("/:id", authenticate, checkAdmin, deleteUser);
 
 export default userRoutes;

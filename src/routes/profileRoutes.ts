@@ -4,7 +4,7 @@ import {
   updatePersonalInfo,
   getProfileStats,
 } from "../controllers/profileController";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 
 const profileRoutes = express.Router();
 
@@ -102,9 +102,9 @@ const profileRoutes = express.Router();
  */
 
 // Profile routes
-profileRoutes.get("/", authenticateJWT, getProfile);
-profileRoutes.put("/", authenticateJWT, updatePersonalInfo);
-profileRoutes.get("/stats", authenticateJWT, getProfileStats);
+profileRoutes.get("/", authenticate, getProfile);
+profileRoutes.put("/", authenticate, updatePersonalInfo);
+profileRoutes.get("/stats", authenticate, getProfileStats);
 // DELETE profile đã được chuyển sang admin routes để admin có thể xóa user
 
 export default profileRoutes;

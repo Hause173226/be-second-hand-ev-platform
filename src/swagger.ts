@@ -6,24 +6,6 @@ const options = {
     info: {
       title: "Second Hand EV Platform API",
       version: "1.0.0",
-      description: "API documentation for BE Bus Ticket Sales System",
-    },
-    tags: [
-      {
-        name: "Auth",
-        description: "Authentication endpoints",
-      },
-      {
-        name: "User Profile",
-        description: "User profile management endpoints",
-      },
-      {
-        name: "Users",
-        description: "User management endpoints (Admin only)",
-      },
-      {
-        name: "Profile",
-        description: "Profile management endpoints",
       description: `
       📘 **Tài liệu API - Nền tảng Mua Bán Xe Điện Cũ**
       
@@ -43,7 +25,7 @@ const options = {
 
     servers: [
       {
-        url: "http://localhost:5000/api",
+        url: "http://localhost:8081",
         description: "Local development server",
       },
       {
@@ -54,13 +36,28 @@ const options = {
 
     tags: [
       { name: "Auth", description: "Đăng ký, đăng nhập, xác minh email, OTP" },
-      { name: "Users", description: "Quản lý tài khoản người dùng (Admin & User)" },
-      { name: "Profile", description: "Cập nhật và lấy thông tin hồ sơ người dùng" },
+      {
+        name: "Users",
+        description: "Quản lý tài khoản người dùng (Admin & User)",
+      },
+      {
+        name: "Profile",
+        description: "Cập nhật và lấy thông tin hồ sơ người dùng",
+      },
       { name: "Listings", description: "Quản lý và tìm kiếm tin rao xe điện" },
-      { name: "Appointments", description: "Lịch hẹn xem xe & xác nhận cuộc hẹn" },
+      {
+        name: "Appointments",
+        description: "Lịch hẹn xem xe & xác nhận cuộc hẹn",
+      },
       { name: "Offers", description: "Đề nghị giá và phản hồi đàm phán" },
-      { name: "Chat", description: "Tin nhắn trực tiếp giữa người mua & người bán" },
-      { name: "Search History", description: "Theo dõi từ khóa & lịch sử tìm kiếm" },
+      {
+        name: "Chat",
+        description: "Tin nhắn trực tiếp giữa người mua & người bán",
+      },
+      {
+        name: "Search History",
+        description: "Theo dõi từ khóa & lịch sử tìm kiếm",
+      },
     ],
 
     components: {
@@ -81,9 +78,17 @@ const options = {
             fullName: { type: "string", example: "Nguyễn Văn A" },
             email: { type: "string", example: "a.nguyen@example.com" },
             phone: { type: "string", example: "0912345678" },
-            role: { type: "string", enum: ["user", "admin"], example: "user" },
+            role: {
+              type: "string",
+              enum: ["user", "staff", "admin"],
+              example: "user",
+            },
             emailVerified: { type: "boolean", example: true },
-            isActive: { type: "boolean", example: true },
+            status: {
+              type: "string",
+              enum: ["ACTIVE", "SUSPENDED", "DELETED"],
+              example: "ACTIVE",
+            },
           },
         },
 
@@ -102,12 +107,19 @@ const options = {
           properties: {
             _id: { type: "string" },
             title: { type: "string", example: "Xe máy điện VinFast Klara" },
-            description: { type: "string", example: "Xe còn rất mới, đi được 3000km" },
+            description: {
+              type: "string",
+              example: "Xe còn rất mới, đi được 3000km",
+            },
             price: { type: "number", example: 14500000 },
             images: { type: "array", items: { type: "string" } },
             location: { type: "string", example: "Hà Nội" },
             sellerId: { type: "string" },
-            status: { type: "string", enum: ["available", "sold"], example: "available" },
+            status: {
+              type: "string",
+              enum: ["available", "sold"],
+              example: "available",
+            },
             createdAt: { type: "string", format: "date-time" },
           },
         },
@@ -119,7 +131,11 @@ const options = {
             listingId: { type: "string" },
             buyerId: { type: "string" },
             offerPrice: { type: "number", example: 14000000 },
-            status: { type: "string", enum: ["pending", "accepted", "rejected"], example: "pending" },
+            status: {
+              type: "string",
+              enum: ["pending", "accepted", "rejected"],
+              example: "pending",
+            },
           },
         },
 
@@ -129,8 +145,16 @@ const options = {
             _id: { type: "string" },
             listingId: { type: "string" },
             buyerId: { type: "string" },
-            date: { type: "string", format: "date-time", example: "2025-10-23T10:00:00Z" },
-            status: { type: "string", enum: ["pending", "confirmed", "cancelled"], example: "pending" },
+            date: {
+              type: "string",
+              format: "date-time",
+              example: "2025-10-23T10:00:00Z",
+            },
+            status: {
+              type: "string",
+              enum: ["pending", "confirmed", "cancelled"],
+              example: "pending",
+            },
           },
         },
       },
