@@ -12,12 +12,14 @@ import {
   updateUser,
   changePassword,
   refreshToken,
-  getProfile,
   sendEmailVerification,
   verifyEmail,
   deleteUser,
 } from "../controllers/userController";
 import { authenticateJWT, checkAdmin } from "../middlewares/authenticate";
+  getProfile,
+} from "../controllers/userController";
+import { authenticate } from "../middlewares/authenticate";
 import {
   validateSignUp,
   validateOTP,
@@ -441,59 +443,6 @@ const userRoutes = express.Router();
 
 /**
  * @swagger
- * /api/users/profile:
- *   get:
- *     summary: Lấy thông tin profile của user hiện tại
- *     tags: [User Profile]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Thông tin profile được trả về thành công
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 _id:
- *                   type: string
- *                 fullName:
- *                   type: string
- *                 phone:
- *                   type: string
- *                 email:
- *                   type: string
- *                 citizenId:
- *                   type: string
- *                 dateOfBirth:
- *                   type: string
- *                   format: date
- *                 gender:
- *                   type: string
- *                   enum: [male, female, other]
- *                 address:
- *                   type: string
- *                 role:
- *                   type: string
- *                   enum: [user, admin]
- *                 isActive:
- *                   type: boolean
- *                 createdAt:
- *                   type: string
- *                   format: date-time
- *                 updatedAt:
- *                   type: string
- *                   format: date-time
- *       401:
- *         description: Unauthorized - Token không hợp lệ
- *       404:
- *         description: User not found
- *       500:
- *         description: Internal server error
- */
-
-/**
- * @swagger
  * /api/users/send-email-verification:
  *   post:
  *     summary: Gửi email xác thực tài khoản
@@ -567,7 +516,7 @@ userRoutes.post("/refresh-token", refreshToken);
 userRoutes.post("/forgot-password", forgotPassword);
 userRoutes.post("/resend-otp", resendOTP);
 userRoutes.post("/reset-password", resetPasswordWithOTP);
-userRoutes.post("/signout", authenticateJWT, signOut);
+userRoutes.post("/signout", authenticate, signOut);
 
 // Email verification routes
 userRoutes.post("/send-email-verification", sendEmailVerification);
@@ -705,8 +654,7 @@ userRoutes.post("/verify-email", validateOTP, verifyEmail);
  *         description: Lỗi đăng nhập Facebook
  */
 
-// Profile routes
-userRoutes.get("/profile", authenticateJWT, getProfile);
+// Profile routes - moved to profileRoutes.ts
 
 // SSO routes
 userRoutes.post("/google", async (req, res) => {
@@ -766,10 +714,9 @@ userRoutes.post("/facebook", async (req, res) => {
  */
 
 // Protected routes
-userRoutes.get("/", authenticateJWT, getAllUsers);
-userRoutes.get("/:id", authenticateJWT, getUserById);
-userRoutes.put("/:id", authenticateJWT, updateUser);
-userRoutes.put("/change-password/:id", authenticateJWT, changePassword);
-userRoutes.delete("/:id", authenticateJWT, checkAdmin, deleteUser);
+userRoutes.get("/", authenticate, getAllUsers);
+userRoutes.get("/:id", authenticate, getUserById);
+userRoutes.put("/:id", authenticate, updateUser);
+userRoutes.put("/change-password/:id", authenticate, changePassword);
 
 export default userRoutes;
