@@ -8,11 +8,11 @@ import { SearchHistory } from "../models/SearchHistory";
 import { suggestHeuristic } from "../services/priceAI.heuristic";
 import { PriceAIInput } from "../services/priceAI.types";
 
-// ❌ BỎ Firebase
-// import { uploadImageToFirebase } from "../services/fileStorage";
+// ⬇️ NEW: dùng kiểu để type-narrowing cho union
+import type {
+  IListing,
+} from "../interfaces/IListing"
 
-// ✅ Dùng Cloudinary qua multer-storage-cloudinary
-// Khi dùng CloudinaryStorage, multer sẽ trả về file có .path (URL) và .filename (public_id)
 type MulterCloudinaryFile = Express.Multer.File & {
   path: string;     // Cloudinary URL
   filename: string; // Cloudinary public_id
@@ -39,11 +39,12 @@ const toBool = (v: unknown) => {
   return Boolean(v);
 };
 
+// ⬇️ NEW: type guards cho union
+const isCar = (l: IListing): l is IListing & { type: "Car" } => l?.type === "Car";
+const isBattery = (l: IListing): l is IListing & { type: "Battery" } => l?.type === "Battery";
+
 /**
  * Tạo listing (status = Draft)
- * (Phần 15) Parse & validate priceListed + tradeMethod
- * (Cloudinary) Ảnh đã được upload bởi multer-storage-cloudinary => lấy URL + publicId
- * (NEW) Bắt buộc commissionTermsAccepted = true
  */
 export const createListing: RequestHandler = async (req, res, next) => {
   try {
@@ -79,16 +80,25 @@ export const createListing: RequestHandler = async (req, res, next) => {
       mileageKm,
       chargeCycles,
       condition,
-      priceListed, // ⬅️ phần 15
-      tradeMethod, // ⬅️ phần 15
+      priceListed,
+      tradeMethod,
       sellerConfirm,
       location,
-    } = req.body;
+
+      // ⬇️ NEW: các field hợp đồng (Car)
+      licensePlate,
+      engineDisplacementCc,
+      vehicleType,
+      paintColor,
+      engineNumber,
+      chassisNumber,
+      otherFeatures,
+    } = req.body as any;
 
     const locObj = parseLocation(location);
     const confirmed = toBool(sellerConfirm);
 
-    // (15) ép & validate priceListed
+    // ép & validate priceListed
     const priceListedNum =
       typeof priceListed === "string" ? Number(priceListed) : Number(priceListed);
     if (!Number.isFinite(priceListedNum) || priceListedNum < 0) {
@@ -96,7 +106,7 @@ export const createListing: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    // (15) validate tradeMethod
+    // validate tradeMethod
     const ALLOWED_TRADE: Array<"meet" | "ship" | "consignment"> = [
       "meet",
       "ship",
@@ -107,35 +117,50 @@ export const createListing: RequestHandler = async (req, res, next) => {
         ? (tradeMethod as any)
         : "meet";
 
-    // ✅ Ảnh đã ở Cloudinary: lấy trực tiếp từ multer
-    // Giữ nguyên cấu trúc cũ `photos: { url, kind }[]`, đồng thời thêm `publicId` để sau này xoá/sửa.
+    // Ảnh từ CloudinaryStorage
     const photos: { url: string; kind: "photo"; publicId?: string }[] =
       files.map((f) => ({
-        url: (f as any).path,         // Cloudinary URL
+        url: (f as any).path,
         kind: "photo",
-        publicId: (f as any).filename // Cloudinary public_id
+        publicId: (f as any).filename,
       }));
 
-    const listing = await Listing.create({
+    // ⬇️ NEW: payload base + spread theo type để đúng union
+    const base: Partial<IListing> = {
       sellerId,
       type,
       make,
       model,
-      year,
-      batteryCapacityKWh,
-      mileageKm,
-      chargeCycles,
+      year: year ? Number(year) : undefined,
+      mileageKm: mileageKm ? Number(mileageKm) : undefined,
       condition,
       photos,
-      location: locObj, // schema hiện để object đơn giản
+      location: locObj as any,
       priceListed: priceListedNum,
       tradeMethod: trade,
       status: "Draft",
       notes: confirmed ? undefined : "Chưa xác nhận chính chủ",
-      // Nếu đã thêm field mới trong schema có thể set:
-      // commissionTermsAccepted: true,
-      // commissionTermsAcceptedAt: new Date(),
-    });
+    };
+
+    const payload: any =
+      type === "Car"
+        ? {
+            ...base,
+            licensePlate,
+            engineDisplacementCc: engineDisplacementCc ? Number(engineDisplacementCc) : undefined,
+            vehicleType,
+            paintColor,
+            engineNumber,
+            chassisNumber,
+            otherFeatures,
+          }
+        : {
+            ...base,
+            batteryCapacityKWh: batteryCapacityKWh ? Number(batteryCapacityKWh) : undefined,
+            chargeCycles: chargeCycles ? Number(chargeCycles) : undefined,
+          };
+
+    const listing = await Listing.create(payload);
 
     res.status(201).json(listing);
   } catch (err) {
@@ -145,8 +170,6 @@ export const createListing: RequestHandler = async (req, res, next) => {
 
 /**
  * Cập nhật listing (chỉ khi Draft/Rejected)
- * (Phần 15) Cho phép sửa priceListed + tradeMethod
- * (Cloudinary) Nếu PATCH có gửi ảnh (multipart) thì ảnh đã ở Cloudinary → append vào photos
  */
 export const updateListing: RequestHandler = async (req, res, next) => {
   try {
@@ -158,16 +181,16 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       res.status(404).json({ message: "Listing không tồn tại" });
       return;
     }
-    if (!isOwner(userId, listing.sellerId)) {
+    if (!isOwner(userId, (listing as any).sellerId)) {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!(typeof listing.status === "string" && ["Draft", "Rejected"].includes(listing.status))) {
+    if (!(typeof (listing as any).status === "string" && ["Draft", "Rejected"].includes((listing as any).status))) {
       res.status(409).json({ message: "Chỉ sửa khi Draft/Rejected" });
       return;
     }
 
-    // ✅ Ảnh mới (nếu có) — đã upload qua CloudinaryStorage
+    // Ảnh mới (nếu có)
     const files = (req.files as MulterCloudinaryFile[]) || [];
     if (Array.isArray(files) && files.length > 0) {
       const newPhotos = files.map((f) => ({
@@ -175,11 +198,11 @@ export const updateListing: RequestHandler = async (req, res, next) => {
         kind: "photo" as const,
         publicId: (f as any).filename,
       }));
-      // Append thay vì replace
-      (listing as any).photos = [...(listing.photos || []), ...newPhotos];
+      (listing as any).photos = [...((listing as any).photos || []), ...newPhotos];
     }
 
-    const allowed: Array<
+    // ⬇️ NEW: bổ sung các field hợp đồng cho Car
+    const allowedCommon: Array<
       | "type"
       | "make"
       | "model"
@@ -209,17 +232,36 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       "sellerConfirm",
     ];
 
-    for (const k of allowed) {
+    const allowedCar: Array<
+      | "licensePlate"
+      | "engineDisplacementCc"
+      | "vehicleType"
+      | "paintColor"
+      | "engineNumber"
+      | "chassisNumber"
+      | "otherFeatures"
+    > = [
+      "licensePlate",
+      "engineDisplacementCc",
+      "vehicleType",
+      "paintColor",
+      "engineNumber",
+      "chassisNumber",
+      "otherFeatures",
+    ];
+
+    // Cập nhật các field chung
+    for (const k of allowedCommon) {
       if (typeof (req.body as any)[k] === "undefined") continue;
 
       if (k === "location") {
-        (listing as any).location = parseLocation(req.body.location);
+        (listing as any).location = parseLocation((req.body as any).location);
         continue;
       }
 
       if (k === "sellerConfirm") {
         const confirmed = toBool((req.body as any).sellerConfirm);
-        listing.notes = confirmed ? undefined : "Chưa xác nhận chính chủ";
+        (listing as any).notes = confirmed ? undefined : "Chưa xác nhận chính chủ";
         continue;
       }
 
@@ -254,7 +296,22 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       (listing as any)[k] = (req.body as any)[k];
     }
 
-    await listing.save();
+    // ⬇️ NEW: chỉ cho phép field Car nếu listing.type === "Car"
+    if ((listing as any).type === "Car") {
+      for (const k of allowedCar) {
+        if (typeof (req.body as any)[k] === "undefined") continue;
+
+        if (k === "engineDisplacementCc") {
+          const n = Number((req.body as any)[k]);
+          (listing as any)[k] = Number.isFinite(n) ? n : undefined;
+          continue;
+        }
+
+        (listing as any)[k] = (req.body as any)[k];
+      }
+    }
+
+    await (listing as any).save();
     res.json(listing);
   } catch (err) {
     next(err);
@@ -263,8 +320,6 @@ export const updateListing: RequestHandler = async (req, res, next) => {
 
 /**
  * Submit listing để duyệt (Draft/Rejected -> PendingReview)
- * (Tuỳ chọn) bắt buộc có tradeMethod trước khi submit
- * (NEW) Re-check đã đồng ý điều khoản khi submit (phòng client lách)
  */
 export const submitListing: RequestHandler = async (req, res, next) => {
   try {
@@ -276,16 +331,15 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       res.status(404).json({ message: "Listing không tồn tại" });
       return;
     }
-    if (!isOwner(userId, listing.sellerId)) {
+    if (!isOwner(userId, (listing as any).sellerId)) {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!(typeof listing.status === "string" && ["Draft", "Rejected"].includes(listing.status))) {
+    if (!(typeof (listing as any).status === "string" && ["Draft", "Rejected"].includes((listing as any).status))) {
       res.status(409).json({ message: "Chỉ submit khi Draft/Rejected" });
       return;
     }
 
-    // ✅ Optional: bắt client gửi lại commissionTermsAccepted (true)
     const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted ?? "true");
     if (acceptedTerms !== true) {
       res.status(400).json({
@@ -295,38 +349,34 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    // validate dữ liệu bắt buộc tối thiểu
-    if (!listing.photos || listing.photos.length < 3) {
+    if (!(listing as any).photos || (listing as any).photos.length < 3) {
       res.status(400).json({ message: "Cần tối thiểu 3 ảnh trước khi submit" });
       return;
     }
     if (
-      listing.priceListed === undefined ||
-      listing.priceListed === null ||
-      !listing.location?.city ||
-      !listing.location?.district ||
-      !listing.location?.address
+      (listing as any).priceListed === undefined ||
+      (listing as any).priceListed === null ||
+      !(listing as any).location?.city ||
+      !(listing as any).location?.district ||
+      !(listing as any).location?.address
     ) {
       res.status(400).json({ message: "Thiếu dữ liệu bắt buộc (giá, vị trí...)" });
       return;
     }
-    if (!listing.tradeMethod) {
+    if (!(listing as any).tradeMethod) {
       res.status(400).json({ message: "Thiếu hình thức giao dịch (tradeMethod)" });
       return;
     }
 
-    // auto moderation
-    const mod = await moderationService.scanListing(listing);
+    const mod = await moderationService.scanListing(listing as any);
     if (!mod.ok) {
-      res
-        .status(400)
-        .json({ message: "Auto moderation failed", reasons: mod.reasons });
+      res.status(400).json({ message: "Auto moderation failed", reasons: mod.reasons });
       return;
     }
 
-    listing.status = "PendingReview";
-    listing.rejectReason = undefined;
-    await listing.save();
+    (listing as any).status = "PendingReview";
+    (listing as any).rejectReason = undefined;
+    await (listing as any).save();
 
     res.json({ message: "Đã submit, chờ duyệt", listing });
   } catch (err) {
@@ -349,21 +399,15 @@ export const myListings: RequestHandler = async (req, res, next) => {
 
 /* ----------------------- PRICE SUGGEST (heuristic only) ----------------------- */
 
-/**
- * Gợi ý giá (tạm thời chỉ dùng heuristic, không gọi Gemini)
- * Body: { type, year, mileageKm, batteryCapacityKWh, condition, make, model }
- */
 export const priceSuggestionAI: RequestHandler = async (req, res, next) => {
   try {
     const payload = req.body as PriceAIInput;
 
-    // Kiểm tra tối thiểu
     if (!payload?.make || !payload?.model || !payload?.year) {
       res.status(400).json({ message: "Thiếu make/model/year" });
       return;
     }
 
-    // Chỉ chạy heuristic
     const h = suggestHeuristic(payload);
     res.setHeader("X-Provider-Used", "heuristic");
     res.json({ provider: "heuristic", ...h });
@@ -462,7 +506,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
     }
     if (batteryCapacityKWh) {
       const b = parseInt(batteryCapacityKWh as string, 10);
-      if (Number.isFinite(b)) filter.batteryCapacityKWh = b;
+      if (Number.isFinite(b)) filter.batteryCapacityKWh = b; // chỉ match Battery trong DB
     }
     if (mileageKm) {
       const m = parseInt(mileageKm as string, 10);
@@ -587,22 +631,32 @@ export const searchListings: RequestHandler = async (req, res, next) => {
  */
 export const getFilterOptions: RequestHandler = async (_req, res, next) => {
   try {
-    const publishedListings = await Listing.find({ status: "Published" }).lean();
+    // ⬇️ cast về union để dùng narrowing
+    const publishedListings = (await Listing.find({ status: "Published" }).lean()) as IListing[];
 
     const makes = [...new Set(publishedListings.map(l => l.make).filter(Boolean))].sort();
     const models = [...new Set(publishedListings.map(l => l.model).filter(Boolean))].sort();
-    const years = [...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number"))]
-      .sort((a, b) => b - a);
+    const years = [
+      ...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number")),
+    ].sort((a, b) => b - a);
+
+    // ⬇️ NEW: chỉ lấy batteryCapacityKWh cho Battery
     const batteryCapacities = [
       ...new Set(
-        publishedListings.map(l => l.batteryCapacityKWh).filter((v): v is number => typeof v === "number")
+        publishedListings
+          .filter(isBattery)
+          .map(l => l.batteryCapacityKWh)
+          .filter((v): v is number => typeof v === "number")
       ),
     ].sort((a, b) => a - b);
+
     const conditions = [...new Set(publishedListings.map(l => l.condition).filter(Boolean))];
     const cities = [...new Set(publishedListings.map(l => l.location?.city).filter(Boolean))].sort();
     const districts = [...new Set(publishedListings.map(l => l.location?.district).filter(Boolean))].sort();
 
-    const priceVals = publishedListings.map(l => l.priceListed).filter((v): v is number => typeof v === "number");
+    const priceVals = publishedListings
+      .map(l => l.priceListed)
+      .filter((v): v is number => typeof v === "number");
     const minPrice = priceVals.length ? Math.min(...priceVals) : 0;
     const maxPrice = priceVals.length ? Math.max(...priceVals) : 0;
 

@@ -1,19 +1,18 @@
 // src/interfaces/IListing.ts
 
 export interface IMedia {
-  url: string;                 // Cloudinary URL (nên dùng secure_url)
+  url: string;
   kind: "photo" | "doc";
-  publicId?: string;           // Cloudinary public_id (để xoá/transform)
-  width?: number;              // optional metadata
-  height?: number;             // optional metadata
-  format?: string;             // ví dụ: jpg, png, webp
+  publicId?: string;
+  width?: number;
+  height?: number;
+  format?: string;
 }
 
 export interface ILocation {
   city?: string;
   district?: string;
   address?: string;
-  // lat/lng đã bỏ theo yêu cầu
 }
 
 export type ListingStatus =
@@ -27,24 +26,11 @@ export type ListingStatus =
 
 export type TradeMethod = "meet" | "ship" | "consignment";
 
-export interface IListing {
+interface BaseListing {
   _id?: string;
-  sellerId: string;            // ObjectId string
-  type: "Car" | "Battery";
-
-  make?: string;
-  model?: string;
-  year?: number;
-
-  batteryCapacityKWh?: number;
-  mileageKm?: number;
-  chargeCycles?: number;
-
-  condition?: "New" | "LikeNew" | "Used" | "Worn";
-
-  photos: IMedia[];            // chứa url + publicId
+  sellerId: string;
+  photos: IMedia[];
   documents?: IMedia[];
-
   location?: ILocation;
 
   priceListed: number;
@@ -57,4 +43,36 @@ export interface IListing {
 
   createdAt?: string | Date;
   updatedAt?: string | Date;
+
+  condition?: "New" | "LikeNew" | "Used" | "Worn";
 }
+
+export interface CarListing extends BaseListing {
+  type: "Car";
+  // Chung
+  make?: string;               // Nhãn hiệu
+  model?: string;
+  year?: number;
+  mileageKm?: number;
+
+  // Các trường hợp đồng
+  licensePlate?: string;       // Biển số
+  engineDisplacementCc?: number; // Dung tích xi lanh
+  vehicleType?: string;        // Loại xe
+  paintColor?: string;         // Màu sơn
+  engineNumber?: string;       // Số máy
+  chassisNumber?: string;      // Số khung
+  otherFeatures?: string;      // Các đặc điểm khác
+}
+
+export interface BatteryListing extends BaseListing {
+  type: "Battery";
+  make?: string;
+  model?: string;
+  year?: number;
+
+  batteryCapacityKWh?: number;
+  chargeCycles?: number;
+}
+
+export type IListing = CarListing | BatteryListing;
