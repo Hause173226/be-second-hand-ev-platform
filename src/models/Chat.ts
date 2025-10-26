@@ -13,11 +13,12 @@ const lastMessageSchema = new Schema(
 
 const chatSchema = new Schema<IChat>(
     {
-        listingId: { type: Schema.Types.ObjectId, ref: "Listing", required: true },
+        listingId: { type: Schema.Types.ObjectId, ref: "Listing", required: false }, // Không bắt buộc cho chat trực tiếp
         buyerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
         sellerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
         lastMessage: { type: lastMessageSchema },
         isActive: { type: Boolean, default: true },
+        chatType: { type: String, enum: ["listing", "direct"], default: "listing" }, // Thêm chatType
     },
     { timestamps: true }
 );

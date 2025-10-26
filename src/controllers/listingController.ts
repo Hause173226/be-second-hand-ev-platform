@@ -346,6 +346,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
   try {
     const {
       keyword,
+      type,
       make,
       model,
       year,
@@ -366,13 +367,61 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       status: "Published", // Chỉ lấy sản phẩm đã được duyệt
     };
 
-    // Text search với keyword
+    // Text search với keyword - thông minh hơn với make, model, year
     if (keyword) {
-      filter.$or = [
-        { make: { $regex: keyword, $options: "i" } },
-        { model: { $regex: keyword, $options: "i" } },
-        { notes: { $regex: keyword, $options: "i" } },
+      const keywordStr = keyword.toString().trim();
+      
+      // Tách keyword thành các từ
+      const words = keywordStr.split(/\s+/);
+      
+      // Tìm năm trong keyword (4 chữ số liên tiếp)
+      const yearMatch = keywordStr.match(/\b(19|20)\d{2}\b/);
+      const yearFromKeyword = yearMatch ? parseInt(yearMatch[0], 10) : null;
+      
+      // Xây dựng điều kiện search thông minh
+      const searchConditions: any[] = [
+        { make: { $regex: keywordStr, $options: "i" } },
+        { model: { $regex: keywordStr, $options: "i" } },
+        { notes: { $regex: keywordStr, $options: "i" } },
       ];
+      
+      // Nếu có nhiều từ, thử tìm theo kết hợp make + model
+      if (words.length >= 2) {
+        // Ví dụ: "Tesla Model" hoặc "Tesla Model 3"
+        const possibleMake = words[0];
+        const possibleModel = words.slice(1).join(" ").replace(/\b(19|20)\d{2}\b/, "").trim();
+        
+        if (possibleModel) {
+          searchConditions.push({
+            $and: [
+              { make: { $regex: possibleMake, $options: "i" } },
+              { model: { $regex: possibleModel, $options: "i" } },
+            ],
+          });
+        }
+      }
+      
+      // Nếu tìm thấy năm trong keyword, thêm điều kiện tìm theo năm
+      if (yearFromKeyword) {
+        searchConditions.push({
+          $and: [
+            { year: yearFromKeyword },
+            {
+              $or: [
+                { make: { $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(), $options: "i" } },
+                { model: { $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(), $options: "i" } },
+              ],
+            },
+          ],
+        });
+      }
+      
+      filter.$or = searchConditions;
+    }
+
+    // Filter theo type (Car hoặc Battery)
+    if (type) {
+      filter.type = type;
     }
 
     // Filter theo các trường cụ thể
@@ -459,6 +508,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           searchQuery: keyword.toString().trim(),
           searchType: "listing",
           filters: {
+            type: type as string,
             make: make as string,
             model: model as string,
             year: year ? parseInt(year as string, 10) : undefined,
@@ -495,6 +545,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       },
       filters: {
         keyword,
+        type,
         make,
         model,
         year,
