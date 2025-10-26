@@ -6,6 +6,24 @@ const options = {
     info: {
       title: "Second Hand EV Platform API",
       version: "1.0.0",
+      description: "API documentation for BE Bus Ticket Sales System",
+    },
+    tags: [
+      {
+        name: "Auth",
+        description: "Authentication endpoints",
+      },
+      {
+        name: "User Profile",
+        description: "User profile management endpoints",
+      },
+      {
+        name: "Users",
+        description: "User management endpoints (Admin only)",
+      },
+      {
+        name: "Profile",
+        description: "Profile management endpoints",
       description: `
       📘 **Tài liệu API - Nền tảng Mua Bán Xe Điện Cũ**
       

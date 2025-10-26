@@ -6,6 +6,7 @@ import path from "path";
 
 import userRoutes from "./routes/userRoutes";
 import profileRoutes from "./routes/profileRoutes";
+import { errorHandler } from "./middlewares/errorHandler";
 import listingRoutes from "./routes/listingRoutes";
 import adminListingRoutes from "./routes/adminListingRoutes";
 import searchHistoryRoutes from "./routes/searchHistoryRoutes";

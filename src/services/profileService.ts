@@ -1,20 +1,14 @@
-import { Profile } from "../models/Profile";
 import { User } from "../models/User";
-import { KYCVerification } from "../models/KYCVerification";
-import { PaymentMethod } from "../models/PaymentMethod";
-import {
-  IProfile,
-  IAddress,
-  IKYCVerification,
-  IPaymentMethod,
-} from "../interfaces/IProfile";
-import { ocrService } from "./ocrService";
 
 export const profileService = {
   // ===== PROFILE MANAGEMENT =====
 
-  // Tạo hoặc lấy profile của user
+  // Lấy profile của user
   getOrCreateProfile: async (userId: string) => {
+    const user = await User.findById(userId);
+    if (!user) {
+      console.log("User not found with ID:", userId);
+      throw new Error("User not found");
     let profile = await Profile.findOne({ userId }).populate("userId");
 
     if (!profile) {
@@ -35,25 +29,40 @@ export const profileService = {
         },
       });
     }
-
-    return profile;
+    const userObj = user.toObject() as any;
+    delete userObj.roles; // Chỉ giữ role (string)
+    delete userObj.phoneVerified; // Đã bỏ field này
+    return userObj;
   },
 
   // Cập nhật thông tin cá nhân
   updatePersonalInfo: async (userId: string, personalData: any) => {
-    const profile = await Profile.findOne({ userId });
-    if (!profile) {
-      throw new Error("Profile not found");
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error("User not found");
     }
 
-    // Cập nhật thông tin cá nhân
-    const allowedFields = ["fullName", "avatarUrl"];
+    // Cập nhật các fields được phép
+    const allowedFields = [
+      "fullName",
+      "avatar",
+      "gender",
+      "dateOfBirth",
+      "addresses",
+    ];
+
     allowedFields.forEach((field) => {
       if (personalData[field] !== undefined) {
-        (profile as any)[field] = personalData[field];
+        (user as any)[field] = personalData[field];
       }
     });
 
+    await user.save();
+
+    const userObj = user.toObject() as any;
+    delete userObj.roles; // Chỉ giữ role (string)
+    delete userObj.phoneVerified; // Đã bỏ field này
+    return userObj;
     // Sync địa chỉ với User model nếu có địa chỉ mặc định
     if (
       personalData.address &&
@@ -401,83 +410,22 @@ export const profileService = {
 
   // Lấy thống kê profile
   getProfileStats: async (userId: string) => {
-    const profile = await Profile.findOne({ userId });
-    if (!profile) {
-      throw new Error("Profile not found");
+    const user = await User.findById(userId);
+    if (!user) {
+      throw new Error("User not found");
     }
-
-    const kycVerification = await KYCVerification.findOne({ userId });
-    const paymentMethods = await PaymentMethod.find({ userId });
-
+    const userObj = user.toObject() as any;
+    delete userObj.roles; // Chỉ giữ role (string)
+    delete userObj.phoneVerified; // Đã bỏ field này
     return {
-      profile,
-      kycStatus: kycVerification?.status || "NONE",
-      kycLevel: profile.kycLevel,
-      paymentMethodCount: paymentMethods.length,
-      defaultPaymentMethod: paymentMethods.find((pm) => pm.isDefault),
-      stats: profile.stats,
-    };
-  },
-
-  // Kiểm tra quyền đăng tin/thanh toán dựa trên KYC status
-  checkPostingPermission: async (userId: string) => {
-    const profile = await Profile.findOne({ userId });
-    if (!profile) {
-      throw new Error("Profile not found");
-    }
-
-    const kycVerification = await KYCVerification.findOne({ userId });
-    const paymentMethods = await PaymentMethod.find({
-      userId,
-      isDefault: true,
-    });
-
-    const canPost =
-      profile.kycLevel === "ADVANCED" || profile.kycLevel === "BASIC";
-    const canPay = paymentMethods.length > 0;
-
-    return {
-      canPost,
-      canPay,
-      kycLevel: profile.kycLevel,
-      kycStatus: kycVerification?.status || "NONE",
-      reason: !canPost
-        ? "KYC chưa được xác minh"
-        : !canPay
-        ? "Chưa có phương thức thanh toán mặc định"
-        : null,
-    };
-  },
-
-  // Lấy danh sách địa chỉ
-  getAddresses: async (userId: string) => {
-    const profile = await Profile.findOne({ userId });
-    if (!profile) {
-      throw new Error("Profile not found");
-    }
-
-    return profile.addresses || [];
-  },
-
-  // Lấy danh sách phương thức thanh toán
-  getPaymentMethods: async (userId: string) => {
-    const paymentMethods = await PaymentMethod.find({ userId });
-    return paymentMethods;
-  },
-
-  // Lấy thông tin KYC
-  getKYCInfo: async (userId: string) => {
-    const kycVerification = await KYCVerification.findOne({ userId });
-    const profile = await Profile.findOne({ userId });
-
-    return {
-      kycLevel: profile?.kycLevel || "NONE",
-      kycStatus: kycVerification?.status || "NONE",
-      documents: kycVerification?.documents || [],
-      reviewNotes: kycVerification?.reviewNotes,
-      reviewedBy: kycVerification?.reviewedBy,
-      createdAt: kycVerification?.createdAt,
-      updatedAt: kycVerification?.updatedAt,
+      profile: userObj,
+      stats: user.stats || {
+        soldCount: 0,
+        buyCount: 0,
+        cancelRate: 0,
+        responseTime: 0,
+        completionRate: 0,
+      },
     };
   },
 };

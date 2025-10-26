@@ -1,3 +1,5 @@
+export interface IAddress {
+  _id?: string;
 export interface IPaymentMethod {
   _id?: any;
   provider: "stripe" | "xpay" | "momo" | "zalopay" | "bank" | string;
@@ -36,6 +38,8 @@ export interface IUser {
   email?: string;
   phone?: string;
   emailVerified?: boolean;
+  passwordHash?: string;
+  roles: string[];
   phoneVerified?: boolean;
   password?: string;
   role: "user" | "admin";
@@ -63,6 +67,26 @@ export interface IUser {
   citizenId?: string;
   dateOfBirth?: Date;
   gender?: string;
+  isActive?: boolean;
+  otpCode?: string;
+  otpExpires?: Date;
+  refreshToken?: string;
+  avatar?: string;
+
+  // SSO IDs
+  googleId?: string;
+  facebookId?: string;
+
+  // Profile stats
+  rating?: number;
+  stats?: {
+    soldCount: number;
+    buyCount: number;
+    cancelRate: number;
+    responseTime: number;
+    completionRate: number;
+  };
+  addresses?: IAddress;
 
   // OTP & Tokens
   otpCode?: string;
