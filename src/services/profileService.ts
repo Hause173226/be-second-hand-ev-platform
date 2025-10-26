@@ -15,7 +15,8 @@ export const profileService = {
 
   // Tạo hoặc lấy profile của user
   getOrCreateProfile: async (userId: string) => {
-    let profile = await Profile.findOne({ userId }).populate("userId");
+    // Không dùng populate để tránh trùng lặp
+    let profile = await Profile.findOne({ userId }).lean();
 
     if (!profile) {
       // Lấy thông tin từ User để tạo profile mới
@@ -23,7 +24,7 @@ export const profileService = {
       if (!user) {
         throw new Error("User not found");
       }
-      profile = await Profile.create({
+      const newProfile = await Profile.create({
         userId,
         kycLevel: "NONE",
         stats: {
@@ -34,9 +35,32 @@ export const profileService = {
           completionRate: 0,
         },
       });
+      profile = newProfile.toObject();
     }
 
-    return profile;
+    // Lấy thông tin User để merge vào response
+    const user = await User.findById(userId)
+      .select("-password -refreshToken")
+      .lean();
+    if (!user) {
+      throw new Error("User not found");
+    }
+
+    // Merge thông tin User vào Profile (giữ nguyên tất cả field của Profile)
+    return {
+      ...profile,
+      // Thêm các thông tin từ User model
+      email: user.email,
+      phone: user.phone,
+      fullName: profile.fullName || user.fullName, // Ưu tiên Profile, fallback User
+      avatar: user.avatar || null, // Từ User model (giống getUserById)
+      avatarUrl: profile.avatarUrl || null, // Từ Profile model
+      emailVerified: user.emailVerified,
+      phoneVerified: user.phoneVerified,
+      role: user.role,
+      status: user.status,
+      rating: user.rating || profile.rating || null, // Ưu tiên User, fallback Profile
+    };
   },
 
   // Cập nhật thông tin cá nhân
@@ -60,7 +84,7 @@ export const profileService = {
       profile.addresses &&
       profile.addresses.length > 0
     ) {
-      const defaultAddress = profile.addresses.find((addr) => addr.isDefault);
+      const defaultAddress = profile.addresses.find((addr: IAddress) => addr.isDefault);
       if (defaultAddress) {
         // Cập nhật địa chỉ đơn giản trong User model
         await User.findByIdAndUpdate(userId, {
@@ -269,7 +293,7 @@ export const profileService = {
 
     // Nếu đây là địa chỉ mặc định, bỏ default của các địa chỉ khác
     if (addressData.isDefault) {
-      profile.addresses?.forEach((addr) => {
+      profile.addresses?.forEach((addr: IAddress) => {
         addr.isDefault = false;
       });
     }
@@ -307,7 +331,7 @@ export const profileService = {
     }
 
     const address = profile.addresses.find(
-      (addr) => addr._id?.toString() === addressId
+      (addr: IAddress) => addr._id?.toString() === addressId
     );
     if (!address) {
       throw new Error("Address not found");
@@ -315,7 +339,7 @@ export const profileService = {
 
     // Nếu đặt làm mặc định, bỏ default của các địa chỉ khác
     if (addressData.isDefault) {
-      profile.addresses.forEach((addr) => {
+      profile.addresses.forEach((addr: IAddress) => {
         if (addr._id?.toString() !== addressId) {
           addr.isDefault = false;
         }
@@ -335,7 +359,7 @@ export const profileService = {
     }
 
     profile.addresses = profile.addresses.filter(
-      (addr) => addr._id?.toString() !== addressId
+      (addr: IAddress) => addr._id?.toString() !== addressId
     );
     await profile.save();
     return profile;
