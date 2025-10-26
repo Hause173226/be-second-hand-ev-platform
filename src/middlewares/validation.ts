@@ -2,6 +2,19 @@
 import { Request, Response, NextFunction } from "express";
 import { validation } from "../utils/validation";
 
+/** Utils nhỏ: ép giá trị truthy/falsey từ form (kể cả multipart) về boolean */
+function toBoolean(value: any): boolean | null {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const v = value.trim().toLowerCase();
+    if (v === "true" || v === "1" || v === "yes" || v === "on") return true;
+    if (v === "false" || v === "0" || v === "no" || v === "off") return false;
+  }
+  return null;
+}
+
+/* -------------------- AUTH VALIDATORS (giữ nguyên) -------------------- */
+
 export const validateSignUp = (
   req: Request,
   res: Response,
@@ -37,7 +50,7 @@ export const validateSignUp = (
     return;
   }
 
-  // Validate terms agreement
+  // Validate terms agreement (điều khoản đăng ký)
   const termsValidation = validation.validateTermsAgreement(termsAgreed);
   if (!termsValidation.isValid) {
     res.status(400).json({ error: termsValidation.message });
@@ -81,6 +94,38 @@ export const validateSignIn = (
     res.status(400).json({ error: "Mật khẩu phải có ít nhất 6 ký tự" });
     return;
   }
+
+  next();
+};
+
+/* -------------------- LISTING VALIDATORS (mới) -------------------- */
+
+/**
+ * Bắt buộc người bán phải chấp nhận điều khoản & phí hoa hồng khi tạo listing.
+ * FE/Swagger gửi field: commissionTermsAccepted = true (hoặc "true")
+ */
+export const validateCreateListing = (
+  req: Request,
+  res: Response,
+  next: NextFunction
+): void => {
+  // parse commissionTermsAccepted từ body (hỗ trợ multipart/form-data)
+  const acceptedRaw = (req.body as any)?.commissionTermsAccepted;
+  const accepted = toBoolean(acceptedRaw);
+
+  if (accepted !== true) {
+    res.status(400).json({
+      success: false,
+      error:
+        "Bạn phải chấp nhận Điều khoản & Phí hoa hồng để đăng bán trên nền tảng.",
+      field: "commissionTermsAccepted",
+    });
+    return;
+  }
+
+  // set lại body cho rõ ràng & controller dùng luôn
+  req.body.commissionTermsAccepted = true;
+  req.body.commissionTermsAcceptedAt = new Date().toISOString();
 
   next();
 };
