@@ -278,6 +278,12 @@ listingRoutes.post(
  *           type: string
  *         description: Từ khóa tìm kiếm (hãng, model, ghi chú)
  *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [Car, Battery]
+ *         description: Loại sản phẩm (Xe hoặc Pin)
+ *       - in: query
  *         name: make
  *         schema:
  *           type: string
