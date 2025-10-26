@@ -8,8 +8,15 @@ import { SearchHistory } from "../models/SearchHistory";
 import { suggestHeuristic } from "../services/priceAI.heuristic";
 import { PriceAIInput } from "../services/priceAI.types";
 
-// 🔥 Firebase upload service
-import { uploadImageToFirebase } from "../services/fileStorage";
+// ❌ BỎ Firebase
+// import { uploadImageToFirebase } from "../services/fileStorage";
+
+// ✅ Dùng Cloudinary qua multer-storage-cloudinary
+// Khi dùng CloudinaryStorage, multer sẽ trả về file có .path (URL) và .filename (public_id)
+type MulterCloudinaryFile = Express.Multer.File & {
+  path: string;     // Cloudinary URL
+  filename: string; // Cloudinary public_id
+};
 
 const isOwner = (userId?: string, sellerId?: any) =>
   userId && sellerId && sellerId.toString() === userId.toString();
@@ -23,13 +30,20 @@ const parseLocation = (raw: unknown) => {
   }
 };
 
-const toBool = (v: unknown) =>
-  typeof v === "string" ? v === "true" : Boolean(v);
+const toBool = (v: unknown) => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  }
+  return Boolean(v);
+};
 
 /**
  * Tạo listing (status = Draft)
  * (Phần 15) Parse & validate priceListed + tradeMethod
- * (Firebase) Upload ảnh lên Firebase Storage, lưu URL
+ * (Cloudinary) Ảnh đã được upload bởi multer-storage-cloudinary => lấy URL + publicId
+ * (NEW) Bắt buộc commissionTermsAccepted = true
  */
 export const createListing: RequestHandler = async (req, res, next) => {
   try {
@@ -39,7 +53,18 @@ export const createListing: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    const files = (req.files as Express.Multer.File[]) || [];
+    // ✅ BẮT BUỘC đồng ý điều khoản & phí hoa hồng
+    const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted);
+    if (acceptedTerms !== true) {
+      res.status(400).json({
+        message:
+          "Bạn phải đồng ý Điều khoản & Phí hoa hồng trước khi đăng bán (commissionTermsAccepted=true).",
+        field: "commissionTermsAccepted",
+      });
+      return;
+    }
+
+    const files = (req.files as MulterCloudinaryFile[]) || [];
     if (!Array.isArray(files) || files.length < 3) {
       res.status(400).json({ message: "Cần tối thiểu 3 ảnh" });
       return;
@@ -82,15 +107,14 @@ export const createListing: RequestHandler = async (req, res, next) => {
         ? (tradeMethod as any)
         : "meet";
 
-    // 🔥 Upload ảnh lên Firebase, lấy URL
-    const photos: { url: string; kind: "photo" }[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      const safeName = f.originalname?.replace(/[^\w.\-]/g, "_") || `photo_${i}.jpg`;
-      const key = `listings/${sellerId}/${Date.now()}_${i}_${safeName}`;
-      const url = await uploadImageToFirebase(f, key, true); // public URL
-      photos.push({ url, kind: "photo" });
-    }
+    // ✅ Ảnh đã ở Cloudinary: lấy trực tiếp từ multer
+    // Giữ nguyên cấu trúc cũ `photos: { url, kind }[]`, đồng thời thêm `publicId` để sau này xoá/sửa.
+    const photos: { url: string; kind: "photo"; publicId?: string }[] =
+      files.map((f) => ({
+        url: (f as any).path,         // Cloudinary URL
+        kind: "photo",
+        publicId: (f as any).filename // Cloudinary public_id
+      }));
 
     const listing = await Listing.create({
       sellerId,
@@ -103,13 +127,14 @@ export const createListing: RequestHandler = async (req, res, next) => {
       chargeCycles,
       condition,
       photos,
-      // location đã bỏ lat/lng ở schema → để object đơn giản
-      location: locObj,
-      // (15)
+      location: locObj, // schema hiện để object đơn giản
       priceListed: priceListedNum,
       tradeMethod: trade,
       status: "Draft",
       notes: confirmed ? undefined : "Chưa xác nhận chính chủ",
+      // Nếu đã thêm field mới trong schema có thể set:
+      // commissionTermsAccepted: true,
+      // commissionTermsAcceptedAt: new Date(),
     });
 
     res.status(201).json(listing);
@@ -121,7 +146,7 @@ export const createListing: RequestHandler = async (req, res, next) => {
 /**
  * Cập nhật listing (chỉ khi Draft/Rejected)
  * (Phần 15) Cho phép sửa priceListed + tradeMethod
- * (Firebase) Nếu PATCH có gửi ảnh (multipart) thì upload và append vào photos
+ * (Cloudinary) Nếu PATCH có gửi ảnh (multipart) thì ảnh đã ở Cloudinary → append vào photos
  */
 export const updateListing: RequestHandler = async (req, res, next) => {
   try {
@@ -137,24 +162,21 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!["Draft", "Rejected"].includes(listing.status)) {
+    if (!(typeof listing.status === "string" && ["Draft", "Rejected"].includes(listing.status))) {
       res.status(409).json({ message: "Chỉ sửa khi Draft/Rejected" });
       return;
     }
 
-    // 🔥 Nếu route PATCH dùng upload.array("photos", 10) và client gửi ảnh mới
-    const files = (req.files as Express.Multer.File[]) || [];
+    // ✅ Ảnh mới (nếu có) — đã upload qua CloudinaryStorage
+    const files = (req.files as MulterCloudinaryFile[]) || [];
     if (Array.isArray(files) && files.length > 0) {
-      const newPhotos = await Promise.all(
-        files.map(async (f, i) => {
-          const safeName = f.originalname?.replace(/[^\w.\-]/g, "_") || `photo_${i}.jpg`;
-          const key = `listings/${listing.sellerId}/${Date.now()}_${i}_${safeName}`;
-          const url = await uploadImageToFirebase(f, key, true);
-          return { url, kind: "photo" as const };
-        })
-      );
+      const newPhotos = files.map((f) => ({
+        url: (f as any).path,
+        kind: "photo" as const,
+        publicId: (f as any).filename,
+      }));
       // Append thay vì replace
-      listing.photos = [...(listing.photos || []), ...newPhotos];
+      (listing as any).photos = [...(listing.photos || []), ...newPhotos];
     }
 
     const allowed: Array<
@@ -242,6 +264,7 @@ export const updateListing: RequestHandler = async (req, res, next) => {
 /**
  * Submit listing để duyệt (Draft/Rejected -> PendingReview)
  * (Tuỳ chọn) bắt buộc có tradeMethod trước khi submit
+ * (NEW) Re-check đã đồng ý điều khoản khi submit (phòng client lách)
  */
 export const submitListing: RequestHandler = async (req, res, next) => {
   try {
@@ -257,8 +280,18 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!["Draft", "Rejected"].includes(listing.status)) {
+    if (!(typeof listing.status === "string" && ["Draft", "Rejected"].includes(listing.status))) {
       res.status(409).json({ message: "Chỉ submit khi Draft/Rejected" });
+      return;
+    }
+
+    // ✅ Optional: bắt client gửi lại commissionTermsAccepted (true)
+    const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted ?? "true");
+    if (acceptedTerms !== true) {
+      res.status(400).json({
+        message: "Bạn phải đồng ý Điều khoản & Phí hoa hồng trước khi submit.",
+        field: "commissionTermsAccepted",
+      });
       return;
     }
 
@@ -277,7 +310,6 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       res.status(400).json({ message: "Thiếu dữ liệu bắt buộc (giá, vị trí...)" });
       return;
     }
-    // (15) nếu muốn bắt buộc tradeMethod:
     if (!listing.tradeMethod) {
       res.status(400).json({ message: "Thiếu hình thức giao dịch (tradeMethod)" });
       return;
@@ -361,12 +393,8 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       limit = "12",
     } = req.query;
 
-    // Build filter object
-    const filter: any = {
-      status: "Published", // Chỉ lấy sản phẩm đã được duyệt
-    };
+    const filter: any = { status: "Published" };
 
-    // Text search với keyword
     if (keyword) {
       filter.$or = [
         { make: { $regex: keyword, $options: "i" } },
@@ -375,7 +403,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       ];
     }
 
-    // Filter theo các trường cụ thể
     if (make) filter.make = { $regex: make, $options: "i" };
     if (model) filter.model = { $regex: model, $options: "i" };
 
@@ -394,7 +421,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
 
     if (condition) filter.condition = condition;
 
-    // Price range filter
     if (minPrice || maxPrice) {
       const g: any = {};
       const min = minPrice ? parseInt(minPrice as string, 10) : undefined;
@@ -404,13 +430,11 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       if (Object.keys(g).length) filter.priceListed = g;
     }
 
-    // Location filter
     if (city || district) {
       if (city) filter["location.city"] = { $regex: city as string, $options: "i" };
       if (district) filter["location.district"] = { $regex: district as string, $options: "i" };
     }
 
-    // Build sort object
     let sort: any = {};
     switch (sortBy) {
       case "newest":
@@ -426,19 +450,16 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         sort = { priceListed: -1 };
         break;
       case "reputation":
-        // Sắp xếp theo độ uy tín (tạm thời theo publishedAt)
         sort = { publishedAt: -1 };
         break;
       default:
         sort = { publishedAt: -1, createdAt: -1 };
     }
 
-    // Pagination
     const pageNum = parseInt(page as string, 10) || 1;
     const limitNum = parseInt(limit as string, 10) || 12;
     const skip = (pageNum - 1) * limitNum;
 
-    // Execute query with population
     const listings = await Listing.find(filter)
       .populate("sellerId", "fullName phone avatar")
       .sort(sort)
@@ -446,11 +467,9 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       .limit(limitNum)
       .lean();
 
-    // Get total count for pagination
     const totalCount = await Listing.countDocuments(filter);
     const totalPages = Math.ceil(totalCount / limitNum);
 
-    // Tự động lưu lịch sử tìm kiếm nếu có keyword
     const userId = (req as any).user?._id;
     if (keyword && keyword.toString().trim()) {
       try {
@@ -477,12 +496,10 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         });
         console.log(`Search history saved for keyword: ${keyword}, userId: ${userId || "anonymous"}`);
       } catch (err) {
-        // Không làm fail API chính nếu lưu lịch sử bị lỗi
         console.error("Error saving search history:", err);
       }
     }
 
-    // Response with pagination info
     res.json({
       listings,
       pagination: {
@@ -520,7 +537,6 @@ export const getFilterOptions: RequestHandler = async (_req, res, next) => {
   try {
     const publishedListings = await Listing.find({ status: "Published" }).lean();
 
-    // Extract unique values cho dropdown
     const makes = [...new Set(publishedListings.map(l => l.make).filter(Boolean))].sort();
     const models = [...new Set(publishedListings.map(l => l.model).filter(Boolean))].sort();
     const years = [...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number"))]
@@ -534,7 +550,6 @@ export const getFilterOptions: RequestHandler = async (_req, res, next) => {
     const cities = [...new Set(publishedListings.map(l => l.location?.city).filter(Boolean))].sort();
     const districts = [...new Set(publishedListings.map(l => l.location?.district).filter(Boolean))].sort();
 
-    // Price range an toàn khi rỗng
     const priceVals = publishedListings.map(l => l.priceListed).filter((v): v is number => typeof v === "number");
     const minPrice = priceVals.length ? Math.min(...priceVals) : 0;
     const maxPrice = priceVals.length ? Math.max(...priceVals) : 0;
@@ -568,7 +583,7 @@ export const getListingById: RequestHandler = async (req, res, next) => {
 
     const listing = await Listing.findOne({
       _id: id,
-      status: "Published", // Chỉ lấy sản phẩm đã được duyệt
+      status: "Published",
     })
       .populate("sellerId", "fullName phone email avatar createdAt")
       .lean();

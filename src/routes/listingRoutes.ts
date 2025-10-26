@@ -58,6 +58,10 @@ const listingRoutes = express.Router();
  *                 type: string
  *                 enum: ["true"]
  *                 description: Cam kết chính chủ
+ *               commissionTermsAccepted:                                  # ✅ NEW: BẮT BUỘC
+ *                 type: boolean
+ *                 description: "Phải là true: Tôi đồng ý Điều khoản & Phí hoa hồng"
+ *                 example: true
  *               photos:
  *                 type: array
  *                 items: { type: string, format: binary }
@@ -89,6 +93,17 @@ const createValidators = [
       }
     })
     .withMessage("location phải là JSON hợp lệ và có city/district/address"),
+  // ✅ NEW: bắt buộc đồng ý điều khoản & phí hoa hồng
+  body("commissionTermsAccepted")
+    .custom((v) => {
+      if (typeof v === "boolean") return v === true;
+      if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        return s === "true" || s === "1" || s === "yes" || s === "on";
+      }
+      return false;
+    })
+    .withMessage("Bạn phải đồng ý Điều khoản & Phí hoa hồng (commissionTermsAccepted=true)."),
 ];
 
 listingRoutes.post(
@@ -193,6 +208,17 @@ listingRoutes.patch(
  *         name: id
  *         required: true
  *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               commissionTermsAccepted:                  # ✅ NEW (nhắc lại khi submit, phòng lách)
+ *                 type: boolean
+ *                 description: "Phải là true: tôi đồng ý Điều khoản & Phí hoa hồng"
+ *                 example: true
  *     responses:
  *       200: { description: Submit thành công → PendingReview }
  *       400: { description: Auto moderation failed / thiếu dữ liệu bắt buộc }
@@ -201,10 +227,27 @@ listingRoutes.patch(
  *       404: { description: Not found }
  *       409: { description: Trạng thái hiện tại không hợp lệ }
  */
+const submitValidators = [
+  // Không bắt buộc gửi, nhưng nếu có thì phải là true
+  body("commissionTermsAccepted")
+    .optional()
+    .custom((v) => {
+      if (typeof v === "boolean") return v === true;
+      if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        return s === "true" || s === "1" || s === "yes" || s === "on";
+      }
+      return false;
+    })
+    .withMessage("commissionTermsAccepted, nếu gửi, phải là true."),
+];
+
 listingRoutes.post(
   "/:id/submit",
   authenticate as RequestHandler,
   requireProfile as RequestHandler,
+  ...submitValidators,
+  validate as RequestHandler,
   submitListing as unknown as RequestHandler
 );
 

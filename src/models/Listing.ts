@@ -12,7 +12,7 @@ const mediaSchema = new Schema(
 
 const listingSchema = new Schema<IListing>(
   {
-    sellerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
+    sellerId: { type: Schema.Types.ObjectId as any, ref: "User", required: true },
 
     type: { type: String, enum: ["Car", "Battery"], required: true },
 

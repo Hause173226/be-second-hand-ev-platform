@@ -1,45 +1,60 @@
 // src/interfaces/IListing.ts
-import { Types } from "mongoose";
+
+export interface IMedia {
+  url: string;                 // Cloudinary URL (nên dùng secure_url)
+  kind: "photo" | "doc";
+  publicId?: string;           // Cloudinary public_id (để xoá/transform)
+  width?: number;              // optional metadata
+  height?: number;             // optional metadata
+  format?: string;             // ví dụ: jpg, png, webp
+}
+
+export interface ILocation {
+  city?: string;
+  district?: string;
+  address?: string;
+  // lat/lng đã bỏ theo yêu cầu
+}
+
+export type ListingStatus =
+  | "Draft"
+  | "PendingReview"
+  | "Published"
+  | "InTransaction"
+  | "Sold"
+  | "Expired"
+  | "Rejected";
 
 export type TradeMethod = "meet" | "ship" | "consignment";
 
 export interface IListing {
-  _id?: Types.ObjectId;
-  sellerId: Types.ObjectId; // hoặc: string | Types.ObjectId
+  _id?: string;
+  sellerId: string;            // ObjectId string
   type: "Car" | "Battery";
+
   make?: string;
   model?: string;
   year?: number;
+
   batteryCapacityKWh?: number;
   mileageKm?: number;
   chargeCycles?: number;
+
   condition?: "New" | "LikeNew" | "Used" | "Worn";
-  photos: { url: string; kind: "photo" | "doc" }[];
-  documents?: { url: string; kind: "photo" | "doc" }[];
 
-  // Location: bỏ lat/lng như bạn yêu cầu
-  location?: {
-    city?: string;
-    district?: string;
-    address?: string;
-  };
+  photos: IMedia[];            // chứa url + publicId
+  documents?: IMedia[];
 
-  // Phần 15
-  priceListed: number;                // giá niêm yết (>= 0)
-  tradeMethod?: TradeMethod;          // "meet" | "ship" | "consignment"
+  location?: ILocation;
 
-  status:
-    | "Draft"
-    | "PendingReview"
-    | "Published"
-    | "InTransaction"
-    | "Sold"
-    | "Expired"
-    | "Rejected";
+  priceListed: number;
+  tradeMethod: TradeMethod;
 
+  status?: ListingStatus;
   notes?: string;
   rejectReason?: string;
-  publishedAt?: Date;
-  createdAt?: Date;
-  updatedAt?: Date;
+  publishedAt?: string | Date;
+
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
 }
