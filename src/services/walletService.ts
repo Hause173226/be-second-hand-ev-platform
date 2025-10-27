@@ -177,10 +177,11 @@ const walletService = {
     return escrow;
   },
 
-  // Complete transaction - hoàn thành giao dịch, chuyển tiền từ escrow cho seller
+  // Complete transaction - hoàn thành giao dịch, chuyển tiền từ escrow vào ví hệ thống
   completeTransaction: async (depositRequestId: string) => {
     const DepositRequest = (await import('../models/DepositRequest')).default;
     const EscrowAccount = (await import('../models/EscrowAccount')).default;
+    const SystemWalletService = (await import('./systemWalletService')).default;
     
     const depositRequest = await DepositRequest.findById(depositRequestId);
     if (!depositRequest) {
@@ -195,11 +196,10 @@ const walletService = {
     }
 
     if (escrow.status === "ACTIVE") {
-      // Chuyển tiền từ escrow cho seller
-      await walletService.deposit(
-        depositRequest.sellerId,
+      // Chuyển tiền từ escrow vào ví hệ thống
+      await SystemWalletService.deposit(
         depositRequest.depositAmount,
-        "Nhận tiền từ giao dịch"
+        `Nhận tiền từ giao dịch đặt cọc ${depositRequestId}`
       );
 
       // Cập nhật escrow
@@ -207,7 +207,7 @@ const walletService = {
       escrow.releasedAt = new Date();
       await escrow.save();
 
-      console.log(`✅ Released ${depositRequest.depositAmount} VND from escrow to seller ${depositRequest.sellerId}`);
+      console.log(`✅ Released ${depositRequest.depositAmount} VND from escrow to system wallet`);
     }
 
     return escrow;

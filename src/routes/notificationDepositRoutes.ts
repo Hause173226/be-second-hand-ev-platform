@@ -1,14 +1,13 @@
-// src/routes/notificationRoutes.ts
-import { Router } from "express";
-import { authenticate } from "../middlewares/authenticate";
+// src/routes/notificationDepositRoutes.ts
+import express from 'express';
+import { authenticate } from '../middlewares/authenticate';
 import {
     getNotifications,
     getUnreadCount,
     markAsRead,
     markAllAsRead,
     deleteNotification,
-    deleteAllRead
-} from "../controllers/notificationController";
+} from '../controllers/notificationDepositController';
 
 const router = Router();
 
