@@ -1,6 +1,6 @@
 // src/routes/listingRoutes.ts
 import express, { RequestHandler } from "express";
-import { body } from "express-validator";
+import { body, param } from "express-validator"; // ⬅️ thêm param
 import { authenticate } from "../middlewares/authenticate";
 import { optionalAuth } from "../middlewares/optionalAuth";
 import { requireProfile } from "../middlewares/requireProfile";
@@ -11,10 +11,20 @@ import {
   updateListing,
   submitListing,
   myListings,
+  getMyListingForEdit,
   priceSuggestionAI,
   searchListings,
   getFilterOptions,
   getListingById,
+  // ⬇️ các handler bổ sung
+  deleteListing,
+  approveListing,
+  rejectListing,
+  publishListing,
+  markSoldListing,
+  uploadListingPhotos,
+  removeListingPhotos,
+  reorderListingPhotos,
 } from "../controllers/listingController";
 
 const listingRoutes = express.Router();
@@ -25,6 +35,10 @@ const listingRoutes = express.Router();
  *   - name: Listings
  *     description: API cho người bán tạo/cập nhật/submit tin đăng
  */
+
+/* -------------------------------------------------------------------------- */
+/*                                   CREATE                                   */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @swagger
@@ -59,22 +73,24 @@ const listingRoutes = express.Router();
  *               # Chung
  *               mileageKm: { type: number }
  *               condition: { type: string, enum: [New, LikeNew, Used, Worn] }
- *               priceListed: { type: number, minimum: 0 }           # (15)
- *               tradeMethod: { type: string, enum: [meet, ship, consignment] }  # (15)
+ *               priceListed: { type: number, minimum: 0 }
+ *               tradeMethod: { type: string, enum: [meet, ship, consignment] }
  *               location:
  *                 type: string
- *                 description: JSON string {"city","district","address"}        # (15) bỏ lat/lng
+ *                 description: JSON string {"city","district","address"}
  *               sellerConfirm:
  *                 type: string
  *                 enum: ["true"]
  *                 description: Cam kết chính chủ
- *               commissionTermsAccepted:                                  # ✅ NEW: BẮT BUỘC
+ *               commissionTermsAccepted:
  *                 type: boolean
  *                 description: "Phải là true: Tôi đồng ý Điều khoản & Phí hoa hồng"
  *                 example: true
  *               photos:
  *                 type: array
  *                 items: { type: string, format: binary }
+ *                 description: "Cần tối thiểu 3 ảnh"
+ *                 minItems: 3
  *     responses:
  *       201: { description: Tạo listing thành công (status=Draft) }
  *       400: { description: Dữ liệu không hợp lệ }
@@ -99,8 +115,13 @@ const createValidators = [
   body("batteryCapacityKWh").optional().isFloat({ min: 0 }),
   body("chargeCycles").optional().isInt({ min: 0 }),
 
-  // Car-only (optional) — KHÔNG ép required ở layer route
-  body("licensePlate").optional().isString().trim().isLength({ min: 1 }).withMessage("licensePlate không hợp lệ"),
+  // Car-only (optional)
+  body("licensePlate")
+    .optional()
+    .isString()
+    .trim()
+    .isLength({ min: 1 })
+    .withMessage("licensePlate không hợp lệ"),
   body("engineDisplacementCc").optional().isFloat({ min: 0 }),
   body("vehicleType").optional().isString().trim(),
   body("paintColor").optional().isString().trim(),
@@ -109,9 +130,7 @@ const createValidators = [
   body("otherFeatures").optional().isString().trim(),
 
   // Cam kết chính chủ
-  body("sellerConfirm")
-    .custom((v) => v === "true")
-    .withMessage("sellerConfirm phải là 'true'"),
+  body("sellerConfirm").custom((v) => v === "true").withMessage("sellerConfirm phải là 'true'"),
 
   // location JSON
   body("location")
@@ -125,7 +144,7 @@ const createValidators = [
     })
     .withMessage("location phải là JSON hợp lệ và có city/district/address"),
 
-  // ✅ bắt buộc đồng ý điều khoản & phí hoa hồng
+  // bắt buộc đồng ý điều khoản & phí hoa hồng
   body("commissionTermsAccepted")
     .custom((v) => {
       if (typeof v === "boolean") return v === true;
@@ -148,6 +167,10 @@ listingRoutes.post(
   createListing as unknown as RequestHandler
 );
 
+/* -------------------------------------------------------------------------- */
+/*                                   UPDATE                                   */
+/* -------------------------------------------------------------------------- */
+
 /**
  * @swagger
  * /api/listings/{id}:
@@ -164,7 +187,7 @@ listingRoutes.post(
  *     requestBody:
  *       required: true
  *       content:
- *         multipart/form-data:               # 👈 multipart để nhận ảnh
+ *         multipart/form-data:
  *           schema:
  *             type: object
  *             properties:
@@ -186,14 +209,14 @@ listingRoutes.post(
  *               # Chung
  *               mileageKm: { type: number }
  *               condition: { type: string, enum: [New, LikeNew, Used, Worn] }
- *               priceListed: { type: number, minimum: 0 }                # (15)
- *               tradeMethod: { type: string, enum: [meet, ship, consignment] } # (15)
+ *               priceListed: { type: number, minimum: 0 }
+ *               tradeMethod: { type: string, enum: [meet, ship, consignment] }
  *               location:
  *                 type: string
- *                 description: JSON string {"city","district","address"}  # gửi dạng text như POST
+ *                 description: JSON string {"city","district","address"}
  *               photos:
  *                 type: array
- *                 items: { type: string, format: binary }                 # ảnh mới (nếu có)
+ *                 items: { type: string, format: binary }
  *     responses:
  *       200: { description: Cập nhật thành công }
  *       401: { description: Unauthorized }
@@ -242,11 +265,51 @@ listingRoutes.patch(
   "/:id",
   authenticate as RequestHandler,
   requireProfile as RequestHandler,
-  upload.array("photos", 10),             // 👈 nhận ảnh (multipart)
+  upload.array("photos", 10),
   ...updateValidators,
   validate as RequestHandler,
   updateListing as unknown as RequestHandler
 );
+
+/**
+ * @swagger
+ * /api/listings/{id}/json:
+ *   patch:
+ *     summary: Cập nhật listing (Draft/Rejected) - JSON only (không ảnh)
+ *     tags: [Listings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/Listing'
+ *     responses:
+ *       200: { description: Cập nhật thành công }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden }
+ *       404: { description: Not found }
+ *       409: { description: Trạng thái không hợp lệ }
+ */
+listingRoutes.patch(
+  "/:id/json",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  upload.none(),
+  ...updateValidators,
+  validate as RequestHandler,
+  updateListing as unknown as RequestHandler
+);
+
+/* -------------------------------------------------------------------------- */
+/*                                   SUBMIT                                   */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @swagger
@@ -268,7 +331,7 @@ listingRoutes.patch(
  *           schema:
  *             type: object
  *             properties:
- *               commissionTermsAccepted:                  # ✅ nhắc lại khi submit
+ *               commissionTermsAccepted:
  *                 type: boolean
  *                 description: "Phải là true: tôi đồng ý Điều khoản & Phí hoa hồng"
  *                 example: true
@@ -303,6 +366,10 @@ listingRoutes.post(
   submitListing as unknown as RequestHandler
 );
 
+/* -------------------------------------------------------------------------- */
+/*                                 MY LISTINGS                                */
+/* -------------------------------------------------------------------------- */
+
 /**
  * @swagger
  * /api/listings/mine:
@@ -320,6 +387,35 @@ listingRoutes.get(
   authenticate as RequestHandler,
   myListings as unknown as RequestHandler
 );
+
+/**
+ * @swagger
+ * /api/listings/mine/{id}:
+ *   get:
+ *     summary: Lấy chi tiết listing của tôi (Draft/Rejected) để prefill khi chỉnh sửa
+ *     tags: [Listings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Chi tiết listing của chính chủ }
+ *       401: { description: Unauthorized }
+ *       403: { description: Forbidden (không phải chủ) }
+ *       404: { description: Not found }
+ */
+listingRoutes.get(
+  "/mine/:id",
+  authenticate as RequestHandler,
+  getMyListingForEdit as unknown as RequestHandler
+);
+
+/* -------------------------------------------------------------------------- */
+/*                                PRICE SUGGEST                               */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @swagger
@@ -356,6 +452,10 @@ listingRoutes.post(
   validate as RequestHandler,
   priceSuggestionAI as unknown as RequestHandler
 );
+
+/* -------------------------------------------------------------------------- */
+/*                               PUBLIC SEARCH                                */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @swagger
@@ -491,48 +591,12 @@ listingRoutes.get("/", optionalAuth as RequestHandler, searchListings as unknown
  *     responses:
  *       200:
  *         description: Danh sách các giá trị filter
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 makes:
- *                   type: array
- *                   items:
- *                     type: string
- *                 models:
- *                   type: array
- *                   items:
- *                     type: string
- *                 years:
- *                   type: array
- *                   items:
- *                     type: number
- *                 batteryCapacities:
- *                   type: array
- *                   items:
- *                     type: number
- *                 conditions:
- *                   type: array
- *                   items:
- *                     type: string
- *                 cities:
- *                   type: array
- *                   items:
- *                     type: string
- *                 districts:
- *                   type: array
- *                   items:
- *                     type: string
- *                 priceRange:
- *                   type: object
- *                   properties:
- *                     min:
- *                       type: number
- *                     max:
- *                       type: number
  */
 listingRoutes.get("/filter-options", getFilterOptions as unknown as RequestHandler);
+
+/* -------------------------------------------------------------------------- */
+/*                                PUBLIC DETAIL                               */
+/* -------------------------------------------------------------------------- */
 
 /**
  * @swagger
@@ -552,31 +616,113 @@ listingRoutes.get("/filter-options", getFilterOptions as unknown as RequestHandl
  *     responses:
  *       200:
  *         description: Chi tiết sản phẩm
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Listing'
  *       400:
  *         description: ID không hợp lệ
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "ID không hợp lệ"
  *       404:
  *         description: Sản phẩm không tồn tại hoặc chưa được duyệt
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Sản phẩm không tồn tại hoặc chưa được duyệt"
  */
 listingRoutes.get("/:id", getListingById as unknown as RequestHandler);
+
+/* -------------------------------------------------------------------------- */
+/*                               PHOTO MANAGEMENT                             */
+/* -------------------------------------------------------------------------- */
+
+// Upload thêm ảnh cho listing (Draft/Rejected)
+// body: photos[] (multipart)
+listingRoutes.post(
+  "/:id/photos",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  upload.array("photos", 10),
+  param("id").isString().isLength({ min: 1 }),
+  validate as RequestHandler,
+  uploadListingPhotos as unknown as RequestHandler
+);
+
+// Xoá 1 ảnh theo publicId
+listingRoutes.delete(
+  "/:id/photos/:publicId",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  param("publicId").isString().isLength({ min: 1 }),
+  validate as RequestHandler,
+  removeListingPhotos as unknown as RequestHandler
+);
+
+// Sắp xếp lại thứ tự ảnh
+// body: { order: string[] } (mảng publicId theo thứ tự mới)
+listingRoutes.post(
+  "/:id/photos/reorder",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  body("order")
+    .custom((v) => Array.isArray(v) && v.every((x) => typeof x === "string"))
+    .withMessage("order phải là mảng publicId (string)"),
+  validate as RequestHandler,
+  reorderListingPhotos as unknown as RequestHandler
+);
+
+/* -------------------------------------------------------------------------- */
+/*                               STATUS / ADMIN                               */
+/* -------------------------------------------------------------------------- */
+
+// Approve → Published (hoặc chờ publish)
+// body: { note?: string }
+listingRoutes.post(
+  "/:id/approve",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  validate as RequestHandler,
+  approveListing as unknown as RequestHandler
+);
+
+// Reject với lý do
+// body: { reason: string }
+listingRoutes.post(
+  "/:id/reject",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  body("reason").isString().trim().isLength({ min: 3 }),
+  validate as RequestHandler,
+  rejectListing as unknown as RequestHandler
+);
+
+// Publish thủ công (nếu cần)
+listingRoutes.post(
+  "/:id/publish",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  validate as RequestHandler,
+  publishListing as unknown as RequestHandler
+);
+
+// Đánh dấu đã bán
+listingRoutes.post(
+  "/:id/mark-sold",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  validate as RequestHandler,
+  markSoldListing as unknown as RequestHandler
+);
+
+/* -------------------------------------------------------------------------- */
+/*                                    DELETE                                  */
+/* -------------------------------------------------------------------------- */
+
+// Xoá listing (chủ sở hữu, chỉ Draft/Rejected)
+listingRoutes.delete(
+  "/:id",
+  authenticate as RequestHandler,
+  requireProfile as RequestHandler,
+  param("id").isString().isLength({ min: 1 }),
+  validate as RequestHandler,
+  deleteListing as unknown as RequestHandler
+);
 
 export default listingRoutes;
