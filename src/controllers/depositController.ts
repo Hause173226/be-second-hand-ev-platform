@@ -1,14 +1,15 @@
 import { Request, Response } from 'express';
 import DepositRequest from '../models/DepositRequest';
 import Listing from '../models/Listing';
+import User from '../models/User';
 import walletService from '../services/walletService';
+import notificationService from '../services/notificationService';
 
 // Tạo yêu cầu đặt cọc
 export const createDepositRequest = async (req: Request, res: Response) => {
   try {
     const { listingId, depositAmount } = req.body;
     const buyerId = req.user?.id;
-    console.log('buyerId:', buyerId);
     
     // Kiểm tra listing tồn tại
     const listing = await Listing.findById(listingId);
@@ -87,8 +88,16 @@ export const createDepositRequest = async (req: Request, res: Response) => {
 
     await depositRequest.save();
 
-    // TODO: Gửi thông báo cho người bán
-    // await notificationService.sendDepositNotification(listing.sellerId, depositRequest);
+    // Gửi thông báo cho người bán
+    try {
+      const buyer = await User.findById(buyerId);
+      if (buyer) {
+        await notificationService.sendDepositNotification(listing.sellerId, depositRequest, buyer);
+      }
+    } catch (notificationError) {
+      console.error('Error sending deposit notification:', notificationError);
+      // Không throw error để không ảnh hưởng đến flow chính
+    }
 
     res.json({
       success: true,
@@ -155,11 +164,19 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       // Xác nhận cọc -> Chuyển tiền vào Escrow và tạo appointment
       const result = await walletService.transferToEscrow(depositRequestId);
 
-      // TODO: Gửi thông báo cho người mua
-      // await notificationService.sendDepositConfirmedNotification(
-      //   depositRequest.buyerId, 
-      //   depositRequest
-      // );
+      // Gửi thông báo cho người mua
+      try {
+        const seller = await User.findById(sellerId);
+        if (seller) {
+          await notificationService.sendDepositConfirmationNotification(
+            depositRequest.buyerId, 
+            depositRequest,
+            seller
+          );
+        }
+      } catch (notificationError) {
+        console.error('Error sending deposit confirmation notification:', notificationError);
+      }
 
       res.json({
         success: true,

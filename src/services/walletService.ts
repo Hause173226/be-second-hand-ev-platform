@@ -47,16 +47,7 @@ export class WalletService {
     
     await wallet.save();
 
-    // TODO: Tạo transaction record khi có WalletTransaction model
-    // const transaction = new WalletTransaction({
-    //   userId,
-    //   type: 'DEPOSIT',
-    //   amount,
-    //   balance: wallet.balance,
-    //   description: description || 'Nạp tiền vào ví',
-    //   status: 'COMPLETED'
-    // });
-    // await transaction.save();
+    
     return wallet;
   }
 
