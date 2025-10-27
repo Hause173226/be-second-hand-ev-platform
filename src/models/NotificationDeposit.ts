@@ -1,7 +1,7 @@
-// src/models/Notification.ts
+// src/models/NotificationDeposit.ts
 import mongoose from "mongoose";
 
-export interface INotification extends mongoose.Document {
+export interface INotificationDeposit extends mongoose.Document {
     userId: string; // Người nhận notification
     type: 'deposit' | 'deposit_confirmation' | 'contract' | 'transaction_complete';
     title: string;
@@ -31,7 +31,7 @@ export interface INotification extends mongoose.Document {
     updatedAt: Date;
 }
 
-const NotificationSchema = new mongoose.Schema<INotification>(
+const NotificationDepositSchema = new mongoose.Schema<INotificationDeposit>(
     {
         userId: {
             type: String,
@@ -82,9 +82,9 @@ const NotificationSchema = new mongoose.Schema<INotification>(
 );
 
 // Indexes cho performance
-NotificationSchema.index({ userId: 1, isRead: 1 }); // Query theo user và trạng thái đã đọc
-NotificationSchema.index({ userId: 1, createdAt: -1 }); // Query theo user và thời gian tạo
-NotificationSchema.index({ type: 1 });
+NotificationDepositSchema.index({ userId: 1, isRead: 1 }); // Query theo user và trạng thái đã đọc
+NotificationDepositSchema.index({ userId: 1, createdAt: -1 }); // Query theo user và thời gian tạo
+NotificationDepositSchema.index({ type: 1 });
 
-export const Notification = mongoose.model<INotification>("Notification", NotificationSchema);
+export const NotificationDeposit = mongoose.model<INotificationDeposit>("NotificationDeposit", NotificationDepositSchema);
 
