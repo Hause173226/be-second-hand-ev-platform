@@ -1,14 +1,15 @@
 import { Request, Response } from 'express';
 import DepositRequest from '../models/DepositRequest';
 import Listing from '../models/Listing';
+import { User } from '../models/User';
 import walletService from '../services/walletService';
+import depositNotificationService from '../services/depositNotificationService';
 
 // Tạo yêu cầu đặt cọc
 export const createDepositRequest = async (req: Request, res: Response) => {
   try {
     const { listingId, depositAmount } = req.body;
     const buyerId = req.user?.id;
-    console.log('buyerId:', buyerId);
     
     // Kiểm tra listing tồn tại
     const listing = await Listing.findById(listingId);
@@ -55,7 +56,7 @@ export const createDepositRequest = async (req: Request, res: Response) => {
     if (buyerWallet.balance < depositAmount) {
       // Không đủ tiền -> Tạo link nạp tiền qua VNPay
       const vnpayUrl = await walletService.createDepositUrl(
-        buyerId!,
+        buyerId!.toString(),
         depositAmount,
         `Nạp tiền đặt cọc mua xe ${(listing as any).title || 'Xe'}`,
         req
@@ -87,8 +88,21 @@ export const createDepositRequest = async (req: Request, res: Response) => {
 
     await depositRequest.save();
 
-    // TODO: Gửi thông báo cho người bán
-    // await notificationService.sendDepositNotification(listing.sellerId, depositRequest);
+    // Gửi thông báo cho người bán
+    try {
+      const buyer = await User.findById(buyerId);
+      if (buyer) {
+        await depositNotificationService.sendDepositRequestNotification(
+          listing.sellerId.toString(), 
+          depositRequest, 
+          buyer,
+          listing  // Thêm thông tin listing
+        );
+      }
+    } catch (notificationError) {
+      console.error('Error sending deposit notification:', notificationError);
+      // Không throw error để không ảnh hưởng đến flow chính
+    }
 
     res.json({
       success: true,
@@ -117,7 +131,7 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
     const { depositRequestId } = req.params; // Lấy từ URL path parameter
     const { action } = req.body; // 'CONFIRM' hoặc 'REJECT'
     const sellerId = req.user?.id;
-
+    
     if (!sellerId) {
       return res.status(401).json({
         success: false,
@@ -155,11 +169,22 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       // Xác nhận cọc -> Chuyển tiền vào Escrow và tạo appointment
       const result = await walletService.transferToEscrow(depositRequestId);
 
-      // TODO: Gửi thông báo cho người mua
-      // await notificationService.sendDepositConfirmedNotification(
-      //   depositRequest.buyerId, 
-      //   depositRequest
-      // );
+      // Gửi thông báo cho người mua
+      try {
+        const seller = await User.findById(sellerId);
+        const listing = await Listing.findById(depositRequest.listingId);
+        if (seller) {
+          await depositNotificationService.sendDepositConfirmationNotification(
+            depositRequest.buyerId, 
+            depositRequest,
+            seller,
+            'accept',
+            listing  // Thêm thông tin listing
+          );
+        }
+      } catch (notificationError) {
+        console.error('Error sending deposit confirmation notification:', notificationError);
+      }
 
       res.json({
         success: true,
@@ -174,14 +199,33 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       });
 
     } else if (action === 'REJECT') {
-      // Từ chối cọc -> Hoàn tiền về ví người mua
-      await walletService.refundFromEscrow(depositRequestId);
+      // Từ chối cọc -> Hoàn tiền từ frozen về ví người mua
+      await walletService.unfreezeAmount(
+        depositRequest.buyerId,
+        depositRequest.depositAmount,
+        'Seller từ chối đặt cọc'
+      );
 
-      // TODO: Gửi thông báo cho người mua
-      // await notificationService.sendDepositRejectedNotification(
-      //   depositRequest.buyerId, 
-      //   depositRequest
-      // );
+      // Cập nhật trạng thái deposit request
+      depositRequest.status = 'SELLER_CANCELLED';
+      await depositRequest.save();
+
+      // Gửi thông báo cho người mua
+      try {
+        const seller = await User.findById(sellerId);
+        const listing = await Listing.findById(depositRequest.listingId);
+        if (seller) {
+          await depositNotificationService.sendDepositConfirmationNotification(
+            depositRequest.buyerId,
+            depositRequest,
+            seller,
+            'reject',
+            listing  // Thêm thông tin listing
+          );
+        }
+      } catch (notificationError) {
+        console.error('Error sending deposit rejection notification:', notificationError);
+      }
 
       res.json({
         success: true,

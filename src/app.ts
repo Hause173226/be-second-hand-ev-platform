@@ -18,6 +18,7 @@ import contractRoutes from "./routes/contractRoutes";
 import transactionRoutes from "./routes/transactionRoutes";
 import walletRoutes from "./routes/walletRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
+import notificationRoutes from "./routes/notificationRoutes";
 
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
@@ -62,6 +63,7 @@ app.use("/api/contracts", contractRoutes);
 app.use("/api/transactions", transactionRoutes);
 app.use("/api/wallet", walletRoutes);
 app.use("/api/payment", paymentRoutes);
+app.use("/api/notifications", notificationRoutes);
 
 // 📘 Swagger Docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
