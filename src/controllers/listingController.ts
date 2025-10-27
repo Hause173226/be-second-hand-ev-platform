@@ -149,6 +149,9 @@ export const createListing: RequestHandler = async (req, res, next) => {
       type === "Car"
         ? {
             ...base,
+             batteryCapacityKWh: batteryCapacityKWh
+          ? Number(batteryCapacityKWh)
+          : undefined,     // ✅ giữ lại khi là Car
             licensePlate,
             engineDisplacementCc: engineDisplacementCc
               ? Number(engineDisplacementCc)
@@ -422,6 +425,32 @@ export const myListings: RequestHandler = async (req, res, next) => {
     const sellerId = (req as any).user?._id;
     const list = await Listing.find({ sellerId }).sort({ createdAt: -1 });
     res.json(list);
+  } catch (err) {
+    next(err);
+  }
+};
+export const getMyListingForEdit: RequestHandler = async (req, res, next) => {
+  try {
+    const userId = (req as any).user?._id;
+    const { id } = req.params;
+
+    if (!id?.match(/^[0-9a-fA-F]{24}$/)) {
+      res.status(400).json({ message: "ID không hợp lệ" });
+      return;
+    }
+
+    const listing = await Listing.findById(id).lean();
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    if (String(listing.sellerId) !== String(userId)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+
+    // Trả về full dữ liệu để điền form (kể cả Draft/Rejected)
+    res.json(listing);
   } catch (err) {
     next(err);
   }
@@ -780,3 +809,233 @@ export const getListingById: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+/**
+ * Xóa listing (chỉ owner khi Draft/Rejected hoặc admin)
+ */
+export const deleteListing: RequestHandler = async (req, res, next) => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+
+    const isAdmin = user?.role === "admin";
+    if (!isAdmin && !isOwner(user?._id, listing.sellerId)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+
+    if (
+      !isAdmin &&
+      !["Draft", "Rejected"].includes((listing as any).status)
+    ) {
+      res.status(409).json({ message: "Chỉ được xóa khi Draft/Rejected" });
+      return;
+    }
+
+    await listing.deleteOne();
+    res.json({ message: "Đã xóa thành công" });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Admin duyệt listing
+ */
+export const approveListing: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    (listing as any).status = "Published";
+    (listing as any).publishedAt = new Date();
+    (listing as any).rejectReason = undefined;
+    await listing.save();
+    res.json({ message: "Listing đã được duyệt & published", listing });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Admin từ chối listing
+ */
+export const rejectListing: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    (listing as any).status = "Rejected";
+    (listing as any).rejectReason = reason || "Không phù hợp";
+    await listing.save();
+    res.json({ message: "Listing đã bị từ chối", listing });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Admin publish thủ công
+ */
+export const publishListing: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    (listing as any).status = "Published";
+    (listing as any).publishedAt = new Date();
+    await listing.save();
+    res.json({ message: "Đã publish listing", listing });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Mark Sold
+ */
+export const markSoldListing: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = (req as any).user?._id;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    if (!isOwner(userId, listing.sellerId)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+    (listing as any).status = "Sold";
+    await listing.save();
+    res.json({ message: "Listing đã được đánh dấu là Sold", listing });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/* -------------------- QUẢN LÝ ẢNH -------------------- */
+
+/**
+ * Upload thêm ảnh (chỉ khi Draft/Rejected)
+ */
+export const uploadListingPhotos: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const userId = (req as any).user?._id;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    if (!isOwner(userId, listing.sellerId)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+    if (!["Draft", "Rejected"].includes((listing as any).status)) {
+      res.status(409).json({ message: "Chỉ upload ảnh khi Draft/Rejected" });
+      return;
+    }
+
+    const files = (req.files as MulterCloudinaryFile[]) || [];
+    if (!files.length) {
+      res.status(400).json({ message: "Không có ảnh nào được upload" });
+      return;
+    }
+
+    const newPhotos = files.map((f) => ({
+      url: (f as any).path,
+      kind: "photo" as const,
+      publicId: (f as any).filename,
+    }));
+    (listing as any).photos.push(...newPhotos);
+    await listing.save();
+    res.json({ message: "Đã thêm ảnh", photos: (listing as any).photos });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Xóa 1 ảnh khỏi listing (theo publicId)
+ */
+export const removeListingPhotos: RequestHandler = async (req, res, next) => {
+  try {
+    const { id, publicId } = req.params;
+    const userId = (req as any).user?._id;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    if (!isOwner(userId, listing.sellerId)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+
+    (listing as any).photos = (listing as any).photos.filter(
+      (p: any) => p.publicId !== publicId
+    );
+    await listing.save();
+    res.json({ message: "Đã xóa ảnh", photos: (listing as any).photos });
+  } catch (err) {
+    next(err);
+  }
+};
+
+/**
+ * Reorder ảnh (body = mảng publicId theo thứ tự mới)
+ */
+export const reorderListingPhotos: RequestHandler = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { order } = req.body as { order: string[] };
+    const userId = (req as any).user?._id;
+    const listing = await Listing.findById(id);
+    if (!listing) {
+      res.status(404).json({ message: "Listing không tồn tại" });
+      return;
+    }
+    if (!isOwner(userId, listing.sellerId)) {
+      res.status(403).json({ message: "Forbidden" });
+      return;
+    }
+    if (!Array.isArray(order)) {
+      res.status(400).json({ message: "order phải là array publicId" });
+      return;
+    }
+
+    const current = (listing as any).photos;
+    const newArr = order
+      .map((pid) => current.find((p: any) => p.publicId === pid))
+      .filter(Boolean);
+
+    // Giữ lại ảnh cũ chưa nằm trong order
+    for (const p of current) {
+      if (!order.includes(p.publicId)) newArr.push(p);
+    }
+
+    (listing as any).photos = newArr;
+    await listing.save();
+    res.json({ message: "Đã reorder ảnh", photos: (listing as any).photos });
+  } catch (err) {
+    next(err);
+  }
+};
+
