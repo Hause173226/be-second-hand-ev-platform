@@ -23,6 +23,7 @@ import {
   validateOTP,
   validateSignIn,
 } from "../middlewares/validation";
+import { upload } from "../services/fileUploadService";
 
 const userRoutes = express.Router();
 
@@ -30,7 +31,7 @@ const userRoutes = express.Router();
  * @swagger
  * /api/users/signup:
  *   post:
- *     summary: Đăng ký tài khoản mới
+ *     summary: Đăng ký tài khoản mới (JSON)
  *     tags: [Auth]
  *     requestBody:
  *       required: true
@@ -109,6 +110,134 @@ const userRoutes = express.Router();
  *         description: Dữ liệu không hợp lệ hoặc đã tồn tại
  *       500:
  *         description: Lỗi server
+ */
+
+/**
+ * @swagger
+ * /api/users/signup-with-avatar:
+ *   post:
+ *     summary: Đăng ký tài khoản mới với upload avatar từ local
+ *     tags: [Auth]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         multipart/form-data:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               fullName:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
+ *                 example: "Nguyễn Văn A"
+ *                 description: "Họ và tên đầy đủ"
+ *               phone:
+ *                 type: string
+ *                 pattern: "^(0[3|5|7|8|9])[0-9]{8}$"
+ *                 example: "0987654321"
+ *                 description: "Số điện thoại Việt Nam"
+ *               email:
+ *                 type: string
+ *                 format: email
+ *                 example: "user@example.com"
+ *                 description: "Email đăng ký"
+ *               password:
+ *                 type: string
+ *                 minLength: 6
+ *                 maxLength: 50
+ *                 example: "password123"
+ *                 description: "Mật khẩu (6-50 ký tự)"
+ *               gender:
+ *                 type: string
+ *                 enum: [male, female, other]
+ *                 example: "male"
+ *                 description: "Giới tính"
+ *               dateOfBirth:
+ *                 type: string
+ *                 format: date
+ *                 example: "1990-01-01"
+ *                 description: "Ngày sinh (YYYY-MM-DD)"
+ *               avatar:
+ *                 type: string
+ *                 format: binary
+ *                 description: "File ảnh avatar (jpg, png, gif, webp, tối đa 10MB)"
+ *               address:
+ *                 type: string
+ *                 example: '{"fullAddress":"123 Đường ABC","ward":"Phường 1","district":"Quận 1","city":"TP.HCM","province":"Hồ Chí Minh"}'
+ *                 description: "Địa chỉ dưới dạng JSON string"
+ *               termsAgreed:
+ *                 type: string
+ *                 example: "true"
+ *                 description: "Đồng ý điều khoản (true/false)"
+ *             required:
+ *               - fullName
+ *               - phone
+ *               - email
+ *               - password
+ *               - address
+ *               - termsAgreed
+ *     responses:
+ *       201:
+ *         description: Đăng ký thành công với avatar đã upload
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       example: "64f1a2b3c4d5e6f7g8h9i0j1"
+ *                     fullName:
+ *                       type: string
+ *                       example: "Nguyễn Văn A"
+ *                     email:
+ *                       type: string
+ *                       example: "user@example.com"
+ *                     avatar:
+ *                       type: string
+ *                       example: "/uploads/uuid-timestamp-avatar.jpg"
+ *                     phone:
+ *                       type: string
+ *                       example: "0987654321"
+ *                     role:
+ *                       type: string
+ *                       example: "USER"
+ *                     status:
+ *                       type: string
+ *                       example: "ACTIVE"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2023-09-01T10:00:00.000Z"
+ *                 accessToken:
+ *                   type: string
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *                 refreshToken:
+ *                   type: string
+ *                   example: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+ *       400:
+ *         description: Dữ liệu không hợp lệ, file không đúng định dạng hoặc đã tồn tại
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Email đã tồn tại"
+ *       500:
+ *         description: Lỗi server
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 error:
+ *                   type: string
+ *                   example: "Lỗi máy chủ nội bộ"
  */
 
 /**
@@ -513,6 +642,12 @@ const userRoutes = express.Router();
 
 // Auth routes
 userRoutes.post("/signup", validateSignUp, signUp);
+userRoutes.post(
+  "/signup-with-avatar",
+  validateSignUp,
+  upload.single("avatar"),
+  signUp
+);
 userRoutes.post("/signin", validateSignIn, signIn);
 userRoutes.post("/refresh-token", refreshToken);
 userRoutes.post("/forgot-password", forgotPassword);
