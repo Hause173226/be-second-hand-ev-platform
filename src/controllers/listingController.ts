@@ -9,12 +9,10 @@ import { suggestHeuristic } from "../services/priceAI.heuristic";
 import { PriceAIInput } from "../services/priceAI.types";
 
 // ⬇️ NEW: dùng kiểu để type-narrowing cho union
-import type {
-  IListing,
-} from "../interfaces/IListing"
+import type { IListing } from "../interfaces/IListing";
 
 type MulterCloudinaryFile = Express.Multer.File & {
-  path: string;     // Cloudinary URL
+  path: string; // Cloudinary URL
   filename: string; // Cloudinary public_id
 };
 
@@ -40,8 +38,10 @@ const toBool = (v: unknown) => {
 };
 
 // ⬇️ NEW: type guards cho union
-const isCar = (l: IListing): l is IListing & { type: "Car" } => l?.type === "Car";
-const isBattery = (l: IListing): l is IListing & { type: "Battery" } => l?.type === "Battery";
+const isCar = (l: IListing): l is IListing & { type: "Car" } =>
+  l?.type === "Car";
+const isBattery = (l: IListing): l is IListing & { type: "Battery" } =>
+  l?.type === "Battery";
 
 /**
  * Tạo listing (status = Draft)
@@ -100,7 +100,9 @@ export const createListing: RequestHandler = async (req, res, next) => {
 
     // ép & validate priceListed
     const priceListedNum =
-      typeof priceListed === "string" ? Number(priceListed) : Number(priceListed);
+      typeof priceListed === "string"
+        ? Number(priceListed)
+        : Number(priceListed);
     if (!Number.isFinite(priceListedNum) || priceListedNum < 0) {
       res.status(400).json({ message: "priceListed không hợp lệ" });
       return;
@@ -113,7 +115,8 @@ export const createListing: RequestHandler = async (req, res, next) => {
       "consignment",
     ];
     const trade =
-      typeof tradeMethod === "string" && ALLOWED_TRADE.includes(tradeMethod as any)
+      typeof tradeMethod === "string" &&
+      ALLOWED_TRADE.includes(tradeMethod as any)
         ? (tradeMethod as any)
         : "meet";
 
@@ -147,7 +150,9 @@ export const createListing: RequestHandler = async (req, res, next) => {
         ? {
             ...base,
             licensePlate,
-            engineDisplacementCc: engineDisplacementCc ? Number(engineDisplacementCc) : undefined,
+            engineDisplacementCc: engineDisplacementCc
+              ? Number(engineDisplacementCc)
+              : undefined,
             vehicleType,
             paintColor,
             engineNumber,
@@ -156,7 +161,9 @@ export const createListing: RequestHandler = async (req, res, next) => {
           }
         : {
             ...base,
-            batteryCapacityKWh: batteryCapacityKWh ? Number(batteryCapacityKWh) : undefined,
+            batteryCapacityKWh: batteryCapacityKWh
+              ? Number(batteryCapacityKWh)
+              : undefined,
             chargeCycles: chargeCycles ? Number(chargeCycles) : undefined,
           };
 
@@ -185,7 +192,12 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!(typeof (listing as any).status === "string" && ["Draft", "Rejected"].includes((listing as any).status))) {
+    if (
+      !(
+        typeof (listing as any).status === "string" &&
+        ["Draft", "Rejected"].includes((listing as any).status)
+      )
+    ) {
       res.status(409).json({ message: "Chỉ sửa khi Draft/Rejected" });
       return;
     }
@@ -198,7 +210,10 @@ export const updateListing: RequestHandler = async (req, res, next) => {
         kind: "photo" as const,
         publicId: (f as any).filename,
       }));
-      (listing as any).photos = [...((listing as any).photos || []), ...newPhotos];
+      (listing as any).photos = [
+        ...((listing as any).photos || []),
+        ...newPhotos,
+      ];
     }
 
     // ⬇️ NEW: bổ sung các field hợp đồng cho Car
@@ -261,7 +276,9 @@ export const updateListing: RequestHandler = async (req, res, next) => {
 
       if (k === "sellerConfirm") {
         const confirmed = toBool((req.body as any).sellerConfirm);
-        (listing as any).notes = confirmed ? undefined : "Chưa xác nhận chính chủ";
+        (listing as any).notes = confirmed
+          ? undefined
+          : "Chưa xác nhận chính chủ";
         continue;
       }
 
@@ -335,12 +352,19 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!(typeof (listing as any).status === "string" && ["Draft", "Rejected"].includes((listing as any).status))) {
+    if (
+      !(
+        typeof (listing as any).status === "string" &&
+        ["Draft", "Rejected"].includes((listing as any).status)
+      )
+    ) {
       res.status(409).json({ message: "Chỉ submit khi Draft/Rejected" });
       return;
     }
 
-    const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted ?? "true");
+    const acceptedTerms = toBool(
+      (req.body as any)?.commissionTermsAccepted ?? "true"
+    );
     if (acceptedTerms !== true) {
       res.status(400).json({
         message: "Bạn phải đồng ý Điều khoản & Phí hoa hồng trước khi submit.",
@@ -360,17 +384,23 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       !(listing as any).location?.district ||
       !(listing as any).location?.address
     ) {
-      res.status(400).json({ message: "Thiếu dữ liệu bắt buộc (giá, vị trí...)" });
+      res
+        .status(400)
+        .json({ message: "Thiếu dữ liệu bắt buộc (giá, vị trí...)" });
       return;
     }
     if (!(listing as any).tradeMethod) {
-      res.status(400).json({ message: "Thiếu hình thức giao dịch (tradeMethod)" });
+      res
+        .status(400)
+        .json({ message: "Thiếu hình thức giao dịch (tradeMethod)" });
       return;
     }
 
     const mod = await moderationService.scanListing(listing as any);
     if (!mod.ok) {
-      res.status(400).json({ message: "Auto moderation failed", reasons: mod.reasons });
+      res
+        .status(400)
+        .json({ message: "Auto moderation failed", reasons: mod.reasons });
       return;
     }
 
@@ -443,27 +473,30 @@ export const searchListings: RequestHandler = async (req, res, next) => {
     // Text search với keyword - thông minh hơn với make, model, year
     if (keyword) {
       const keywordStr = keyword.toString().trim();
-      
+
       // Tách keyword thành các từ
       const words = keywordStr.split(/\s+/);
-      
+
       // Tìm năm trong keyword (4 chữ số liên tiếp)
       const yearMatch = keywordStr.match(/\b(19|20)\d{2}\b/);
       const yearFromKeyword = yearMatch ? parseInt(yearMatch[0], 10) : null;
-      
+
       // Xây dựng điều kiện search thông minh
       const searchConditions: any[] = [
         { make: { $regex: keywordStr, $options: "i" } },
         { model: { $regex: keywordStr, $options: "i" } },
         { notes: { $regex: keywordStr, $options: "i" } },
       ];
-      
       // Nếu có nhiều từ, thử tìm theo kết hợp make + model
       if (words.length >= 2) {
         // Ví dụ: "Tesla Model" hoặc "Tesla Model 3"
         const possibleMake = words[0];
-        const possibleModel = words.slice(1).join(" ").replace(/\b(19|20)\d{2}\b/, "").trim();
-        
+        const possibleModel = words
+          .slice(1)
+          .join(" ")
+          .replace(/\b(19|20)\d{2}\b/, "")
+          .trim();
+
         if (possibleModel) {
           searchConditions.push({
             $and: [
@@ -473,7 +506,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           });
         }
       }
-      
       // Nếu tìm thấy năm trong keyword, thêm điều kiện tìm theo năm
       if (yearFromKeyword) {
         searchConditions.push({
@@ -481,14 +513,23 @@ export const searchListings: RequestHandler = async (req, res, next) => {
             { year: yearFromKeyword },
             {
               $or: [
-                { make: { $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(), $options: "i" } },
-                { model: { $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(), $options: "i" } },
+                {
+                  make: {
+                    $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(),
+                    $options: "i",
+                  },
+                },
+                {
+                  model: {
+                    $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(),
+                    $options: "i",
+                  },
+                },
               ],
             },
           ],
         });
       }
-      
       filter.$or = searchConditions;
     }
 
@@ -525,8 +566,13 @@ export const searchListings: RequestHandler = async (req, res, next) => {
     }
 
     if (city || district) {
-      if (city) filter["location.city"] = { $regex: city as string, $options: "i" };
-      if (district) filter["location.district"] = { $regex: district as string, $options: "i" };
+      if (city)
+        filter["location.city"] = { $regex: city as string, $options: "i" };
+      if (district)
+        filter["location.district"] = {
+          $regex: district as string,
+          $options: "i",
+        };
     }
 
     let sort: any = {};
@@ -576,8 +622,12 @@ export const searchListings: RequestHandler = async (req, res, next) => {
             make: make as string,
             model: model as string,
             year: year ? parseInt(year as string, 10) : undefined,
-            batteryCapacityKWh: batteryCapacityKWh ? parseInt(batteryCapacityKWh as string, 10) : undefined,
-            mileageKm: mileageKm ? parseInt(mileageKm as string, 10) : undefined,
+            batteryCapacityKWh: batteryCapacityKWh
+              ? parseInt(batteryCapacityKWh as string, 10)
+              : undefined,
+            mileageKm: mileageKm
+              ? parseInt(mileageKm as string, 10)
+              : undefined,
             minPrice: minPrice ? parseInt(minPrice as string, 10) : undefined,
             maxPrice: maxPrice ? parseInt(maxPrice as string, 10) : undefined,
             city: city as string,
@@ -589,7 +639,11 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           searchDate: new Date(),
           isSuccessful: true,
         });
-        console.log(`Search history saved for keyword: ${keyword}, userId: ${userId || "anonymous"}`);
+        console.log(
+          `Search history saved for keyword: ${keyword}, userId: ${
+            userId || "anonymous"
+          }`
+        );
       } catch (err) {
         console.error("Error saving search history:", err);
       }
@@ -632,12 +686,22 @@ export const searchListings: RequestHandler = async (req, res, next) => {
 export const getFilterOptions: RequestHandler = async (_req, res, next) => {
   try {
     // ⬇️ cast về union để dùng narrowing
-    const publishedListings = (await Listing.find({ status: "Published" }).lean()) as IListing[];
+    const publishedListings = (await Listing.find({
+      status: "Published",
+    }).lean()) as IListing[];
 
-    const makes = [...new Set(publishedListings.map(l => l.make).filter(Boolean))].sort();
-    const models = [...new Set(publishedListings.map(l => l.model).filter(Boolean))].sort();
+    const makes = [
+      ...new Set(publishedListings.map((l) => l.make).filter(Boolean)),
+    ].sort();
+    const models = [
+      ...new Set(publishedListings.map((l) => l.model).filter(Boolean)),
+    ].sort();
     const years = [
-      ...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number")),
+      ...new Set(
+        publishedListings
+          .map((l) => l.year)
+          .filter((v): v is number => typeof v === "number")
+      ),
     ].sort((a, b) => b - a);
 
     // ⬇️ NEW: chỉ lấy batteryCapacityKWh cho Battery
@@ -645,17 +709,27 @@ export const getFilterOptions: RequestHandler = async (_req, res, next) => {
       ...new Set(
         publishedListings
           .filter(isBattery)
-          .map(l => l.batteryCapacityKWh)
+          .map((l) => l.batteryCapacityKWh)
           .filter((v): v is number => typeof v === "number")
       ),
     ].sort((a, b) => a - b);
 
-    const conditions = [...new Set(publishedListings.map(l => l.condition).filter(Boolean))];
-    const cities = [...new Set(publishedListings.map(l => l.location?.city).filter(Boolean))].sort();
-    const districts = [...new Set(publishedListings.map(l => l.location?.district).filter(Boolean))].sort();
+    const conditions = [
+      ...new Set(publishedListings.map((l) => l.condition).filter(Boolean)),
+    ];
+    const cities = [
+      ...new Set(
+        publishedListings.map((l) => l.location?.city).filter(Boolean)
+      ),
+    ].sort();
+    const districts = [
+      ...new Set(
+        publishedListings.map((l) => l.location?.district).filter(Boolean)
+      ),
+    ].sort();
 
     const priceVals = publishedListings
-      .map(l => l.priceListed)
+      .map((l) => l.priceListed)
       .filter((v): v is number => typeof v === "number");
     const minPrice = priceVals.length ? Math.min(...priceVals) : 0;
     const maxPrice = priceVals.length ? Math.max(...priceVals) : 0;
@@ -695,7 +769,9 @@ export const getListingById: RequestHandler = async (req, res, next) => {
       .lean();
 
     if (!listing) {
-      res.status(404).json({ message: "Sản phẩm không tồn tại hoặc chưa được duyệt" });
+      res
+        .status(404)
+        .json({ message: "Sản phẩm không tồn tại hoặc chưa được duyệt" });
       return;
     }
 
