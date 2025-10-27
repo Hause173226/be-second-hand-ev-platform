@@ -1,4 +1,4 @@
-// src/controllers/chatController.ts
+
 import { Request, Response, NextFunction } from "express";
 import Chat from "../models/Chat";
 import Message from "../models/Message";
@@ -7,13 +7,9 @@ import { User } from "../models/User";
 import { Types } from "mongoose";
 import { WebSocketService } from "../services/websocketService";
 import { FileUploadService } from "../services/fileUploadService";
+import chatService from "../services/chatService";
 
-/**
- * Tạo chat room giữa 2 user bất kỳ
- * @param req - Request object chứa targetUserId trong body
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
+
 export const createDirectChat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { targetUserId } = req.body;
@@ -65,12 +61,6 @@ export const createDirectChat = async (req: Request, res: Response, next: NextFu
     }
 };
 
-/**
- * Lấy hoặc tạo chat giữa người mua và người bán cho một listing
- * @param req - Request object chứa listingId trong params
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
 export const getOrCreateChat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { listingId } = req.params;
@@ -110,113 +100,39 @@ export const getOrCreateChat = async (req: Request, res: Response, next: NextFun
     }
 };
 
-/**
- * Lấy tất cả chat của một user
- * @param req - Request object chứa page và limit trong query
- * @param res - Response object để trả về danh sách chat
- * @param next - NextFunction cho middleware
- */
+
 export const getUserChats = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = (req as any).user.userId;
-        const { page = 1, limit = 20 } = req.query;
 
-        // Tìm tất cả chat mà user tham gia (là buyer hoặc seller)
-        const chats = await Chat.find({
-            $or: [{ buyerId: userId }, { sellerId: userId }],
-            isActive: true,
-        })
-            .populate("buyerId sellerId listingId", "fullName phone email avatar make model year priceListed photos")
-            .sort({ updatedAt: -1 })
-            .limit(Number(limit) * 1)
-            .skip((Number(page) - 1) * Number(limit));
+        // Sử dụng chatService (không có pagination trong service hiện tại)
+        const chats = await chatService.getUserConversations(userId);
 
-        // Đếm tổng số chat
-        const total = await Chat.countDocuments({
-            $or: [{ buyerId: userId }, { sellerId: userId }],
-            isActive: true,
-        });
-
-        // Lấy trạng thái online của từng user trong chat
-        const wsService = WebSocketService.getInstance();
-        const chatsWithOnlineStatus = chats.map(chat => {
-            const chatObj = chat.toObject();
-            const otherUserId = chat.buyerId._id.toString() === userId ? chat.sellerId._id.toString() : chat.buyerId._id.toString();
-            
-            return {
-                ...chatObj,
-                otherUser: {
-                    _id: chatObj.buyerId._id.toString() === userId ? chatObj.sellerId._id : chatObj.buyerId._id,
-                    fullName: chatObj.buyerId._id.toString() === userId ? (chatObj.sellerId as any).fullName : (chatObj.buyerId as any).fullName,
-                    avatar: chatObj.buyerId._id.toString() === userId ? (chatObj.sellerId as any).avatar : (chatObj.buyerId as any).avatar,
-                    isOnline: wsService.isUserOnline(otherUserId)
-                }
-            };
-        });
-
-        res.json({
-            chats: chatsWithOnlineStatus,
-            totalPages: Math.ceil(total / Number(limit)),
-            currentPage: Number(page),
-            total,
-        });
+        res.json({ chats });
     } catch (error) {
         console.error("Lỗi trong getUserChats:", error);
-        res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+        res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
     }
 };
 
-/**
- * Lấy tin nhắn của một chat cụ thể
- * @param req - Request object chứa chatId trong params và page, limit trong query
- * @param res - Response object để trả về danh sách tin nhắn
- * @param next - NextFunction cho middleware
- */
+
 export const getChatMessages = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
         const { page = 1, limit = 50 } = req.query;
-        const userId = (req as any).user.userId;
 
-        // Kiểm tra user có quyền truy cập chat này không
-        const chat = await Chat.findById(chatId);
-        if (!chat) {
-            res.status(404).json({ error: "Không tìm thấy chat" });
-            return;
-        }
+        // Sử dụng chatService  
+        const skip = (Number(page) - 1) * Number(limit);
+        const messages = await chatService.getMessages(chatId, Number(limit), skip);
 
-        if (!chat.buyerId.equals(userId) && !chat.sellerId.equals(userId)) {
-            res.status(403).json({ error: "Không có quyền truy cập" });
-            return;
-        }
-
-        // Lấy tin nhắn với phân trang
-        const messages = await Message.find({ chatId })
-            .populate("senderId", "fullName avatar")
-            .sort({ createdAt: -1 })
-            .limit(Number(limit) * 1)
-            .skip((Number(page) - 1) * Number(limit));
-
-        const total = await Message.countDocuments({ chatId });
-
-        res.json({
-            messages: messages.reverse(), // Trả về theo thứ tự thời gian
-            totalPages: Math.ceil(total / Number(limit)),
-            currentPage: Number(page),
-            total,
-        });
+        res.json({ messages });
     } catch (error) {
         console.error("Lỗi trong getChatMessages:", error);
-        res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+        res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
     }
 };
 
-/**
- * Gửi tin nhắn trong chat
- * @param req - Request object chứa chatId trong params và content, messageType, metadata trong body
- * @param res - Response object để trả về tin nhắn đã tạo
- * @param next - NextFunction cho middleware
- */
+
 export const sendMessage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
@@ -228,150 +144,50 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
             return;
         }
 
-        // Kiểm tra user có quyền truy cập chat này không
+        // Lấy chat để xác định receiverId
         const chat = await Chat.findById(chatId);
         if (!chat) {
             res.status(404).json({ error: "Không tìm thấy chat" });
             return;
         }
 
-        if (!chat.buyerId.equals(senderId) && !chat.sellerId.equals(senderId)) {
-            res.status(403).json({ error: "Không có quyền truy cập" });
-            return;
-        }
+        // Xác định receiverId
+        const receiverId = chat.buyerId.toString() === senderId ? chat.sellerId.toString() : chat.buyerId.toString();
 
-        // Tạo tin nhắn mới
-        const messageDoc = new Message({
-            chatId: new Types.ObjectId(chatId),
-            senderId: new Types.ObjectId(senderId),
+        // Sử dụng chatService
+        const message = await chatService.sendMessage({
+            chatId,
+            senderId,
+            receiverId,
             content,
             messageType,
-            metadata,
+            attachments: metadata?.files?.map((f: any) => f.url) || []
         });
 
-        await messageDoc.save();
-
-        // Cập nhật tin nhắn cuối cùng của chat
-        chat.lastMessage = {
-            content,
-            senderId: new Types.ObjectId(senderId),
-            timestamp: new Date(),
-        };
-        await chat.save();
-
-        // Lấy thông tin người gửi
-        await messageDoc.populate("senderId", "fullName avatar");
-
-        // Gửi real-time notification qua WebSocket
-        try {
-            const wsService = WebSocketService.getInstance();
-            const senderInfo = {
-                fullName: (messageDoc.senderId as any).fullName,
-                avatar: (messageDoc.senderId as any).avatar || '/default-avatar.png'
-            };
-
-            wsService.broadcastMessage(chatId, {
-                _id: messageDoc._id,
-                chatId: messageDoc.chatId,
-                content: messageDoc.content,
-                messageType: messageDoc.messageType,
-                metadata: messageDoc.metadata,
-                senderId: {
-                    _id: (messageDoc.senderId as any)._id,
-                    fullName: senderInfo.fullName,
-                    avatar: senderInfo.avatar
-                },
-                isRead: messageDoc.isRead,
-                createdAt: messageDoc.createdAt,
-                timestamp: messageDoc.createdAt,
-            });
-
-            // Gửi enhanced notification cho user khác
-            wsService.sendEnhancedMessageNotification(chatId, senderId, content, senderInfo);
-            
-            // Broadcast chat list update to both users
-            const buyerIdStr = chat.buyerId.toString();
-            const sellerIdStr = chat.sellerId.toString();
-            
-            wsService.sendToUser(buyerIdStr, 'chat_list_update', {
-                chatId,
-                lastMessage: {
-                    content,
-                    senderId,
-                    timestamp: new Date()
-                },
-                updatedAt: new Date()
-            });
-            
-            wsService.sendToUser(sellerIdStr, 'chat_list_update', {
-                chatId,
-                lastMessage: {
-                    content,
-                    senderId,
-                    timestamp: new Date()
-                },
-                updatedAt: new Date()
-            });
-        } catch (error) {
-            console.error("Lỗi gửi WebSocket notification:", error);
-            // Không throw error vì tin nhắn đã được lưu thành công
-        }
-
-        res.status(201).json(messageDoc);
+        res.status(201).json(message);
     } catch (error) {
         console.error("Lỗi trong sendMessage:", error);
-        res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+        res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
     }
 };
 
-/**
- * Đánh dấu tin nhắn đã đọc
- * @param req - Request object chứa chatId trong params
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
+
 export const markMessagesAsRead = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
         const userId = (req as any).user.userId;
 
-        // Kiểm tra user có quyền truy cập chat này không
-        const chat = await Chat.findById(chatId);
-        if (!chat) {
-            res.status(404).json({ error: "Không tìm thấy chat" });
-            return;
-        }
-
-        if (!chat.buyerId.equals(userId) && !chat.sellerId.equals(userId)) {
-            res.status(403).json({ error: "Không có quyền truy cập" });
-            return;
-        }
-
-        // Đánh dấu tất cả tin nhắn chưa đọc là đã đọc
-        await Message.updateMany(
-            { chatId, senderId: { $ne: userId }, isRead: false },
-            { isRead: true }
-        );
+        // Sử dụng chatService
+        await chatService.markMessagesAsRead(chatId, userId);
 
         res.json({ message: "Đã đánh dấu tin nhắn là đã đọc" });
     } catch (error) {
         console.error("Lỗi trong markMessagesAsRead:", error);
-        res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+        res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
     }
 };
 
-/**
- * Lấy số lượng tin nhắn chưa đọc của user
- * @param req - Request object
- * @param res - Response object để trả về số lượng tin nhắn chưa đọc
- * @param next - NextFunction cho middleware
- */
-/**
- * Lấy số lượng tin nhắn chưa đọc của user
- * @param req - Request object
- * @param res - Response object để trả về số lượng tin nhắn chưa đọc
- * @param next - NextFunction cho middleware
- */
+
 export const getUnreadCount = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const userId = (req as any).user.userId;
@@ -398,12 +214,7 @@ export const getUnreadCount = async (req: Request, res: Response, next: NextFunc
         res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
     }
 };
-/**
- * Gửi tin nhắn với hình ảnh paste từ clipboard (base64)
- * @param req - Request object chứa chatId trong params và imageData trong body
- * @param res - Response object để trả về tin nhắn đã tạo
- * @param next - NextFunction cho middleware
- */
+
 export const sendMessageWithPastedImage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
@@ -709,16 +520,11 @@ export const sendMessageWithFiles = async (req: Request, res: Response, next: Ne
     }
 };
 
-/**
- * Tìm kiếm tin nhắn trong chat
- * @param req - Request object chứa chatId trong params và query trong query
- * @param res - Response object để trả về kết quả tìm kiếm
- * @param next - NextFunction cho middleware
- */
+
 export const searchMessages = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
-        const { query, page = 1, limit = 20 } = req.query;
+        const { query, limit = 20 } = req.query;
         const userId = (req as any).user.userId;
 
         if (!query) {
@@ -726,54 +532,17 @@ export const searchMessages = async (req: Request, res: Response, next: NextFunc
             return;
         }
 
-        // Kiểm tra user có quyền truy cập chat này không
-        const chat = await Chat.findById(chatId);
-        if (!chat) {
-            res.status(404).json({ error: "Không tìm thấy chat" });
-            return;
-        }
+        // Sử dụng chatService
+        const messages = await chatService.searchMessages(chatId, query as string, Number(limit));
 
-        if (!chat.buyerId.equals(userId) && !chat.sellerId.equals(userId)) {
-            res.status(403).json({ error: "Không có quyền truy cập" });
-            return;
-        }
-
-        // Tìm kiếm tin nhắn
-        const messages = await Message.find({
-            chatId: new Types.ObjectId(chatId),
-            content: { $regex: query, $options: 'i' },
-            'metadata.isDeleted': { $ne: true }
-        })
-            .populate("senderId", "fullName avatar")
-            .sort({ createdAt: -1 })
-            .limit(Number(limit) * 1)
-            .skip((Number(page) - 1) * Number(limit));
-
-        const total = await Message.countDocuments({
-            chatId: new Types.ObjectId(chatId),
-            content: { $regex: query, $options: 'i' },
-            'metadata.isDeleted': { $ne: true }
-        });
-
-        res.json({
-            messages: messages.reverse(),
-            totalPages: Math.ceil(total / Number(limit)),
-            currentPage: Number(page),
-            total,
-            query
-        });
+        res.json({ messages });
     } catch (error) {
         console.error("Lỗi trong searchMessages:", error);
-        res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+        res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
     }
 };
 
-/**
- * Thêm reaction cho tin nhắn
- * @param req - Request object chứa messageId trong params và emoji trong body
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
+
 export const addMessageReaction = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { messageId } = req.params;
@@ -856,12 +625,7 @@ export const addMessageReaction = async (req: Request, res: Response, next: Next
     }
 };
 
-/**
- * Sửa tin nhắn
- * @param req - Request object chứa messageId trong params và content trong body
- * @param res - Response object để trả về tin nhắn đã sửa
- * @param next - NextFunction cho middleware
- */
+
 export const editMessage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { messageId } = req.params;
@@ -933,18 +697,7 @@ export const editMessage = async (req: Request, res: Response, next: NextFunctio
     }
 };
 
-/**
- * Xóa tin nhắn
- * @param req - Request object chứa messageId trong params và deleteForEveryone trong body
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
-/**
- * Lấy thông tin file từ tin nhắn
- * @param req - Request object chứa messageId trong params
- * @param res - Response object để trả về thông tin file
- * @param next - NextFunction cho middleware
- */
+
 export const getMessageFiles = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { messageId } = req.params;
@@ -988,18 +741,7 @@ export const getMessageFiles = async (req: Request, res: Response, next: NextFun
     }
 };
 
-/**
- * Xóa tin nhắn
- * @param req - Request object chứa messageId trong params và deleteForEveryone trong body
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
-/**
- * Lấy danh sách user online trong chat
- * @param req - Request object chứa chatId trong params
- * @param res - Response object để trả về danh sách user online
- * @param next - NextFunction cho middleware
- */
+
 export const getOnlineUsersInChat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
@@ -1045,12 +787,7 @@ export const getOnlineUsersInChat = async (req: Request, res: Response, next: Ne
     }
 };
 
-/**
- * Kiểm tra trạng thái online của user
- * @param req - Request object chứa userId trong params
- * @param res - Response object để trả về trạng thái online
- * @param next - NextFunction cho middleware
- */
+
 export const getUserOnlineStatus = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { userId } = req.params;
@@ -1086,12 +823,7 @@ export const getUserOnlineStatus = async (req: Request, res: Response, next: Nex
     }
 };
 
-/**
- * Xóa toàn bộ cuộc trò chuyện
- * @param req - Request object chứa chatId trong params
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
+
 export const deleteChat = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { chatId } = req.params;
@@ -1155,77 +887,18 @@ export const deleteChat = async (req: Request, res: Response, next: NextFunction
     }
 };
 
-/**
- * Xóa tin nhắn
- * @param req - Request object chứa messageId trong params và deleteForEveryone trong body
- * @param res - Response object để trả về kết quả
- * @param next - NextFunction cho middleware
- */
+
 export const deleteMessage = async (req: Request, res: Response, next: NextFunction): Promise<void> => {
     try {
         const { messageId } = req.params;
-        const { deleteForEveryone = false } = req.body;
         const userId = (req as any).user.userId;
 
-        const message = await Message.findById(messageId);
-        if (!message) {
-            res.status(404).json({ error: "Không tìm thấy tin nhắn" });
-            return;
-        }
+        // Sử dụng chatService
+        await chatService.deleteMessage(messageId, userId);
 
-        // Kiểm tra quyền xóa
-        const chat = await Chat.findById(message.chatId);
-        if (!chat) {
-            res.status(404).json({ error: "Không tìm thấy chat" });
-            return;
-        }
-
-        if (!chat.buyerId.equals(userId) && !chat.sellerId.equals(userId)) {
-            res.status(403).json({ error: "Không có quyền truy cập" });
-            return;
-        }
-
-        // Chỉ người gửi mới có thể xóa cho mình, hoặc xóa cho tất cả
-        if (!message.senderId.equals(userId) && !deleteForEveryone) {
-            res.status(403).json({ error: "Chỉ người gửi mới có thể xóa tin nhắn" });
-            return;
-        }
-
-        // Khởi tạo metadata nếu chưa có
-        if (!message.metadata) {
-            message.metadata = {};
-        }
-
-        // Đánh dấu tin nhắn đã bị xóa
-        message.metadata.isDeleted = true;
-        message.metadata.deletedAt = new Date();
-        message.metadata.deletedBy = new Types.ObjectId(userId);
-
-        if (deleteForEveryone) {
-            message.content = "Tin nhắn đã bị xóa";
-        }
-
-        await message.save();
-
-        // Gửi real-time notification
-        try {
-            const wsService = WebSocketService.getInstance();
-            wsService.sendToChat(message.chatId.toString(), 'message_deleted', {
-                messageId: message._id,
-                deletedBy: userId,
-                deleteForEveryone,
-                deletedAt: message.metadata.deletedAt
-            });
-        } catch (error) {
-            console.error("Lỗi gửi WebSocket notification:", error);
-        }
-
-        res.json({
-            message: deleteForEveryone ? "Đã xóa tin nhắn cho tất cả" : "Đã xóa tin nhắn",
-            deletedAt: message.metadata.deletedAt
-        });
+        res.json({ message: "Đã xóa tin nhắn" });
     } catch (error) {
         console.error("Lỗi trong deleteMessage:", error);
-        res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+        res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
     }
 };
