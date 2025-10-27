@@ -215,7 +215,7 @@ export const userService = {
   },
 
   getAllUsers: async () => {
-    const users = await User.find({ status: "ACTIVE" }).lean();
+    const users = await User.find().lean();
     return users;
   },
 
