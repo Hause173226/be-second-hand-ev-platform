@@ -1,9 +1,9 @@
 import { Request, Response } from 'express';
 import DepositRequest from '../models/DepositRequest';
 import Listing from '../models/Listing';
-import User from '../models/User';
+import { User } from '../models/User';
 import walletService from '../services/walletService';
-import notificationService from '../services/notificationService';
+import depositNotificationService from '../services/depositNotificationService';
 
 // Tạo yêu cầu đặt cọc
 export const createDepositRequest = async (req: Request, res: Response) => {
@@ -92,7 +92,11 @@ export const createDepositRequest = async (req: Request, res: Response) => {
     try {
       const buyer = await User.findById(buyerId);
       if (buyer) {
-        await notificationService.sendDepositNotification(listing.sellerId, depositRequest, buyer);
+        await depositNotificationService.sendDepositRequestNotification(
+          listing.sellerId.toString(), 
+          depositRequest, 
+          buyer
+        );
       }
     } catch (notificationError) {
       console.error('Error sending deposit notification:', notificationError);
@@ -168,10 +172,11 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       try {
         const seller = await User.findById(sellerId);
         if (seller) {
-          await notificationService.sendDepositConfirmationNotification(
+          await depositNotificationService.sendDepositConfirmationNotification(
             depositRequest.buyerId, 
             depositRequest,
-            seller
+            seller,
+            'accept'
           );
         }
       } catch (notificationError) {

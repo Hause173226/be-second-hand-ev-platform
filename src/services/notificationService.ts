@@ -2,10 +2,9 @@
 import { WebSocketService } from "./websocketService";
 
 export interface NotificationData {
-    type: 'message' | 'appointment' | 'offer' | 'file_upload' | 'reaction' | 'typing' | 'deposit' | 'contract' | 'transaction';
-    chatId?: string; // Optional for non-chat notifications
+    type: 'message' | 'appointment' | 'offer' | 'file_upload' | 'reaction' | 'typing';
+    chatId: string;
     senderId: string;
-    receiverId?: string; // For direct notifications
     senderInfo: {
         fullName: string;
         avatar: string;
@@ -17,20 +16,10 @@ export interface NotificationData {
 
 export class NotificationService {
     private static instance: NotificationService;
-    private wsService?: WebSocketService;
+    private wsService: WebSocketService;
 
     constructor() {
-        // Lazy initialization - WebSocketService will be available later
-    }
-
-    // Lazy get WebSocket service
-    private getWsService() {
-        try {
-            return WebSocketService.getInstance();
-        } catch (error) {
-            console.warn('WebSocketService not ready yet');
-            return null;
-        }
+        this.wsService = WebSocketService.getInstance();
     }
 
     public static getInstance(): NotificationService {
@@ -153,169 +142,6 @@ export class NotificationService {
     }
 
     /**
-     * Gửi notification đặt cọc
-     */
-    public async sendDepositNotification(receiverId: string, depositRequest: any, senderInfo: any) {
-        const notification: NotificationData = {
-            type: 'deposit',
-            receiverId,
-            senderId: depositRequest.buyerId,
-            senderInfo: {
-                fullName: senderInfo.fullName || senderInfo.email,
-                avatar: senderInfo.avatar || '/default-avatar.png'
-            },
-            content: `Có yêu cầu đặt cọc mới cho xe ${depositRequest.listingId}`,
-            metadata: {
-                depositRequestId: depositRequest._id,
-                amount: depositRequest.amount,
-                listingId: depositRequest.listingId,
-                status: depositRequest.status
-            },
-            timestamp: new Date()
-        };
-
-        // Gửi notification đến người nhận
-        const wsService = this.getWsService();
-        if (wsService) {
-            wsService.sendToUser(receiverId, 'deposit_notification', notification);
-        }
-        
-        // Gửi email notification
-        await this.sendDepositEmailNotification(receiverId, depositRequest, senderInfo);
-        
-        // Gửi push notification
-        await this.sendPushNotification(notification);
-    }
-
-    /**
-     * Gửi notification xác nhận cọc
-     */
-    public async sendDepositConfirmationNotification(buyerId: string, depositRequest: any, sellerInfo: any) {
-        const notification: NotificationData = {
-            type: 'deposit',
-            receiverId: buyerId,
-            senderId: depositRequest.sellerId,
-            senderInfo: {
-                fullName: sellerInfo.fullName || sellerInfo.email,
-                avatar: sellerInfo.avatar || '/default-avatar.png'
-            },
-            content: `Người bán đã xác nhận đặt cọc cho xe ${depositRequest.listingId}`,
-            metadata: {
-                depositRequestId: depositRequest._id,
-                amount: depositRequest.amount,
-                listingId: depositRequest.listingId,
-                status: depositRequest.status
-            },
-            timestamp: new Date()
-        };
-
-        const wsService = this.getWsService();
-        if (wsService) {
-            wsService.sendToUser(buyerId, 'deposit_confirmation', notification);
-        }
-        await this.sendDepositConfirmationEmail(buyerId, depositRequest, sellerInfo);
-        await this.sendPushNotification(notification);
-    }
-
-    /**
-     * Gửi notification hợp đồng
-     */
-    public async sendContractNotification(receiverId: string, contract: any, senderInfo: any) {
-        const notification: NotificationData = {
-            type: 'contract',
-            receiverId,
-            senderId: contract.staffId || 'system',
-            senderInfo: {
-                fullName: senderInfo.fullName || 'Hệ thống',
-                avatar: senderInfo.avatar || '/default-avatar.png'
-            },
-            content: `Hợp đồng đã được tạo cho giao dịch ${contract.appointmentId}`,
-            metadata: {
-                contractId: contract._id,
-                appointmentId: contract.appointmentId,
-                status: contract.status
-            },
-            timestamp: new Date()
-        };
-
-        const wsService = this.getWsService();
-        if (wsService) {
-            wsService.sendToUser(receiverId, 'contract_notification', notification);
-        }
-        await this.sendPushNotification(notification);
-    }
-
-    /**
-     * Gửi notification hoàn thành giao dịch
-     */
-    public async sendTransactionCompleteNotification(buyerId: string, sellerId: string, transaction: any) {
-        const notifications = [
-            {
-                receiverId: buyerId,
-                content: `Giao dịch mua xe đã hoàn thành thành công`,
-                metadata: { transactionId: transaction._id, type: 'buy' }
-            },
-            {
-                receiverId: sellerId,
-                content: `Giao dịch bán xe đã hoàn thành thành công`,
-                metadata: { transactionId: transaction._id, type: 'sell' }
-            }
-        ];
-
-        for (const notif of notifications) {
-            const notification: NotificationData = {
-                type: 'transaction',
-                receiverId: notif.receiverId,
-                senderId: 'system',
-                senderInfo: {
-                    fullName: 'Hệ thống',
-                    avatar: '/default-avatar.png'
-                },
-                content: notif.content,
-                metadata: notif.metadata,
-                timestamp: new Date()
-            };
-
-            const wsService = this.getWsService();
-            if (wsService) {
-                wsService.sendToUser(notif.receiverId, 'transaction_complete', notification);
-            }
-            await this.sendPushNotification(notification);
-        }
-    }
-
-    /**
-     * Gửi email notification cho đặt cọc
-     */
-    private async sendDepositEmailNotification(receiverId: string, depositRequest: any, senderInfo: any) {
-        try {
-            // TODO: Implement email service
-            console.log('Email notification would be sent:', {
-                to: receiverId,
-                subject: 'Yêu cầu đặt cọc mới',
-                content: `Có yêu cầu đặt cọc mới từ ${senderInfo.fullName} cho xe ${depositRequest.listingId}`
-            });
-        } catch (error) {
-            console.error('Error sending deposit email notification:', error);
-        }
-    }
-
-    /**
-     * Gửi email xác nhận đặt cọc
-     */
-    private async sendDepositConfirmationEmail(buyerId: string, depositRequest: any, sellerInfo: any) {
-        try {
-            console.log('Deposit confirmation email would be sent:', {
-                to: buyerId,
-                subject: 'Đặt cọc đã được xác nhận',
-                content: `Người bán ${sellerInfo.fullName} đã xác nhận đặt cọc cho xe ${depositRequest.listingId}`
-            });
-        } catch (error) {
-            console.error('Error sending deposit confirmation email:', error);
-        }
-    }
-
-    /**
      * Gửi push notification (placeholder - cần integrate với FCM/APNS)
      */
     private async sendPushNotification(notification: NotificationData) {
@@ -387,6 +213,3 @@ export class NotificationService {
         }
     }
 }
-
-// Export singleton instance
-export default NotificationService.getInstance();

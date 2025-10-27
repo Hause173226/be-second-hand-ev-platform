@@ -6,7 +6,7 @@ import Contract from '../models/Contract';
 import { User } from '../models/User';
 import walletService from '../services/walletService';
 import { uploadFromBuffer } from '../services/cloudinaryService';
-import notificationService from '../services/notificationService';
+import depositNotificationService from '../services/depositNotificationService';
 
 // Lấy thông tin hợp đồng (người mua/bán và xe)
 export const getContractInfo = async (req: Request, res: Response) => {
@@ -269,6 +269,27 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
 
     await contract.save();
 
+    // Gửi thông báo cho buyer và seller
+    try {
+      const staffInfo = { fullName: req.user?.name || req.user?.email || 'Nhân viên', avatar: req.user?.avatar || '' };
+      
+      // Gửi cho buyer
+      await depositNotificationService.sendContractNotification(
+        appointment.buyerId.toString(),
+        contract,
+        staffInfo
+      );
+
+      // Gửi cho seller
+      await depositNotificationService.sendContractNotification(
+        appointment.sellerId.toString(),
+        contract,
+        staffInfo
+      );
+    } catch (notificationError) {
+      console.error('Error sending contract notification:', notificationError);
+    }
+
     res.json({
       success: true,
       message: `Đã upload ${uploadedPhotos.length} ảnh hợp đồng thành công`,
@@ -354,9 +375,9 @@ export const completeTransaction = async (req: Request, res: Response) => {
 
     // Gửi thông báo cho buyer và seller
     try {
-      await notificationService.sendTransactionCompleteNotification(
-        appointment.buyerId,
-        appointment.sellerId,
+      await depositNotificationService.sendTransactionCompleteNotification(
+        appointment.buyerId.toString(),
+        appointment.sellerId.toString(),
         contract
       );
     } catch (notificationError) {
