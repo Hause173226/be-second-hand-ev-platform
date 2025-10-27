@@ -5,6 +5,7 @@ import cors from "cors";
 import path from "path";
 
 import userRoutes from "./routes/userRoutes";
+import orderRoutes from "./routes/orderRoutes"; // Thêm dòng này
 import profileRoutes from "./routes/profileRoutes";
 import listingRoutes from "./routes/listingRoutes";
 import adminListingRoutes from "./routes/adminListingRoutes";
@@ -55,6 +56,7 @@ app.use("/api/search", searchHistoryRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/offers", offerRoutes);
+app.use("/api/orders", orderRoutes);
 app.use("/api/deposits", depositRoutes);
 app.use("/api/contracts", contractRoutes);
 app.use("/api/transactions", transactionRoutes);

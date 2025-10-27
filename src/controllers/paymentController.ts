@@ -1,129 +1,76 @@
 import { Request, Response } from "express";
 import {
-  createVNPayOrder,
-  handleVNPayReturn,
-  handleVNPayCallback,
+  handleVNPayReturn as handleWalletVNPayReturn,
+  handleVNPayCallback as handleWalletVNPayCallback,
 } from "../services/walletPaymentService";
-import walletService from "../services/walletService";
 
-// Tạo thanh toán VNPay cho nạp tiền ví
-export const createVNPayPayment = async (req: Request, res: Response) => {
+// Handler cho Wallet VNPay Return
+export const walletVNPayReturn = async (req: Request, res: Response) => {
   try {
-    const { amount, description } = req.body;
-    const userId = req.user?.id;
-    
-    if (!userId) {
-      return res.status(401).json({
-        success: false,
-        message: 'Chưa đăng nhập'
-      });
-    }
+    console.log("=== Wallet VNPay Return Called ===");
+    console.log("Query params:", req.query);
 
-    const vnpayUrl = await walletService.createDepositUrl(userId, amount, description, req);
-    
-    res.json({
-      success: true,
-      payUrl: vnpayUrl,
-      message: 'Tạo link thanh toán thành công'
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message
-    });
-  }
-};
+    const result = await handleWalletVNPayReturn(req.query);
 
-// Tạo scheduled job để tự động hủy booking quá hạn
-// export const cancelExpiredBookings = async () => {
-//   const expiredTime = new Date();
-//   expiredTime.setHours(expiredTime.getHours() - 24); // 24h ago
-
-//   await Booking.updateMany(
-//     {
-//       bookingStatus: "pending",
-//       paymentStatus: "unpaid",
-//       createdAt: { $lt: expiredTime },
-//     },
-//     {
-//       bookingStatus: "cancelled",
-//       paymentStatus: "failed",
-//     }
-//   );
-// };
-
-export const vnpayReturn = async (req: Request, res: Response) => {
-  try {
-    const result = await handleVNPayReturn(req.query);
+    console.log("=== Result ===", result);
 
     if (result.success) {
-      // Nạp tiền vào ví nếu thanh toán thành công
-      // Lấy userId từ orderId (format: DDHHmmss)
-      const userId = result.userId; // Cần lưu userId khi tạo order
-      await walletService.deposit(
-        userId,
-        result.amount || 0,
-        'Nạp tiền qua VNPay'
-      );
-      
+      // Redirect về frontend success page
       res.redirect(
-        `http://localhost:5173/wallet?success=true&amount=${result.amount}`
+        `http://localhost:5173/wallet?success=true&amount=${result.amount}&orderId=${result.orderId}`
       );
     } else {
+      let message = "Thanh toán thất bại";
+
+      switch (result.responseCode) {
+        case "24":
+          message = "Giao dịch đã bị hủy bởi người dùng";
+          break;
+        case "51":
+          message = "Tài khoản không đủ số dư";
+          break;
+        case "97":
+          message = "Chữ ký không hợp lệ";
+          break;
+        case "99":
+          message = "Lỗi hệ thống";
+          break;
+        default:
+          message = `Thanh toán thất bại. Mã lỗi: ${result.responseCode}`;
+      }
+
       res.redirect(
-        `http://localhost:5173/wallet?success=false&message=${encodeURIComponent(result.message || 'Thanh toán thất bại')}`
+        `http://localhost:5173/wallet?success=false&message=${encodeURIComponent(
+          message
+        )}&code=${result.responseCode}`
       );
     }
   } catch (error: any) {
-    console.error("VNPay return error:", error);
+    console.error("❌ Wallet VNPay return error:", error);
     res.redirect(
-      `http://localhost:3000/wallet?success=false&message=${encodeURIComponent("Có lỗi xảy ra")}`
+      `http://localhost:5173/wallet?success=false&message=${encodeURIComponent(
+        "Có lỗi xảy ra: " + error.message
+      )}`
     );
   }
 };
 
-export const vnpayCallback = async (req: Request, res: Response) => {
+// Handler cho Wallet VNPay Callback (IPN)
+export const walletVNPayCallback = async (req: Request, res: Response) => {
   try {
-    const result = await handleVNPayCallback(req.query);
-    
-    if (result.RspCode === "00") {
-      // Nạp tiền vào ví nếu thanh toán thành công
-      const userId = result.userId; // Cần lưu userId khi tạo order
-      await walletService.deposit(
-        userId,
-        result.amount || 0,
-        'Nạp tiền qua VNPay'
-      );
-    }
-    
+    console.log("=== Wallet VNPay Callback Called ===");
+    console.log("Query params:", req.query);
+
+    const result = await handleWalletVNPayCallback(req.query);
     res.status(200).json({
       RspCode: result.RspCode,
       Message: result.Message,
     });
   } catch (error: any) {
-    console.error("VNPay callback error:", error);
+    console.error("❌ Wallet VNPay callback error:", error);
     res.status(200).json({
       RspCode: "99",
       Message: "Internal Error",
-    });
-  }
-};
-
-// Xử lý thanh toán thành công
-export const paymentSuccess = async (req: Request, res: Response) => {
-  try {
-    const { orderId, amount } = req.query;
-    
-    res.json({
-      success: true,
-      message: 'Thanh toán thành công',
-      orderId,
-      amount
-    });
-  } catch (error: any) {
-    res.status(500).json({
-      success: false,
-      message: error.message
     });
   }
 };
