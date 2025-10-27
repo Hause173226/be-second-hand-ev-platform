@@ -2,183 +2,93 @@
 import express from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import {
-    getNotifications,
-    getUnreadCount,
+    getAllNotifications,
     markAsRead,
     markAllAsRead,
+    getUnreadCount,
     deleteNotification,
 } from '../controllers/notificationDepositController';
 
-const router = Router();
+const router = express.Router();
 
 /**
  * @swagger
- * tags:
- *   name: NotificationMessages
- *   description: Notification message management APIs
- */
-
-/**
- * @swagger
- * /api/notification-messages:
+ * /api/notifications:
  *   get:
- *     summary: Lấy danh sách thông báo
- *     tags: [NotificationMessages]
+ *     summary: Lấy tất cả notification của user
+ *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
  *     parameters:
+ *       - in: query
+ *         name: isRead
+ *         schema:
+ *           type: boolean
+ *         description: Lọc theo trạng thái đã đọc/chưa đọc
+ *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [deposit, deposit_confirmation, contract, transaction_complete]
+ *         description: Lọc theo loại notification
  *       - in: query
  *         name: limit
  *         schema:
  *           type: integer
  *           default: 20
- *         description: Số lượng thông báo mỗi trang
+ *         description: Số lượng notification mỗi trang
  *       - in: query
- *         name: skip
+ *         name: page
  *         schema:
  *           type: integer
- *           default: 0
- *         description: Bỏ qua số lượng thông báo
- *       - in: query
- *         name: type
- *         schema:
- *           type: string
- *           enum: [message, offer, appointment, listing, system]
- *         description: Lọc theo loại thông báo
- *       - in: query
- *         name: isRead
- *         schema:
- *           type: boolean
- *         description: Lọc theo trạng thái đã đọc
+ *           default: 1
+ *         description: Trang hiện tại
  *     responses:
  *       200:
- *         description: Danh sách thông báo
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: array
- *                   items:
- *                     type: object
- *                     properties:
- *                       _id:
- *                         type: string
- *                       userId:
- *                         type: string
- *                       type:
- *                         type: string
- *                         enum: [message, offer, appointment, listing, system]
- *                       title:
- *                         type: string
- *                       message:
- *                         type: string
- *                       isRead:
- *                         type: boolean
- *                       actionUrl:
- *                         type: string
- *                       metadata:
- *                         type: object
- *                       createdAt:
- *                         type: string
- *                         format: date-time
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     total:
- *                       type: integer
- *                     limit:
- *                       type: integer
- *                     skip:
- *                       type: integer
- *                     hasMore:
- *                       type: boolean
- *                 unreadCount:
- *                   type: integer
+ *         description: Danh sách notification
  *       401:
  *         description: Unauthorized
  */
-router.get("/", authenticate, getNotifications);
+router.get('/', authenticate, getAllNotifications);
 
 /**
  * @swagger
- * /api/notification-messages/unread-count:
+ * /api/notifications/unread-count:
  *   get:
- *     summary: Lấy số lượng thông báo chưa đọc
- *     tags: [NotificationMessages]
+ *     summary: Lấy số notification chưa đọc
+ *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Số lượng thông báo chưa đọc
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     unreadCount:
- *                       type: integer
- *                       example: 5
+ *         description: Số notification chưa đọc
+ *       401:
+ *         description: Unauthorized
  */
-router.get("/unread-count", authenticate, getUnreadCount);
+router.get('/unread-count', authenticate, getUnreadCount);
 
 /**
  * @swagger
- * /api/notification-messages/mark-all-read:
- *   post:
- *     summary: Đánh dấu tất cả thông báo đã đọc
- *     tags: [NotificationMessages]
+ * /api/notifications/read-all:
+ *   patch:
+ *     summary: Đánh dấu tất cả notification là đã đọc
+ *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
  *     responses:
  *       200:
- *         description: Đã đánh dấu tất cả thông báo
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 data:
- *                   type: object
- *                   properties:
- *                     message:
- *                       type: string
+ *         description: Đánh dấu thành công
+ *       401:
+ *         description: Unauthorized
  */
-router.post("/mark-all-read", authenticate, markAllAsRead);
+router.patch('/read-all', authenticate, markAllAsRead);
 
 /**
  * @swagger
- * /api/notification-messages/delete-all-read:
- *   delete:
- *     summary: Xóa tất cả thông báo đã đọc
- *     tags: [NotificationMessages]
- *     security:
- *       - bearerAuth: []
- *     responses:
- *       200:
- *         description: Đã xóa tất cả thông báo đã đọc
- */
-router.delete("/delete-all-read", authenticate, deleteAllRead);
-
-/**
- * @swagger
- * /api/notification-messages/{notificationId}/read:
- *   post:
- *     summary: Đánh dấu thông báo đã đọc
- *     tags: [NotificationMessages]
+ * /api/notifications/{notificationId}/read:
+ *   patch:
+ *     summary: Đánh dấu notification là đã đọc
+ *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -187,19 +97,23 @@ router.delete("/delete-all-read", authenticate, deleteAllRead);
  *         required: true
  *         schema:
  *           type: string
- *         description: ID của thông báo
+ *         description: ID của notification
  *     responses:
  *       200:
- *         description: Đã đánh dấu thông báo
+ *         description: Đánh dấu thành công
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notification not found
  */
-router.post("/:notificationId/read", authenticate, markAsRead);
+router.patch('/:notificationId/read', authenticate, markAsRead);
 
 /**
  * @swagger
- * /api/notification-messages/{notificationId}:
+ * /api/notifications/{notificationId}:
  *   delete:
- *     summary: Xóa thông báo
- *     tags: [NotificationMessages]
+ *     summary: Xóa notification
+ *     tags: [Notifications]
  *     security:
  *       - bearerAuth: []
  *     parameters:
@@ -208,11 +122,16 @@ router.post("/:notificationId/read", authenticate, markAsRead);
  *         required: true
  *         schema:
  *           type: string
- *         description: ID của thông báo
+ *         description: ID của notification
  *     responses:
  *       200:
- *         description: Đã xóa thông báo
+ *         description: Xóa thành công
+ *       401:
+ *         description: Unauthorized
+ *       404:
+ *         description: Notification not found
  */
-router.delete("/:notificationId", authenticate, deleteNotification);
+router.delete('/:notificationId', authenticate, deleteNotification);
 
 export default router;
+

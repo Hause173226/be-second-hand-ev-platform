@@ -2,15 +2,20 @@
 import { Request, Response } from 'express';
 import depositNotificationService from '../services/depositNotificationService';
 
-// Lấy danh sách notification của user
-export const getNotifications = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> => {
+/**
+ * Lấy tất cả notification của user
+ * GET /api/notifications
+ */
+export const getAllNotifications = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.userId;
-        const { limit = 20, skip = 0, type, isRead } = req.query;
+        const userId = req.user?.id;
+        
+        if (!userId) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Unauthorized' 
+            });
+        }
 
         const { isRead, type, limit, page } = req.query;
 
@@ -32,45 +37,26 @@ export const getNotifications = async (
         console.error('Error getting notifications:', error);
         return res.status(500).json({
             success: false,
-            message: error instanceof Error ? error.message : "Lỗi khi lấy thông báo"
+            message: error.message || 'Error getting notifications',
         });
     }
 };
 
-// Lấy số lượng notification chưa đọc
-export const getUnreadCount = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> => {
+/**
+ * Đánh dấu notification là đã đọc
+ * PATCH /api/notifications/:notificationId/read
+ */
+export const markAsRead = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.userId;
-        const result = await notificationMessageService.getUnreadCount(userId);
-
-        res.json({
-            success: true,
-            data: result
-        });
-    } catch (error) {
-        console.error("Error in getUnreadCount:", error);
-        res.status(500).json({
-            success: false,
-            message: error instanceof Error ? error.message : "Lỗi khi lấy số thông báo chưa đọc"
-        });
-    }
-};
-
-// Đánh dấu notification đã đọc
-export const markAsRead = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> => {
-    try {
-        const userId = (req as any).user.userId;
+        const userId = req.user?.id;
         const { notificationId } = req.params;
 
-        const notification = await notificationMessageService.markAsRead(notificationId, userId);
+        if (!userId) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Unauthorized' 
+            });
+        }
 
         const notification = await depositNotificationService.markAsRead(
             notificationId,
@@ -80,26 +66,23 @@ export const markAsRead = async (
         return res.status(200).json({
             success: true,
             data: notification,
-            message: "Đã đánh dấu thông báo là đã đọc"
         });
     } catch (error: any) {
         console.error('Error marking notification as read:', error);
         return res.status(500).json({
             success: false,
-            message: error instanceof Error ? error.message : "Lỗi khi đánh dấu đã đọc"
+            message: error.message || 'Error marking notification as read',
         });
     }
 };
 
-// Đánh dấu tất cả notification đã đọc
-export const markAllAsRead = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> => {
+/**
+ * Đánh dấu tất cả notification là đã đọc
+ * PATCH /api/notifications/read-all
+ */
+export const markAllAsRead = async (req: Request, res: Response) => {
     try {
-        const userId = (req as any).user.userId;
-        const result = await notificationMessageService.markAllAsRead(userId);
+        const userId = req.user?.id;
 
         if (!userId) {
             return res.status(401).json({ 
@@ -112,23 +95,22 @@ export const markAllAsRead = async (
 
         return res.status(200).json({
             success: true,
-            data: result
+            data: { modifiedCount: result.modifiedCount },
         });
     } catch (error: any) {
         console.error('Error marking all notifications as read:', error);
         return res.status(500).json({
             success: false,
-            message: error instanceof Error ? error.message : "Lỗi khi đánh dấu tất cả đã đọc"
+            message: error.message || 'Error marking all notifications as read',
         });
     }
 };
 
-// Xóa notification
-export const deleteNotification = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> => {
+/**
+ * Lấy số notification chưa đọc
+ * GET /api/notifications/unread-count
+ */
+export const getUnreadCount = async (req: Request, res: Response) => {
     try {
         const userId = req.user?.id;
 
@@ -163,42 +145,25 @@ export const deleteNotification = async (req: Request, res: Response) => {
         const userId = req.user?.id;
         const { notificationId } = req.params;
 
-        const result = await notificationMessageService.deleteNotification(notificationId, userId);
+        if (!userId) {
+            return res.status(401).json({ 
+                success: false, 
+                message: 'Unauthorized' 
+            });
+        }
 
         await depositNotificationService.deleteNotification(notificationId, userId);
 
         return res.status(200).json({
             success: true,
-            data: result
+            message: 'Notification deleted successfully',
         });
     } catch (error: any) {
         console.error('Error deleting notification:', error);
         return res.status(500).json({
             success: false,
-            message: error instanceof Error ? error.message : "Lỗi khi xóa thông báo"
+            message: error.message || 'Error deleting notification',
         });
     }
 };
 
-// Xóa tất cả notification đã đọc
-export const deleteAllRead = async (
-    req: Request,
-    res: Response,
-    next: NextFunction
-): Promise<void> => {
-    try {
-        const userId = (req as any).user.userId;
-        const result = await notificationMessageService.deleteAllRead(userId);
-
-        res.json({
-            success: true,
-            data: result
-        });
-    } catch (error) {
-        console.error("Error in deleteAllRead:", error);
-        res.status(500).json({
-            success: false,
-            message: error instanceof Error ? error.message : "Lỗi khi xóa thông báo"
-        });
-    }
-};
