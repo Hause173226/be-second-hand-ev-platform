@@ -4,9 +4,9 @@ import jwt, { JwtPayload } from "jsonwebtoken";
 const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 
 type JWTPayload = JwtPayload & {
-  _id?: string;
-  userId?: string;
-  role?: "user" | "admin";
+  _id?: string;        // nếu lúc ký dùng _id
+  userId?: string;     // nếu lúc ký dùng userId
+  role?: "user" | "admin" | "staff";
   isActive?: boolean;
   [k: string]: any;
 };
@@ -22,8 +22,10 @@ export const authenticate: RequestHandler = (req, res, next) => {
     const token = authHeader.split(" ")[1];
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
 
+    // Chuẩn hoá key để các middleware khác dùng: req.user._id / role / isActive
     (req as any).user = {
       _id: decoded._id ?? decoded.userId,
+      id: decoded._id ?? decoded.userId, // Thêm id để tương thích
       role: decoded.role,
       isActive: decoded.isActive,
       ...decoded,

@@ -1,46 +1,102 @@
-// src/models/Appointment.ts
-import { Schema, model } from "mongoose";
-import { IAppointment } from "../interfaces/IAppointment";
+import mongoose, { Schema, Document } from 'mongoose';
 
-const coordinatesSchema = new Schema(
-    {
-        lat: { type: Number, required: true },
-        lng: { type: Number, required: true },
-    },
-    { _id: false }
-);
+export interface IAppointment extends Document {
+  depositRequestId: string;
+  buyerId: string;
+  sellerId: string;
+  scheduledDate: Date;
+  status: 'PENDING' | 'CONFIRMED' | 'RESCHEDULED' | 'COMPLETED' | 'CANCELLED';
+  type: 'CONTRACT_SIGNING' | 'VEHICLE_INSPECTION' | 'DELIVERY';
+  location?: string;
+  notes?: string;
+  rescheduledCount: number;
+  maxReschedules: number;
+  buyerConfirmed: boolean;
+  sellerConfirmed: boolean;
+  buyerConfirmedAt?: Date;
+  sellerConfirmedAt?: Date;
+  confirmedAt?: Date;
+  completedAt?: Date;
+  cancelledAt?: Date;
+  createdAt: Date;
+  updatedAt: Date;
+}
 
-const locationSchema = new Schema(
-    {
-        address: { type: String, required: true },
-        city: { type: String, required: true },
-        district: { type: String, required: true },
-        coordinates: { type: coordinatesSchema },
-    },
-    { _id: false }
-);
+const AppointmentSchema = new Schema({
+  depositRequestId: {
+    type: String,
+    required: true,
+    ref: 'DepositRequest'
+  },
+  buyerId: {
+    type: String,
+    required: true,
+    ref: 'User'
+  },
+  sellerId: {
+    type: String,
+    required: true,
+    ref: 'User'
+  },
+  scheduledDate: {
+    type: Date,
+    required: true
+  },
+  status: {
+    type: String,
+    enum: ['PENDING', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED'],
+    default: 'PENDING'
+  },
+  type: {
+    type: String,
+    enum: ['CONTRACT_SIGNING', 'VEHICLE_INSPECTION', 'DELIVERY'],
+    default: 'CONTRACT_SIGNING'
+  },
+  location: {
+    type: String
+  },
+  notes: {
+    type: String
+  },
+  rescheduledCount: {
+    type: Number,
+    default: 0
+  },
+  maxReschedules: {
+    type: Number,
+    default: 3
+  },
+  buyerConfirmed: {
+    type: Boolean,
+    default: false
+  },
+  sellerConfirmed: {
+    type: Boolean,
+    default: false
+  },
+  buyerConfirmedAt: {
+    type: Date
+  },
+  sellerConfirmedAt: {
+    type: Date
+  },
+  confirmedAt: {
+    type: Date
+  },
+  completedAt: {
+    type: Date
+  },
+  cancelledAt: {
+    type: Date
+  }
+}, {
+  timestamps: true
+});
 
-const appointmentSchema = new Schema<IAppointment>(
-    {
-        listingId: { type: Schema.Types.ObjectId, ref: "Listing", required: true },
-        buyerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-        sellerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
-        chatId: { type: Schema.Types.ObjectId, ref: "Chat", required: true },
-        scheduledDate: { type: Date, required: true },
-        location: { type: locationSchema, required: true },
-        status: {
-            type: String,
-            enum: ["pending", "confirmed", "cancelled", "completed"],
-            default: "pending",
-        },
-        notes: { type: String },
-    },
-    { timestamps: true }
-);
+// Indexes
+AppointmentSchema.index({ buyerId: 1, status: 1 });
+AppointmentSchema.index({ sellerId: 1, status: 1 });
+AppointmentSchema.index({ scheduledDate: 1 });
+AppointmentSchema.index({ depositRequestId: 1 });
 
-// Index for efficient queries
-appointmentSchema.index({ listingId: 1, status: 1 });
-appointmentSchema.index({ buyerId: 1, scheduledDate: 1 });
-appointmentSchema.index({ sellerId: 1, scheduledDate: 1 });
-
-export default model<IAppointment>("Appointment", appointmentSchema);
+export default mongoose.model<IAppointment>('Appointment', AppointmentSchema);

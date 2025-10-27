@@ -5,6 +5,7 @@ import cors from "cors";
 import path from "path";
 
 import userRoutes from "./routes/userRoutes";
+import orderRoutes from "./routes/orderRoutes"; // Thêm dòng này
 import profileRoutes from "./routes/profileRoutes";
 import listingRoutes from "./routes/listingRoutes";
 import adminListingRoutes from "./routes/adminListingRoutes";
@@ -12,31 +13,28 @@ import searchHistoryRoutes from "./routes/searchHistoryRoutes";
 import chatRoutes from "./routes/chatRoutes";
 import appointmentRoutes from "./routes/appointmentRoutes";
 import offerRoutes from "./routes/offerRoutes";
+import depositRoutes from "./routes/depositRoutes";
+import contractRoutes from "./routes/contractRoutes";
+import transactionRoutes from "./routes/transactionRoutes";
+import walletRoutes from "./routes/walletRoutes";
+import paymentRoutes from "./routes/paymentRoutes";
+
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
 import { errorHandler } from "./middlewares/errorHandler";
 
 const app = express();
 
-// 🧩 CORS — hợp nhất từ 2 bản
-const allowlist = [
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://localhost:8081",
-  "https://fe-bus-ticket-sales-system.vercel.app",
-  "https://admin-bus-ticket-sales-system.vercel.app",
-];
-
 app.use(
   cors({
-    origin(origin, cb) {
-      // Cho phép gọi từ Postman / Swagger (không có Origin)
-      if (!origin || allowlist.includes(origin)) return cb(null, true);
-      console.warn(`❌ Blocked by CORS: ${origin}`);
-      return cb(new Error("Not allowed by CORS"));
-    },
+    origin: [
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "https://fe-bus-ticket-sales-system.vercel.app",
+      "https://admin-bus-ticket-sales-system.vercel.app",
+    ],
     credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -58,6 +56,12 @@ app.use("/api/search", searchHistoryRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/offers", offerRoutes);
+app.use("/api/orders", orderRoutes);
+app.use("/api/deposits", depositRoutes);
+app.use("/api/contracts", contractRoutes);
+app.use("/api/transactions", transactionRoutes);
+app.use("/api/wallet", walletRoutes);
+app.use("/api/payment", paymentRoutes);
 
 // 📘 Swagger Docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
