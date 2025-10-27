@@ -45,9 +45,19 @@ const listingRoutes = express.Router();
  *               make: { type: string }
  *               model: { type: string }
  *               year: { type: number }
+ *               # Battery-only
  *               batteryCapacityKWh: { type: number }
- *               mileageKm: { type: number }
  *               chargeCycles: { type: number }
+ *               # Car-only (theo mẫu hợp đồng)
+ *               licensePlate: { type: string, description: "Biển số" }
+ *               engineDisplacementCc: { type: number, description: "Dung tích xi lanh (cc)" }
+ *               vehicleType: { type: string, description: "Loại xe" }
+ *               paintColor: { type: string, description: "Màu sơn" }
+ *               engineNumber: { type: string, description: "Số máy" }
+ *               chassisNumber: { type: string, description: "Số khung" }
+ *               otherFeatures: { type: string, description: "Đặc điểm khác" }
+ *               # Chung
+ *               mileageKm: { type: number }
  *               condition: { type: string, enum: [New, LikeNew, Used, Worn] }
  *               priceListed: { type: number, minimum: 0 }           # (15)
  *               tradeMethod: { type: string, enum: [meet, ship, consignment] }  # (15)
@@ -58,6 +68,10 @@ const listingRoutes = express.Router();
  *                 type: string
  *                 enum: ["true"]
  *                 description: Cam kết chính chủ
+ *               commissionTermsAccepted:                                  # ✅ NEW: BẮT BUỘC
+ *                 type: boolean
+ *                 description: "Phải là true: Tôi đồng ý Điều khoản & Phí hoa hồng"
+ *                 example: true
  *               photos:
  *                 type: array
  *                 items: { type: string, format: binary }
@@ -70,15 +84,36 @@ const listingRoutes = express.Router();
  */
 const createValidators = [
   body("type").isIn(["Car", "Battery"]).withMessage("type phải là Car/Battery"),
-  body("priceListed").isFloat({ min: 0 }).withMessage("priceListed ≥ 0"), // (15)
-  body("tradeMethod") // (15)
+
+  // Chung
+  body("priceListed").isFloat({ min: 0 }).withMessage("priceListed ≥ 0"),
+  body("tradeMethod")
     .optional()
     .isIn(["meet", "ship", "consignment"])
     .withMessage("tradeMethod phải là meet/ship/consignment"),
-  // tránh .equals(...) gây lỗi TS; custom check 'true'
+  body("condition").optional().isIn(["New", "LikeNew", "Used", "Worn"]),
+  body("year").optional().isInt({ min: 1900 }),
+  body("mileageKm").optional().isFloat({ min: 0 }),
+
+  // Battery-only (optional)
+  body("batteryCapacityKWh").optional().isFloat({ min: 0 }),
+  body("chargeCycles").optional().isInt({ min: 0 }),
+
+  // Car-only (optional) — KHÔNG ép required ở layer route
+  body("licensePlate").optional().isString().trim().isLength({ min: 1 }).withMessage("licensePlate không hợp lệ"),
+  body("engineDisplacementCc").optional().isFloat({ min: 0 }),
+  body("vehicleType").optional().isString().trim(),
+  body("paintColor").optional().isString().trim(),
+  body("engineNumber").optional().isString().trim(),
+  body("chassisNumber").optional().isString().trim(),
+  body("otherFeatures").optional().isString().trim(),
+
+  // Cam kết chính chủ
   body("sellerConfirm")
     .custom((v) => v === "true")
     .withMessage("sellerConfirm phải là 'true'"),
+
+  // location JSON
   body("location")
     .custom((v) => {
       try {
@@ -89,6 +124,18 @@ const createValidators = [
       }
     })
     .withMessage("location phải là JSON hợp lệ và có city/district/address"),
+
+  // ✅ bắt buộc đồng ý điều khoản & phí hoa hồng
+  body("commissionTermsAccepted")
+    .custom((v) => {
+      if (typeof v === "boolean") return v === true;
+      if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        return s === "true" || s === "1" || s === "yes" || s === "on";
+      }
+      return false;
+    })
+    .withMessage("Bạn phải đồng ý Điều khoản & Phí hoa hồng (commissionTermsAccepted=true)."),
 ];
 
 listingRoutes.post(
@@ -117,7 +164,7 @@ listingRoutes.post(
  *     requestBody:
  *       required: true
  *       content:
- *         multipart/form-data:               # 👈 đổi sang multipart để nhận ảnh
+ *         multipart/form-data:               # 👈 multipart để nhận ảnh
  *           schema:
  *             type: object
  *             properties:
@@ -125,9 +172,19 @@ listingRoutes.post(
  *               make: { type: string }
  *               model: { type: string }
  *               year: { type: number }
+ *               # Battery-only
  *               batteryCapacityKWh: { type: number }
- *               mileageKm: { type: number }
  *               chargeCycles: { type: number }
+ *               # Car-only
+ *               licensePlate: { type: string }
+ *               engineDisplacementCc: { type: number }
+ *               vehicleType: { type: string }
+ *               paintColor: { type: string }
+ *               engineNumber: { type: string }
+ *               chassisNumber: { type: string }
+ *               otherFeatures: { type: string }
+ *               # Chung
+ *               mileageKm: { type: number }
  *               condition: { type: string, enum: [New, LikeNew, Used, Worn] }
  *               priceListed: { type: number, minimum: 0 }                # (15)
  *               tradeMethod: { type: string, enum: [meet, ship, consignment] } # (15)
@@ -146,21 +203,32 @@ listingRoutes.post(
  */
 const updateValidators = [
   body("type").optional().isIn(["Car", "Battery"]),
-  body("priceListed").optional().isFloat({ min: 0 }), // (15)
-  body("tradeMethod") // (15)
+  body("priceListed").optional().isFloat({ min: 0 }),
+  body("tradeMethod")
     .optional()
     .isIn(["meet", "ship", "consignment"])
     .withMessage("tradeMethod phải là meet/ship/consignment"),
   body("condition").optional().isIn(["New", "LikeNew", "Used", "Worn"]),
   body("year").optional().isInt({ min: 1900 }),
-  body("batteryCapacityKWh").optional().isFloat({ min: 0 }),
   body("mileageKm").optional().isFloat({ min: 0 }),
+
+  // Battery-only (optional)
+  body("batteryCapacityKWh").optional().isFloat({ min: 0 }),
   body("chargeCycles").optional().isInt({ min: 0 }),
+
+  // Car-only (optional)
+  body("licensePlate").optional().isString().trim().isLength({ min: 1 }),
+  body("engineDisplacementCc").optional().isFloat({ min: 0 }),
+  body("vehicleType").optional().isString().trim(),
+  body("paintColor").optional().isString().trim(),
+  body("engineNumber").optional().isString().trim(),
+  body("chassisNumber").optional().isString().trim(),
+  body("otherFeatures").optional().isString().trim(),
+
   body("location")
     .optional()
     .custom((v) => {
       if (v == null) return true;
-      // Vì PATCH giờ là multipart, location tới đây là string JSON
       try {
         const o = typeof v === "string" ? JSON.parse(v) : v;
         return !!(o?.city && o?.district && o?.address);
@@ -174,7 +242,7 @@ listingRoutes.patch(
   "/:id",
   authenticate as RequestHandler,
   requireProfile as RequestHandler,
-  upload.array("photos", 10),             // 👈 thêm để nhận ảnh (multipart)
+  upload.array("photos", 10),             // 👈 nhận ảnh (multipart)
   ...updateValidators,
   validate as RequestHandler,
   updateListing as unknown as RequestHandler
@@ -193,6 +261,17 @@ listingRoutes.patch(
  *         name: id
  *         required: true
  *         schema: { type: string }
+ *     requestBody:
+ *       required: false
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               commissionTermsAccepted:                  # ✅ nhắc lại khi submit
+ *                 type: boolean
+ *                 description: "Phải là true: tôi đồng ý Điều khoản & Phí hoa hồng"
+ *                 example: true
  *     responses:
  *       200: { description: Submit thành công → PendingReview }
  *       400: { description: Auto moderation failed / thiếu dữ liệu bắt buộc }
@@ -201,10 +280,26 @@ listingRoutes.patch(
  *       404: { description: Not found }
  *       409: { description: Trạng thái hiện tại không hợp lệ }
  */
+const submitValidators = [
+  body("commissionTermsAccepted")
+    .optional()
+    .custom((v) => {
+      if (typeof v === "boolean") return v === true;
+      if (typeof v === "string") {
+        const s = v.trim().toLowerCase();
+        return s === "true" || s === "1" || s === "yes" || s === "on";
+      }
+      return false;
+    })
+    .withMessage("commissionTermsAccepted, nếu gửi, phải là true."),
+];
+
 listingRoutes.post(
   "/:id/submit",
   authenticate as RequestHandler,
   requireProfile as RequestHandler,
+  ...submitValidators,
+  validate as RequestHandler,
   submitListing as unknown as RequestHandler
 );
 
@@ -258,7 +353,7 @@ listingRoutes.get(
 listingRoutes.post(
   "/price-suggest",
   authenticate as RequestHandler,
-  validate as RequestHandler, // để đồng nhất pipeline
+  validate as RequestHandler,
   priceSuggestionAI as unknown as RequestHandler
 );
 
@@ -278,6 +373,12 @@ listingRoutes.post(
  *           type: string
  *         description: Từ khóa tìm kiếm (hãng, model, ghi chú)
  *       - in: query
+ *         name: type
+ *         schema:
+ *           type: string
+ *           enum: [Car, Battery]
+ *         description: Loại sản phẩm (Xe hoặc Pin)
+ *       - in: query
  *         name: make
  *         schema:
  *           type: string
@@ -296,7 +397,7 @@ listingRoutes.post(
  *         name: batteryCapacityKWh
  *         schema:
  *           type: number
- *         description: Dung lượng pin (kWh)
+ *         description: Dung lượng pin (kWh) — áp dụng bản ghi Battery
  *       - in: query
  *         name: mileageKm
  *         schema:
@@ -432,50 +533,6 @@ listingRoutes.get("/", optionalAuth as RequestHandler, searchListings as unknown
  *                       type: number
  */
 listingRoutes.get("/filter-options", getFilterOptions as unknown as RequestHandler);
-
-/**
- * @swagger
- * /api/listings/{id}:
- *   get:
- *     summary: Lấy chi tiết sản phẩm theo ID
- *     description: API công khai để xem chi tiết một sản phẩm đã được duyệt
- *     tags: [Listings]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           pattern: '^[0-9a-fA-F]{24}$'
- *         description: ID của sản phẩm (MongoDB ObjectId)
- *     responses:
- *       200:
- *         description: Chi tiết sản phẩm
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Listing'
- *       400:
- *         description: ID không hợp lệ
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "ID không hợp lệ"
- *       404:
- *         description: Sản phẩm không tồn tại hoặc chưa được duyệt
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 message:
- *                   type: string
- *                   example: "Sản phẩm không tồn tại hoặc chưa được duyệt"
- */
 
 /**
  * @swagger

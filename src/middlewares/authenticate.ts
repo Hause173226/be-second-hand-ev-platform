@@ -1,4 +1,3 @@
-// src/middlewares/authenticate.ts
 import { RequestHandler } from "express";
 import jwt, { JwtPayload } from "jsonwebtoken";
 
@@ -7,7 +6,7 @@ const JWT_SECRET = process.env.JWT_SECRET || "your_jwt_secret";
 type JWTPayload = JwtPayload & {
   _id?: string;        // nếu lúc ký dùng _id
   userId?: string;     // nếu lúc ký dùng userId
-  role?: "user" | "admin";
+  role?: "user" | "admin" | "staff";
   isActive?: boolean;
   [k: string]: any;
 };
@@ -32,7 +31,6 @@ export const authenticate: RequestHandler = (req, res, next) => {
       ...decoded,
     };
 
-
     next();
     return;
   } catch {
@@ -41,3 +39,22 @@ export const authenticate: RequestHandler = (req, res, next) => {
   }
 };
 
+// Alias for backward compatibility
+export const authenticateJWT = authenticate;
+
+export const checkAdmin: RequestHandler = (req, res, next) => {
+  const user = (req as any).user;
+  if (!user) {
+    res.status(401).json({ error: "Không có token" });
+    return;
+  }
+
+  if (user.role !== "admin") {
+    res
+      .status(403)
+      .json({ error: "Không có quyền truy cập. Chỉ admin mới được phép." });
+    return;
+  }
+
+  next();
+};
