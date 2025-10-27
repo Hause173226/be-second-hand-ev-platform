@@ -191,6 +191,26 @@ export class WebSocketService {
                         content: data.content.substring(0, 50) + (data.content.length > 50 ? '...' : ''),
                     });
 
+                    // Tạo notification cho người nhận (nếu không online trong chat)
+                    try {
+                        const receiverId = chat.buyerId.toString() === socket.userId 
+                            ? chat.sellerId.toString() 
+                            : chat.buyerId.toString();
+                        
+                        const { default: notificationMessageService } = await import('./notificationMessageService');
+                        await notificationMessageService.createMessageNotification({
+                            userId: receiverId,
+                            senderId: socket.userId as string,
+                            chatId: data.chatId,
+                            messageId: messageDoc._id.toString(),
+                            messageContent: data.content,
+                            senderName: (messageDoc.senderId as any).fullName,
+                            senderAvatar: (messageDoc.senderId as any).avatar
+                        });
+                    } catch (error) {
+                        console.error('Error creating notification:', error);
+                    }
+
                     // Broadcast chat list update to both users
                     const buyerIdStr = chat.buyerId.toString();
                     const sellerIdStr = chat.sellerId.toString();

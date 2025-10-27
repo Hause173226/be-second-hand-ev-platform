@@ -1,169 +1,160 @@
 // src/controllers/notificationController.ts
-import { Request, Response } from 'express';
-import depositNotificationService from '../services/depositNotificationService';
+import { Request, Response, NextFunction } from "express";
+import notificationMessageService from "../services/notificationMessageService";
 
-/**
- * Lấy tất cả notification của user
- * GET /api/notifications
- */
-export const getAllNotifications = async (req: Request, res: Response) => {
+// Lấy danh sách notification của user
+export const getNotifications = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
     try {
-        const userId = req.user?.id;
-        
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Unauthorized' 
-            });
-        }
+        const userId = (req as any).user.userId;
+        const { limit = 20, skip = 0, type, isRead } = req.query;
 
-        const { isRead, type, limit, page } = req.query;
-
-        const result = await depositNotificationService.getUserNotifications(
-            userId,
-            {
-                isRead: isRead === 'true' ? true : isRead === 'false' ? false : undefined,
-                type: type as string,
-                limit: limit ? parseInt(limit as string) : undefined,
-                page: page ? parseInt(page as string) : undefined,
-            }
-        );
-
-        res.status(200).json({
-            success: true,
-            data: result,
+        const result = await notificationMessageService.getUserNotifications(userId, {
+            limit: Number(limit),
+            skip: Number(skip),
+            type: type as string,
+            isRead: isRead === "true" ? true : isRead === "false" ? false : undefined
         });
-    } catch (error: any) {
-        console.error('Error getting notifications:', error);
+
+        res.json({
+            success: true,
+            data: result.notifications,
+            pagination: {
+                total: result.total,
+                limit: Number(limit),
+                skip: Number(skip),
+                hasMore: result.total > Number(skip) + Number(limit)
+            },
+            unreadCount: result.unreadCount
+        });
+    } catch (error) {
+        console.error("Error in getNotifications:", error);
         res.status(500).json({
             success: false,
-            message: error.message || 'Error getting notifications',
+            message: error instanceof Error ? error.message : "Lỗi khi lấy thông báo"
         });
     }
 };
 
-/**
- * Đánh dấu notification là đã đọc
- * PATCH /api/notifications/:notificationId/read
- */
-export const markAsRead = async (req: Request, res: Response) => {
+// Lấy số lượng notification chưa đọc
+export const getUnreadCount = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
     try {
-        const userId = req.user?.id;
+        const userId = (req as any).user.userId;
+        const result = await notificationMessageService.getUnreadCount(userId);
+
+        res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        console.error("Error in getUnreadCount:", error);
+        res.status(500).json({
+            success: false,
+            message: error instanceof Error ? error.message : "Lỗi khi lấy số thông báo chưa đọc"
+        });
+    }
+};
+
+// Đánh dấu notification đã đọc
+export const markAsRead = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
+    try {
+        const userId = (req as any).user.userId;
         const { notificationId } = req.params;
 
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Unauthorized' 
-            });
-        }
+        const notification = await notificationMessageService.markAsRead(notificationId, userId);
 
-        const notification = await depositNotificationService.markAsRead(
-            notificationId,
-            userId
-        );
-
-        res.status(200).json({
+        res.json({
             success: true,
             data: notification,
+            message: "Đã đánh dấu thông báo là đã đọc"
         });
-    } catch (error: any) {
-        console.error('Error marking notification as read:', error);
+    } catch (error) {
+        console.error("Error in markAsRead:", error);
         res.status(500).json({
             success: false,
-            message: error.message || 'Error marking notification as read',
+            message: error instanceof Error ? error.message : "Lỗi khi đánh dấu đã đọc"
         });
     }
 };
 
-/**
- * Đánh dấu tất cả notification là đã đọc
- * PATCH /api/notifications/read-all
- */
-export const markAllAsRead = async (req: Request, res: Response) => {
+// Đánh dấu tất cả notification đã đọc
+export const markAllAsRead = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
     try {
-        const userId = req.user?.id;
+        const userId = (req as any).user.userId;
+        const result = await notificationMessageService.markAllAsRead(userId);
 
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Unauthorized' 
-            });
-        }
-
-        const result = await depositNotificationService.markAllAsRead(userId);
-
-        res.status(200).json({
+        res.json({
             success: true,
-            data: { modifiedCount: result.modifiedCount },
+            data: result
         });
-    } catch (error: any) {
-        console.error('Error marking all notifications as read:', error);
+    } catch (error) {
+        console.error("Error in markAllAsRead:", error);
         res.status(500).json({
             success: false,
-            message: error.message || 'Error marking all notifications as read',
+            message: error instanceof Error ? error.message : "Lỗi khi đánh dấu tất cả đã đọc"
         });
     }
 };
 
-/**
- * Lấy số notification chưa đọc
- * GET /api/notifications/unread-count
- */
-export const getUnreadCount = async (req: Request, res: Response) => {
+// Xóa notification
+export const deleteNotification = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
     try {
-        const userId = req.user?.id;
-
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Unauthorized' 
-            });
-        }
-
-        const count = await depositNotificationService.getUnreadCount(userId);
-
-        res.status(200).json({
-            success: true,
-            data: { count },
-        });
-    } catch (error: any) {
-        console.error('Error getting unread count:', error);
-        res.status(500).json({
-            success: false,
-            message: error.message || 'Error getting unread count',
-        });
-    }
-};
-
-/**
- * Xóa notification
- * DELETE /api/notifications/:notificationId
- */
-export const deleteNotification = async (req: Request, res: Response) => {
-    try {
-        const userId = req.user?.id;
+        const userId = (req as any).user.userId;
         const { notificationId } = req.params;
 
-        if (!userId) {
-            return res.status(401).json({ 
-                success: false, 
-                message: 'Unauthorized' 
-            });
-        }
+        const result = await notificationMessageService.deleteNotification(notificationId, userId);
 
-        await depositNotificationService.deleteNotification(notificationId, userId);
-
-        res.status(200).json({
+        res.json({
             success: true,
-            message: 'Notification deleted successfully',
+            data: result
         });
-    } catch (error: any) {
-        console.error('Error deleting notification:', error);
+    } catch (error) {
+        console.error("Error in deleteNotification:", error);
         res.status(500).json({
             success: false,
-            message: error.message || 'Error deleting notification',
+            message: error instanceof Error ? error.message : "Lỗi khi xóa thông báo"
         });
     }
 };
 
+// Xóa tất cả notification đã đọc
+export const deleteAllRead = async (
+    req: Request,
+    res: Response,
+    next: NextFunction
+): Promise<void> => {
+    try {
+        const userId = (req as any).user.userId;
+        const result = await notificationMessageService.deleteAllRead(userId);
+
+        res.json({
+            success: true,
+            data: result
+        });
+    } catch (error) {
+        console.error("Error in deleteAllRead:", error);
+        res.status(500).json({
+            success: false,
+            message: error instanceof Error ? error.message : "Lỗi khi xóa thông báo"
+        });
+    }
+};
