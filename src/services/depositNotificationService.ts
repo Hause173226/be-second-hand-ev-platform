@@ -2,6 +2,7 @@
 import { Notification } from "../models/Notification";
 import { WebSocketService } from "./websocketService";
 import { User } from "../models/User";
+import emailService from "./emailService";
 
 export class DepositNotificationService {
     private static instance: DepositNotificationService;
@@ -29,21 +30,37 @@ export class DepositNotificationService {
     /**
      * Gửi notification khi có yêu cầu đặt cọc mới
      */
-    public async sendDepositRequestNotification(sellerId: string, depositRequest: any, buyerInfo: any) {
+    public async sendDepositRequestNotification(sellerId: string, depositRequest: any, buyerInfo: any, listingInfo?: any) {
         try {
+
+            
             // Tạo notification trong database
+            // Tạo message với thông tin sản phẩm
+            const make = listingInfo?.make || '';
+            const model = listingInfo?.model || '';
+            const year = listingInfo?.year || '';
+            
+            // Tạo tên sản phẩm từ make, model, year
+            const productName = make && model && year 
+                ? `${make} ${model} ${year}`.trim()
+                : listingInfo?.title || 'sản phẩm';
+            
             const notification = new Notification({
                 userId: sellerId,
                 type: 'deposit',
                 title: 'Có yêu cầu đặt cọc mới',
-                message: `${buyerInfo.fullName || buyerInfo.email} muốn đặt cọc ${depositRequest.amount?.toLocaleString('vi-VN')} VND cho sản phẩm của bạn`,
+                message: `${buyerInfo.fullName || buyerInfo.email} muốn đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName}`,
                 depositId: depositRequest._id?.toString(),
                 metadata: {
                     listingId: depositRequest.listingId,
-                    amount: depositRequest.amount,
+                    amount: depositRequest.depositAmount,
                     status: depositRequest.status,
                     buyerId: depositRequest.buyerId,
                     buyerName: buyerInfo.fullName || buyerInfo.email,
+                    listingTitle: listingInfo?.title,
+                    listingBrand: listingInfo?.make,  // Sửa từ brand thành make
+                    listingModel: listingInfo?.model,
+                    listingYear: listingInfo?.year,
                 },
                 isRead: false,
             });
@@ -66,6 +83,20 @@ export class DepositNotificationService {
 
             console.log('Deposit notification sent to seller:', sellerId);
 
+            // Gửi email cho seller
+            try {
+                await emailService.sendDepositRequestEmail(
+                    sellerId,
+                    buyerInfo,
+                    listingInfo,
+                    depositRequest.depositAmount
+                );
+                console.log('Email thông báo đặt cọc đã được gửi cho seller');
+            } catch (emailError) {
+                console.error('Error sending deposit email:', emailError);
+                // Không throw error để không ảnh hưởng đến flow chính
+            }
+
             return notification;
         } catch (error) {
             console.error('Error sending deposit notification:', error);
@@ -80,16 +111,28 @@ export class DepositNotificationService {
         buyerId: string, 
         depositRequest: any, 
         sellerInfo: any,
-        action: 'accept' | 'reject'
+        action: 'accept' | 'reject',
+        listingInfo?: any
     ) {
         try {
+            
+            // Tạo message với thông tin sản phẩm
+            const make = listingInfo?.make || '';
+            const model = listingInfo?.model || '';
+            const year = listingInfo?.year || '';
+            
+            // Tạo tên sản phẩm từ make, model, year
+            const productName = make && model && year 
+                ? `${make} ${model} ${year}`.trim()
+                : listingInfo?.title || 'sản phẩm';
+            
             const status = action === 'accept' ? 'accepted' : 'rejected';
             const title = action === 'accept' 
                 ? 'Đặt cọc được chấp nhận' 
                 : 'Đặt cọc bị từ chối';
             const message = action === 'accept'
-                ? `${sellerInfo.fullName || sellerInfo.email} đã chấp nhận yêu cầu đặt cọc ${depositRequest.amount?.toLocaleString('vi-VN')} VND`
-                : `${sellerInfo.fullName || sellerInfo.email} đã từ chối yêu cầu đặt cọc ${depositRequest.amount?.toLocaleString('vi-VN')} VND`;
+                ? `${sellerInfo.fullName || sellerInfo.email} đã chấp nhận yêu cầu đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName}`
+                : `${sellerInfo.fullName || sellerInfo.email} đã từ chối yêu cầu đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName}`;
 
             // Tạo notification trong database
             const notification = new Notification({
@@ -100,10 +143,14 @@ export class DepositNotificationService {
                 depositId: depositRequest._id?.toString(),
                 metadata: {
                     listingId: depositRequest.listingId,
-                    amount: depositRequest.amount,
+                    amount: depositRequest.depositAmount,
                     status,
                     sellerId: depositRequest.sellerId,
                     sellerName: sellerInfo.fullName || sellerInfo.email,
+                    listingTitle: listingInfo?.title,
+                    listingBrand: listingInfo?.make,  // Sửa từ brand thành make
+                    listingModel: listingInfo?.model,
+                    listingYear: listingInfo?.year,
                 },
                 isRead: false,
             });
@@ -248,7 +295,7 @@ export class DepositNotificationService {
     /**
      * Lấy tất cả notification của user
      */
-    public async getUserNotifications(userId: string, options?: {
+    public async    getUserNotifications(userId: string, options?: {
         isRead?: boolean;
         type?: string;
         limit?: number;
@@ -358,8 +405,10 @@ export class DepositNotificationService {
      */
     public async deleteNotification(notificationId: string, userId: string) {
         try {
+            const mongoose = await import('mongoose');
+            
             const notification = await Notification.findOneAndDelete({
-                _id: notificationId,
+                _id: new mongoose.default.Types.ObjectId(notificationId),
                 userId,
             });
 

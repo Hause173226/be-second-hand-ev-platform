@@ -13,6 +13,16 @@ export interface INotification extends mongoose.Document {
         listingId?: string;
         amount?: number;
         status?: string;
+        // Thông tin sản phẩm
+        listingTitle?: string;
+        listingBrand?: string;
+        listingModel?: string;
+        listingYear?: string;
+        // Thông tin buyer/seller
+        buyerId?: string;
+        buyerName?: string;
+        sellerId?: string;
+        sellerName?: string;
         [key: string]: any;
     };
     isRead: boolean;

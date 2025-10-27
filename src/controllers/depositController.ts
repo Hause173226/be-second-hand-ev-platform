@@ -56,7 +56,7 @@ export const createDepositRequest = async (req: Request, res: Response) => {
     if (buyerWallet.balance < depositAmount) {
       // Không đủ tiền -> Tạo link nạp tiền qua VNPay
       const vnpayUrl = await walletService.createDepositUrl(
-        buyerId!,
+        buyerId!.toString(),
         depositAmount,
         `Nạp tiền đặt cọc mua xe ${(listing as any).title || 'Xe'}`,
         req
@@ -95,7 +95,8 @@ export const createDepositRequest = async (req: Request, res: Response) => {
         await depositNotificationService.sendDepositRequestNotification(
           listing.sellerId.toString(), 
           depositRequest, 
-          buyer
+          buyer,
+          listing  // Thêm thông tin listing
         );
       }
     } catch (notificationError) {
@@ -130,7 +131,7 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
     const { depositRequestId } = req.params; // Lấy từ URL path parameter
     const { action } = req.body; // 'CONFIRM' hoặc 'REJECT'
     const sellerId = req.user?.id;
-
+    
     if (!sellerId) {
       return res.status(401).json({
         success: false,
@@ -171,12 +172,14 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       // Gửi thông báo cho người mua
       try {
         const seller = await User.findById(sellerId);
+        const listing = await Listing.findById(depositRequest.listingId);
         if (seller) {
           await depositNotificationService.sendDepositConfirmationNotification(
             depositRequest.buyerId, 
             depositRequest,
             seller,
-            'accept'
+            'accept',
+            listing  // Thêm thông tin listing
           );
         }
       } catch (notificationError) {
@@ -196,14 +199,33 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       });
 
     } else if (action === 'REJECT') {
-      // Từ chối cọc -> Hoàn tiền về ví người mua
-      await walletService.refundFromEscrow(depositRequestId);
+      // Từ chối cọc -> Hoàn tiền từ frozen về ví người mua
+      await walletService.unfreezeAmount(
+        depositRequest.buyerId,
+        depositRequest.depositAmount,
+        'Seller từ chối đặt cọc'
+      );
 
-      // TODO: Gửi thông báo cho người mua
-      // await notificationService.sendDepositRejectedNotification(
-      //   depositRequest.buyerId, 
-      //   depositRequest
-      // );
+      // Cập nhật trạng thái deposit request
+      depositRequest.status = 'SELLER_CANCELLED';
+      await depositRequest.save();
+
+      // Gửi thông báo cho người mua
+      try {
+        const seller = await User.findById(sellerId);
+        const listing = await Listing.findById(depositRequest.listingId);
+        if (seller) {
+          await depositNotificationService.sendDepositConfirmationNotification(
+            depositRequest.buyerId,
+            depositRequest,
+            seller,
+            'reject',
+            listing  // Thêm thông tin listing
+          );
+        }
+      } catch (notificationError) {
+        console.error('Error sending deposit rejection notification:', notificationError);
+      }
 
       res.json({
         success: true,

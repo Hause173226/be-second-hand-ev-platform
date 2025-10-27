@@ -56,6 +56,163 @@ const walletService = {
     return wallet;
   },
 
+  // Freeze amount - đóng băng tiền khi đặt cọc
+  freezeAmount: async (userId: string, amount: number, description?: string) => {
+    const wallet = await walletService.getWallet(userId);
+    if (wallet.balance < amount) {
+      throw new Error("Số dư không đủ để đóng băng");
+    }
+    
+    wallet.balance -= amount;
+    wallet.frozenAmount = (wallet.frozenAmount || 0) + amount;
+    wallet.lastTransactionAt = new Date();
+    await wallet.save();
+    
+    console.log(`✅ Frozen ${amount} VND for user ${userId}. Description: ${description}`);
+    return wallet;
+  },
+
+  // Unfreeze amount - hủy đóng băng tiền
+  unfreezeAmount: async (userId: string, amount: number, description?: string) => {
+    const wallet = await walletService.getWallet(userId);
+    if ((wallet.frozenAmount || 0) < amount) {
+      throw new Error("Không có tiền đang bị đóng băng");
+    }
+    
+    wallet.balance += amount;
+    wallet.frozenAmount = (wallet.frozenAmount || 0) - amount;
+    wallet.lastTransactionAt = new Date();
+    await wallet.save();
+    
+    console.log(`✅ Unfrozed ${amount} VND for user ${userId}. Description: ${description}`);
+    return wallet;
+  },
+
+  // Transfer to escrow - chuyển tiền từ frozen vào escrow
+  transferToEscrow: async (depositRequestId: string) => {
+    const DepositRequest = (await import('../models/DepositRequest')).default;
+    const EscrowAccount = (await import('../models/EscrowAccount')).default;
+    
+    const depositRequest = await DepositRequest.findById(depositRequestId);
+    if (!depositRequest) {
+      throw new Error("Không tìm thấy yêu cầu đặt cọc");
+    }
+
+    // Unfreeze và chuyển vào escrow
+    const wallet = await walletService.getWallet(depositRequest.buyerId);
+    if (wallet.frozenAmount < depositRequest.depositAmount) {
+      throw new Error("Không đủ tiền đang bị đóng băng");
+    }
+    
+    wallet.frozenAmount -= depositRequest.depositAmount;
+    wallet.lastTransactionAt = new Date();
+    await wallet.save();
+
+    // Chuyển vào escrow
+    let escrow = await EscrowAccount.findOne({ depositRequestId });
+    if (!escrow) {
+      escrow = new EscrowAccount({
+        depositRequestId,
+        buyerId: depositRequest.buyerId,
+        sellerId: depositRequest.sellerId,
+        listingId: depositRequest.listingId,
+        amount: depositRequest.depositAmount,
+        status: "ACTIVE"
+      });
+    } else {
+      escrow.amount = depositRequest.depositAmount;
+      escrow.status = "ACTIVE";
+    }
+
+    await escrow.save();
+
+    console.log(`✅ Transferred ${depositRequest.depositAmount} VND to escrow for deposit ${depositRequestId}`);
+
+    // Tạo appointment
+    const Appointment = (await import('../models/Appointment')).default;
+    const appointment = new Appointment({
+      depositRequestId,
+      buyerId: depositRequest.buyerId,
+      sellerId: depositRequest.sellerId,
+      scheduledDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
+      location: "Văn phòng công ty",
+      status: "PENDING",
+      type: "CONTRACT_SIGNING"
+    });
+
+    await appointment.save();
+
+    return { escrow, appointment };
+  },
+
+  // Refund from escrow - hoàn tiền từ escrow về ví
+  refundFromEscrow: async (depositRequestId: string) => {
+    const DepositRequest = (await import('../models/DepositRequest')).default;
+    const EscrowAccount = (await import('../models/EscrowAccount')).default;
+    
+    const depositRequest = await DepositRequest.findById(depositRequestId);
+    if (!depositRequest) {
+      throw new Error("Không tìm thấy yêu cầu đặt cọc");
+    }
+
+    // Lấy escrow
+    const escrow = await EscrowAccount.findOne({ depositRequestId });
+
+    if (escrow && escrow.status === "ACTIVE") {
+      // Hoàn tiền về ví buyer
+      await walletService.deposit(
+        depositRequest.buyerId,
+        depositRequest.depositAmount,
+        "Hoàn tiền từ escrow"
+      );
+
+      // Cập nhật escrow
+      escrow.status = "REFUNDED";
+      escrow.refundedAt = new Date();
+      await escrow.save();
+
+      console.log(`✅ Refunded ${depositRequest.depositAmount} VND from escrow to buyer ${depositRequest.buyerId}`);
+    }
+
+    return escrow;
+  },
+
+  // Complete transaction - hoàn thành giao dịch, chuyển tiền từ escrow cho seller
+  completeTransaction: async (depositRequestId: string) => {
+    const DepositRequest = (await import('../models/DepositRequest')).default;
+    const EscrowAccount = (await import('../models/EscrowAccount')).default;
+    
+    const depositRequest = await DepositRequest.findById(depositRequestId);
+    if (!depositRequest) {
+      throw new Error("Không tìm thấy yêu cầu đặt cọc");
+    }
+
+    // Lấy escrow
+    const escrow = await EscrowAccount.findOne({ depositRequestId });
+
+    if (!escrow) {
+      throw new Error("Không tìm thấy tài khoản escrow");
+    }
+
+    if (escrow.status === "ACTIVE") {
+      // Chuyển tiền từ escrow cho seller
+      await walletService.deposit(
+        depositRequest.sellerId,
+        depositRequest.depositAmount,
+        "Nhận tiền từ giao dịch"
+      );
+
+      // Cập nhật escrow
+      escrow.status = "RELEASED";
+      escrow.releasedAt = new Date();
+      await escrow.save();
+
+      console.log(`✅ Released ${depositRequest.depositAmount} VND from escrow to seller ${depositRequest.sellerId}`);
+    }
+
+    return escrow;
+  },
+
   createDepositUrl: async (
     userId: string,
     amount: number,
