@@ -1,4 +1,4 @@
-// src/controllers/notificationController.ts
+// src/controllers/notificationDepositController.ts
 import { Request, Response } from 'express';
 import depositNotificationService from '../services/depositNotificationService';
 
@@ -29,13 +29,13 @@ export const getAllNotifications = async (req: Request, res: Response) => {
             }
         );
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: result,
         });
     } catch (error: any) {
         console.error('Error getting notifications:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message || 'Error getting notifications',
         });
@@ -63,13 +63,13 @@ export const markAsRead = async (req: Request, res: Response) => {
             userId
         );
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: notification,
         });
     } catch (error: any) {
         console.error('Error marking notification as read:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message || 'Error marking notification as read',
         });
@@ -93,13 +93,13 @@ export const markAllAsRead = async (req: Request, res: Response) => {
 
         const result = await depositNotificationService.markAllAsRead(userId);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: { modifiedCount: result.modifiedCount },
         });
     } catch (error: any) {
         console.error('Error marking all notifications as read:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message || 'Error marking all notifications as read',
         });
@@ -123,13 +123,13 @@ export const getUnreadCount = async (req: Request, res: Response) => {
 
         const count = await depositNotificationService.getUnreadCount(userId);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             data: { count },
         });
     } catch (error: any) {
         console.error('Error getting unread count:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message || 'Error getting unread count',
         });
@@ -154,13 +154,13 @@ export const deleteNotification = async (req: Request, res: Response) => {
 
         await depositNotificationService.deleteNotification(notificationId, userId);
 
-        res.status(200).json({
+        return res.status(200).json({
             success: true,
             message: 'Notification deleted successfully',
         });
     } catch (error: any) {
         console.error('Error deleting notification:', error);
-        res.status(500).json({
+        return res.status(500).json({
             success: false,
             message: error.message || 'Error deleting notification',
         });

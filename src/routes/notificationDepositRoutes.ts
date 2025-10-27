@@ -1,4 +1,4 @@
-// src/routes/notificationRoutes.ts
+// src/routes/notificationDepositRoutes.ts
 import express from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import {
@@ -7,7 +7,7 @@ import {
     markAllAsRead,
     getUnreadCount,
     deleteNotification,
-} from '../controllers/notificationController';
+} from '../controllers/notificationDepositController';
 
 const router = express.Router();
 

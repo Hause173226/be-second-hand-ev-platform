@@ -1,5 +1,5 @@
 // src/services/depositNotificationService.ts
-import { Notification } from "../models/Notification";
+import { NotificationDeposit } from "../models/NotificationDeposit";
 import { WebSocketService } from "./websocketService";
 import { User } from "../models/User";
 import emailService from "./emailService";
@@ -45,7 +45,7 @@ export class DepositNotificationService {
                 ? `${make} ${model} ${year}`.trim()
                 : listingInfo?.title || 'sản phẩm';
             
-            const notification = new Notification({
+            const notification = new NotificationDeposit({
                 userId: sellerId,
                 type: 'deposit',
                 title: 'Có yêu cầu đặt cọc mới',
@@ -135,7 +135,7 @@ export class DepositNotificationService {
                 : `${sellerInfo.fullName || sellerInfo.email} đã từ chối yêu cầu đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName}`;
 
             // Tạo notification trong database
-            const notification = new Notification({
+            const notification = new NotificationDeposit({
                 userId: buyerId,
                 type: 'deposit_confirmation',
                 title,
@@ -186,7 +186,7 @@ export class DepositNotificationService {
      */
     public async sendContractNotification(receiverId: string, contract: any, senderInfo: any) {
         try {
-            const notification = new Notification({
+            const notification = new NotificationDeposit({
                 userId: receiverId,
                 type: 'contract',
                 title: 'Hợp đồng mới',
@@ -251,7 +251,7 @@ export class DepositNotificationService {
             const notifications = [];
 
             for (const msg of messages) {
-                const notification = new Notification({
+                const notification = new NotificationDeposit({
                     userId: msg.userId,
                     type: 'transaction_complete',
                     title: msg.title,
@@ -316,12 +316,14 @@ export class DepositNotificationService {
             const page = options?.page || 1;
             const skip = (page - 1) * limit;
 
-            const notifications = await Notification.find(query)
+            const NotificationDepositModel = (await import('../models/NotificationDeposit')).NotificationDeposit;
+            
+            const notifications = await NotificationDepositModel.find(query)
                 .sort({ createdAt: -1 })
                 .limit(limit)
                 .skip(skip);
 
-            const total = await Notification.countDocuments(query);
+            const total = await NotificationDepositModel.countDocuments(query);
 
             return {
                 notifications,
@@ -343,7 +345,9 @@ export class DepositNotificationService {
      */
     public async markAsRead(notificationId: string, userId: string) {
         try {
-            const notification = await Notification.findOne({
+            const NotificationDepositModel = (await import('../models/NotificationDeposit')).NotificationDeposit;
+            
+            const notification = await NotificationDepositModel.findOne({
                 _id: notificationId,
                 userId,
             });
@@ -368,7 +372,9 @@ export class DepositNotificationService {
      */
     public async markAllAsRead(userId: string) {
         try {
-            const result = await Notification.updateMany(
+            const NotificationDepositModel = (await import('../models/NotificationDeposit')).NotificationDeposit;
+            
+            const result = await NotificationDepositModel.updateMany(
                 { userId, isRead: false },
                 { 
                     isRead: true, 
@@ -388,7 +394,9 @@ export class DepositNotificationService {
      */
     public async getUnreadCount(userId: string) {
         try {
-            const count = await Notification.countDocuments({
+            const NotificationDepositModel = (await import('../models/NotificationDeposit')).NotificationDeposit;
+            
+            const count = await NotificationDepositModel.countDocuments({
                 userId,
                 isRead: false,
             });
@@ -407,7 +415,9 @@ export class DepositNotificationService {
         try {
             const mongoose = await import('mongoose');
             
-            const notification = await Notification.findOneAndDelete({
+            const NotificationDepositModel = (await import('../models/NotificationDeposit')).NotificationDeposit;
+            
+            const notification = await NotificationDepositModel.findOneAndDelete({
                 _id: new mongoose.default.Types.ObjectId(notificationId),
                 userId,
             });
