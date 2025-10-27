@@ -56,6 +56,7 @@ const userSchema = new Schema<IUser>(
       trim: true,
       lowercase: true,
       match: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+      index: true,
     },
     phone: {
       type: String,
@@ -161,7 +162,6 @@ userSchema.pre("save", function (next) {
 });
 
 // Indexes cho performance
-userSchema.index({ email: 1 });
 userSchema.index({ phone: 1 });
 userSchema.index({ googleId: 1 });
 userSchema.index({ facebookId: 1 });

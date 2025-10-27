@@ -487,7 +487,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         { model: { $regex: keywordStr, $options: "i" } },
         { notes: { $regex: keywordStr, $options: "i" } },
       ];
-
       // Nếu có nhiều từ, thử tìm theo kết hợp make + model
       if (words.length >= 2) {
         // Ví dụ: "Tesla Model" hoặc "Tesla Model 3"
@@ -507,7 +506,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           });
         }
       }
-
       // Nếu tìm thấy năm trong keyword, thêm điều kiện tìm theo năm
       if (yearFromKeyword) {
         searchConditions.push({
@@ -532,7 +530,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           ],
         });
       }
-
       filter.$or = searchConditions;
     }
 
