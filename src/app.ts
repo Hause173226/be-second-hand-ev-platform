@@ -59,9 +59,9 @@ app.use("/api/search", searchHistoryRoutes);
 app.use("/api/chat", chatRoutes);
 app.use("/api/appointments", appointmentRoutes);
 app.use("/api/offers", offerRoutes);
+app.use("/api/orders", orderRoutes);
 
 // 📘 Swagger Docs
-app.use("/api/orders", orderRoutes); // Thêm dòng này
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
 // ❗ Error handler — luôn để cuối

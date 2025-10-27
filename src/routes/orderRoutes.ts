@@ -4,7 +4,7 @@ import {
   confirmDelivery,
   getOrderById,
 } from "../controllers/orderController";
-import { authenticateJWT } from "../middlewares/authenticate";
+import { authenticate } from "../middlewares/authenticate";
 
 const router = express.Router();
 
@@ -49,7 +49,7 @@ const router = express.Router();
  *       404:
  *         description: Không tìm thấy order
  */
-router.put("/:orderId/delivery-status", authenticateJWT, updateDeliveryStatus);
+router.put("/:orderId/delivery-status", authenticate, updateDeliveryStatus);
 
 /**
  * @swagger
@@ -101,7 +101,7 @@ router.put("/:orderId/delivery-status", authenticateJWT, updateDeliveryStatus);
  *       404:
  *         description: Không tìm thấy order
  */
-router.post("/:orderId/confirm-delivery", authenticateJWT, confirmDelivery);
+router.post("/:orderId/confirm-delivery", authenticate, confirmDelivery);
 
 /**
  * @swagger
@@ -123,6 +123,6 @@ router.post("/:orderId/confirm-delivery", authenticateJWT, confirmDelivery);
  *       404:
  *         description: Không tìm thấy order
  */
-router.get("/:orderId", authenticateJWT, getOrderById);
+router.get("/:orderId", authenticate, getOrderById);
 
 export default router;
