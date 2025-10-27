@@ -26,6 +26,7 @@ export const authenticate: RequestHandler = (req, res, next) => {
     // Chuẩn hoá key để các middleware khác dùng: req.user._id / role / isActive
     (req as any).user = {
       _id: decoded._id ?? decoded.userId,
+      id: decoded._id ?? decoded.userId, // Thêm id để tương thích
       role: decoded.role,
       isActive: decoded.isActive,
       ...decoded,
