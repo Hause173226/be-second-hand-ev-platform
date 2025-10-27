@@ -13,18 +13,6 @@ export interface IAddress {
   createdAt?: Date;
   updatedAt?: Date;
 }
-
-export interface IPaymentMethod {
-  _id?: any;
-  provider: "stripe" | "xpay" | "momo" | "zalopay" | "bank" | string;
-  tokenId: string;
-  brand?: string;
-  last4?: string;
-  isDefault: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
-}
-
 export interface IUser {
   _id?: string;
 

@@ -16,12 +16,12 @@ export const signUp = async (req: Request, res: Response) => {
 
 export const signIn = async (req: Request, res: Response) => {
   try {
-    const { email, password, role } = req.body;
+    const { email, password } = req.body;
     if (!email || !password) {
       res.status(400).json({ error: "Thiếu email hoặc mật khẩu" });
       return;
     }
-    const result = await userService.signIn(email, password, role);
+    const result = await userService.signIn(email, password);
     res.json(result);
   } catch (err) {
     if (err instanceof Error) {
@@ -105,7 +105,11 @@ export const resetPasswordWithOTP = async (req: Request, res: Response) => {
 
 export const signOut = async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user.userId; // Assuming this comes from auth middleware
+    const userId = (req as any).user?._id;
+    if (!userId) {
+      res.status(401).json({ error: "Không có thông tin user" });
+      return;
+    }
     await userService.signOut(userId);
     res.status(200).json({ message: "Đăng xuất thành công" });
   } catch (err) {
