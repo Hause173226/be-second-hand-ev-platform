@@ -270,3 +270,21 @@ export const verifyEmail = async (req: Request, res: Response) => {
     }
   }
 };
+
+export const deleteUser = async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({ error: "Thiếu ID người dùng" });
+      return;
+    }
+    const result = await userService.deleteUser(id);
+    res.json(result);
+  } catch (err) {
+    if (err instanceof Error) {
+      res.status(400).json({ error: err.message });
+    } else {
+      res.status(500).json({ error: "Lỗi máy chủ nội bộ" });
+    }
+  }
+};

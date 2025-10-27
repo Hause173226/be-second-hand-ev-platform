@@ -8,8 +8,15 @@ import { SearchHistory } from "../models/SearchHistory";
 import { suggestHeuristic } from "../services/priceAI.heuristic";
 import { PriceAIInput } from "../services/priceAI.types";
 
-// 🔥 Firebase upload service
-import { uploadImageToFirebase } from "../services/fileStorage";
+// ⬇️ NEW: dùng kiểu để type-narrowing cho union
+import type {
+  IListing,
+} from "../interfaces/IListing"
+
+type MulterCloudinaryFile = Express.Multer.File & {
+  path: string;     // Cloudinary URL
+  filename: string; // Cloudinary public_id
+};
 
 const isOwner = (userId?: string, sellerId?: any) =>
   userId && sellerId && sellerId.toString() === userId.toString();
@@ -23,13 +30,21 @@ const parseLocation = (raw: unknown) => {
   }
 };
 
-const toBool = (v: unknown) =>
-  typeof v === "string" ? v === "true" : Boolean(v);
+const toBool = (v: unknown) => {
+  if (typeof v === "boolean") return v;
+  if (typeof v === "string") {
+    const s = v.trim().toLowerCase();
+    return s === "true" || s === "1" || s === "yes" || s === "on";
+  }
+  return Boolean(v);
+};
+
+// ⬇️ NEW: type guards cho union
+const isCar = (l: IListing): l is IListing & { type: "Car" } => l?.type === "Car";
+const isBattery = (l: IListing): l is IListing & { type: "Battery" } => l?.type === "Battery";
 
 /**
  * Tạo listing (status = Draft)
- * (Phần 15) Parse & validate priceListed + tradeMethod
- * (Firebase) Upload ảnh lên Firebase Storage, lưu URL
  */
 export const createListing: RequestHandler = async (req, res, next) => {
   try {
@@ -39,7 +54,18 @@ export const createListing: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    const files = (req.files as Express.Multer.File[]) || [];
+    // ✅ BẮT BUỘC đồng ý điều khoản & phí hoa hồng
+    const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted);
+    if (acceptedTerms !== true) {
+      res.status(400).json({
+        message:
+          "Bạn phải đồng ý Điều khoản & Phí hoa hồng trước khi đăng bán (commissionTermsAccepted=true).",
+        field: "commissionTermsAccepted",
+      });
+      return;
+    }
+
+    const files = (req.files as MulterCloudinaryFile[]) || [];
     if (!Array.isArray(files) || files.length < 3) {
       res.status(400).json({ message: "Cần tối thiểu 3 ảnh" });
       return;
@@ -54,16 +80,25 @@ export const createListing: RequestHandler = async (req, res, next) => {
       mileageKm,
       chargeCycles,
       condition,
-      priceListed, // ⬅️ phần 15
-      tradeMethod, // ⬅️ phần 15
+      priceListed,
+      tradeMethod,
       sellerConfirm,
       location,
-    } = req.body;
+
+      // ⬇️ NEW: các field hợp đồng (Car)
+      licensePlate,
+      engineDisplacementCc,
+      vehicleType,
+      paintColor,
+      engineNumber,
+      chassisNumber,
+      otherFeatures,
+    } = req.body as any;
 
     const locObj = parseLocation(location);
     const confirmed = toBool(sellerConfirm);
 
-    // (15) ép & validate priceListed
+    // ép & validate priceListed
     const priceListedNum =
       typeof priceListed === "string" ? Number(priceListed) : Number(priceListed);
     if (!Number.isFinite(priceListedNum) || priceListedNum < 0) {
@@ -71,7 +106,7 @@ export const createListing: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    // (15) validate tradeMethod
+    // validate tradeMethod
     const ALLOWED_TRADE: Array<"meet" | "ship" | "consignment"> = [
       "meet",
       "ship",
@@ -82,35 +117,50 @@ export const createListing: RequestHandler = async (req, res, next) => {
         ? (tradeMethod as any)
         : "meet";
 
-    // 🔥 Upload ảnh lên Firebase, lấy URL
-    const photos: { url: string; kind: "photo" }[] = [];
-    for (let i = 0; i < files.length; i++) {
-      const f = files[i];
-      const safeName = f.originalname?.replace(/[^\w.\-]/g, "_") || `photo_${i}.jpg`;
-      const key = `listings/${sellerId}/${Date.now()}_${i}_${safeName}`;
-      const url = await uploadImageToFirebase(f, key, true); // public URL
-      photos.push({ url, kind: "photo" });
-    }
+    // Ảnh từ CloudinaryStorage
+    const photos: { url: string; kind: "photo"; publicId?: string }[] =
+      files.map((f) => ({
+        url: (f as any).path,
+        kind: "photo",
+        publicId: (f as any).filename,
+      }));
 
-    const listing = await Listing.create({
+    // ⬇️ NEW: payload base + spread theo type để đúng union
+    const base: Partial<IListing> = {
       sellerId,
       type,
       make,
       model,
-      year,
-      batteryCapacityKWh,
-      mileageKm,
-      chargeCycles,
+      year: year ? Number(year) : undefined,
+      mileageKm: mileageKm ? Number(mileageKm) : undefined,
       condition,
       photos,
-      // location đã bỏ lat/lng ở schema → để object đơn giản
-      location: locObj,
-      // (15)
+      location: locObj as any,
       priceListed: priceListedNum,
       tradeMethod: trade,
       status: "Draft",
       notes: confirmed ? undefined : "Chưa xác nhận chính chủ",
-    });
+    };
+
+    const payload: any =
+      type === "Car"
+        ? {
+            ...base,
+            licensePlate,
+            engineDisplacementCc: engineDisplacementCc ? Number(engineDisplacementCc) : undefined,
+            vehicleType,
+            paintColor,
+            engineNumber,
+            chassisNumber,
+            otherFeatures,
+          }
+        : {
+            ...base,
+            batteryCapacityKWh: batteryCapacityKWh ? Number(batteryCapacityKWh) : undefined,
+            chargeCycles: chargeCycles ? Number(chargeCycles) : undefined,
+          };
+
+    const listing = await Listing.create(payload);
 
     res.status(201).json(listing);
   } catch (err) {
@@ -120,8 +170,6 @@ export const createListing: RequestHandler = async (req, res, next) => {
 
 /**
  * Cập nhật listing (chỉ khi Draft/Rejected)
- * (Phần 15) Cho phép sửa priceListed + tradeMethod
- * (Firebase) Nếu PATCH có gửi ảnh (multipart) thì upload và append vào photos
  */
 export const updateListing: RequestHandler = async (req, res, next) => {
   try {
@@ -133,31 +181,28 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       res.status(404).json({ message: "Listing không tồn tại" });
       return;
     }
-    if (!isOwner(userId, listing.sellerId)) {
+    if (!isOwner(userId, (listing as any).sellerId)) {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!["Draft", "Rejected"].includes(listing.status)) {
+    if (!(typeof (listing as any).status === "string" && ["Draft", "Rejected"].includes((listing as any).status))) {
       res.status(409).json({ message: "Chỉ sửa khi Draft/Rejected" });
       return;
     }
 
-    // 🔥 Nếu route PATCH dùng upload.array("photos", 10) và client gửi ảnh mới
-    const files = (req.files as Express.Multer.File[]) || [];
+    // Ảnh mới (nếu có)
+    const files = (req.files as MulterCloudinaryFile[]) || [];
     if (Array.isArray(files) && files.length > 0) {
-      const newPhotos = await Promise.all(
-        files.map(async (f, i) => {
-          const safeName = f.originalname?.replace(/[^\w.\-]/g, "_") || `photo_${i}.jpg`;
-          const key = `listings/${listing.sellerId}/${Date.now()}_${i}_${safeName}`;
-          const url = await uploadImageToFirebase(f, key, true);
-          return { url, kind: "photo" as const };
-        })
-      );
-      // Append thay vì replace
-      listing.photos = [...(listing.photos || []), ...newPhotos];
+      const newPhotos = files.map((f) => ({
+        url: (f as any).path,
+        kind: "photo" as const,
+        publicId: (f as any).filename,
+      }));
+      (listing as any).photos = [...((listing as any).photos || []), ...newPhotos];
     }
 
-    const allowed: Array<
+    // ⬇️ NEW: bổ sung các field hợp đồng cho Car
+    const allowedCommon: Array<
       | "type"
       | "make"
       | "model"
@@ -187,17 +232,36 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       "sellerConfirm",
     ];
 
-    for (const k of allowed) {
+    const allowedCar: Array<
+      | "licensePlate"
+      | "engineDisplacementCc"
+      | "vehicleType"
+      | "paintColor"
+      | "engineNumber"
+      | "chassisNumber"
+      | "otherFeatures"
+    > = [
+      "licensePlate",
+      "engineDisplacementCc",
+      "vehicleType",
+      "paintColor",
+      "engineNumber",
+      "chassisNumber",
+      "otherFeatures",
+    ];
+
+    // Cập nhật các field chung
+    for (const k of allowedCommon) {
       if (typeof (req.body as any)[k] === "undefined") continue;
 
       if (k === "location") {
-        (listing as any).location = parseLocation(req.body.location);
+        (listing as any).location = parseLocation((req.body as any).location);
         continue;
       }
 
       if (k === "sellerConfirm") {
         const confirmed = toBool((req.body as any).sellerConfirm);
-        listing.notes = confirmed ? undefined : "Chưa xác nhận chính chủ";
+        (listing as any).notes = confirmed ? undefined : "Chưa xác nhận chính chủ";
         continue;
       }
 
@@ -232,7 +296,22 @@ export const updateListing: RequestHandler = async (req, res, next) => {
       (listing as any)[k] = (req.body as any)[k];
     }
 
-    await listing.save();
+    // ⬇️ NEW: chỉ cho phép field Car nếu listing.type === "Car"
+    if ((listing as any).type === "Car") {
+      for (const k of allowedCar) {
+        if (typeof (req.body as any)[k] === "undefined") continue;
+
+        if (k === "engineDisplacementCc") {
+          const n = Number((req.body as any)[k]);
+          (listing as any)[k] = Number.isFinite(n) ? n : undefined;
+          continue;
+        }
+
+        (listing as any)[k] = (req.body as any)[k];
+      }
+    }
+
+    await (listing as any).save();
     res.json(listing);
   } catch (err) {
     next(err);
@@ -241,7 +320,6 @@ export const updateListing: RequestHandler = async (req, res, next) => {
 
 /**
  * Submit listing để duyệt (Draft/Rejected -> PendingReview)
- * (Tuỳ chọn) bắt buộc có tradeMethod trước khi submit
  */
 export const submitListing: RequestHandler = async (req, res, next) => {
   try {
@@ -253,48 +331,52 @@ export const submitListing: RequestHandler = async (req, res, next) => {
       res.status(404).json({ message: "Listing không tồn tại" });
       return;
     }
-    if (!isOwner(userId, listing.sellerId)) {
+    if (!isOwner(userId, (listing as any).sellerId)) {
       res.status(403).json({ message: "Forbidden" });
       return;
     }
-    if (!["Draft", "Rejected"].includes(listing.status)) {
+    if (!(typeof (listing as any).status === "string" && ["Draft", "Rejected"].includes((listing as any).status))) {
       res.status(409).json({ message: "Chỉ submit khi Draft/Rejected" });
       return;
     }
 
-    // validate dữ liệu bắt buộc tối thiểu
-    if (!listing.photos || listing.photos.length < 3) {
+    const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted ?? "true");
+    if (acceptedTerms !== true) {
+      res.status(400).json({
+        message: "Bạn phải đồng ý Điều khoản & Phí hoa hồng trước khi submit.",
+        field: "commissionTermsAccepted",
+      });
+      return;
+    }
+
+    if (!(listing as any).photos || (listing as any).photos.length < 3) {
       res.status(400).json({ message: "Cần tối thiểu 3 ảnh trước khi submit" });
       return;
     }
     if (
-      listing.priceListed === undefined ||
-      listing.priceListed === null ||
-      !listing.location?.city ||
-      !listing.location?.district ||
-      !listing.location?.address
+      (listing as any).priceListed === undefined ||
+      (listing as any).priceListed === null ||
+      !(listing as any).location?.city ||
+      !(listing as any).location?.district ||
+      !(listing as any).location?.address
     ) {
       res.status(400).json({ message: "Thiếu dữ liệu bắt buộc (giá, vị trí...)" });
       return;
     }
-    // (15) nếu muốn bắt buộc tradeMethod:
-    if (!listing.tradeMethod) {
+    if (!(listing as any).tradeMethod) {
       res.status(400).json({ message: "Thiếu hình thức giao dịch (tradeMethod)" });
       return;
     }
 
-    // auto moderation
-    const mod = await moderationService.scanListing(listing);
+    const mod = await moderationService.scanListing(listing as any);
     if (!mod.ok) {
-      res
-        .status(400)
-        .json({ message: "Auto moderation failed", reasons: mod.reasons });
+      res.status(400).json({ message: "Auto moderation failed", reasons: mod.reasons });
       return;
     }
 
-    listing.status = "PendingReview";
-    listing.rejectReason = undefined;
-    await listing.save();
+    (listing as any).status = "PendingReview";
+    (listing as any).rejectReason = undefined;
+    await (listing as any).save();
 
     res.json({ message: "Đã submit, chờ duyệt", listing });
   } catch (err) {
@@ -317,21 +399,15 @@ export const myListings: RequestHandler = async (req, res, next) => {
 
 /* ----------------------- PRICE SUGGEST (heuristic only) ----------------------- */
 
-/**
- * Gợi ý giá (tạm thời chỉ dùng heuristic, không gọi Gemini)
- * Body: { type, year, mileageKm, batteryCapacityKWh, condition, make, model }
- */
 export const priceSuggestionAI: RequestHandler = async (req, res, next) => {
   try {
     const payload = req.body as PriceAIInput;
 
-    // Kiểm tra tối thiểu
     if (!payload?.make || !payload?.model || !payload?.year) {
       res.status(400).json({ message: "Thiếu make/model/year" });
       return;
     }
 
-    // Chỉ chạy heuristic
     const h = suggestHeuristic(payload);
     res.setHeader("X-Provider-Used", "heuristic");
     res.json({ provider: "heuristic", ...h });
@@ -346,6 +422,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
   try {
     const {
       keyword,
+      type,
       make,
       model,
       year,
@@ -361,21 +438,65 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       limit = "12",
     } = req.query;
 
-    // Build filter object
-    const filter: any = {
-      status: "Published", // Chỉ lấy sản phẩm đã được duyệt
-    };
+    const filter: any = { status: "Published" };
 
-    // Text search với keyword
+    // Text search với keyword - thông minh hơn với make, model, year
     if (keyword) {
-      filter.$or = [
-        { make: { $regex: keyword, $options: "i" } },
-        { model: { $regex: keyword, $options: "i" } },
-        { notes: { $regex: keyword, $options: "i" } },
+      const keywordStr = keyword.toString().trim();
+      
+      // Tách keyword thành các từ
+      const words = keywordStr.split(/\s+/);
+      
+      // Tìm năm trong keyword (4 chữ số liên tiếp)
+      const yearMatch = keywordStr.match(/\b(19|20)\d{2}\b/);
+      const yearFromKeyword = yearMatch ? parseInt(yearMatch[0], 10) : null;
+      
+      // Xây dựng điều kiện search thông minh
+      const searchConditions: any[] = [
+        { make: { $regex: keywordStr, $options: "i" } },
+        { model: { $regex: keywordStr, $options: "i" } },
+        { notes: { $regex: keywordStr, $options: "i" } },
       ];
+      
+      // Nếu có nhiều từ, thử tìm theo kết hợp make + model
+      if (words.length >= 2) {
+        // Ví dụ: "Tesla Model" hoặc "Tesla Model 3"
+        const possibleMake = words[0];
+        const possibleModel = words.slice(1).join(" ").replace(/\b(19|20)\d{2}\b/, "").trim();
+        
+        if (possibleModel) {
+          searchConditions.push({
+            $and: [
+              { make: { $regex: possibleMake, $options: "i" } },
+              { model: { $regex: possibleModel, $options: "i" } },
+            ],
+          });
+        }
+      }
+      
+      // Nếu tìm thấy năm trong keyword, thêm điều kiện tìm theo năm
+      if (yearFromKeyword) {
+        searchConditions.push({
+          $and: [
+            { year: yearFromKeyword },
+            {
+              $or: [
+                { make: { $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(), $options: "i" } },
+                { model: { $regex: keywordStr.replace(/\b(19|20)\d{2}\b/, "").trim(), $options: "i" } },
+              ],
+            },
+          ],
+        });
+      }
+      
+      filter.$or = searchConditions;
     }
 
-    // Filter theo các trường cụ thể
+    // Filter theo type (Car hoặc Battery)
+    if (type) {
+      filter.type = type;
+    }
+
     if (make) filter.make = { $regex: make, $options: "i" };
     if (model) filter.model = { $regex: model, $options: "i" };
 
@@ -385,7 +506,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
     }
     if (batteryCapacityKWh) {
       const b = parseInt(batteryCapacityKWh as string, 10);
-      if (Number.isFinite(b)) filter.batteryCapacityKWh = b;
+      if (Number.isFinite(b)) filter.batteryCapacityKWh = b; // chỉ match Battery trong DB
     }
     if (mileageKm) {
       const m = parseInt(mileageKm as string, 10);
@@ -394,7 +515,6 @@ export const searchListings: RequestHandler = async (req, res, next) => {
 
     if (condition) filter.condition = condition;
 
-    // Price range filter
     if (minPrice || maxPrice) {
       const g: any = {};
       const min = minPrice ? parseInt(minPrice as string, 10) : undefined;
@@ -404,13 +524,11 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       if (Object.keys(g).length) filter.priceListed = g;
     }
 
-    // Location filter
     if (city || district) {
       if (city) filter["location.city"] = { $regex: city as string, $options: "i" };
       if (district) filter["location.district"] = { $regex: district as string, $options: "i" };
     }
 
-    // Build sort object
     let sort: any = {};
     switch (sortBy) {
       case "newest":
@@ -426,19 +544,16 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         sort = { priceListed: -1 };
         break;
       case "reputation":
-        // Sắp xếp theo độ uy tín (tạm thời theo publishedAt)
         sort = { publishedAt: -1 };
         break;
       default:
         sort = { publishedAt: -1, createdAt: -1 };
     }
 
-    // Pagination
     const pageNum = parseInt(page as string, 10) || 1;
     const limitNum = parseInt(limit as string, 10) || 12;
     const skip = (pageNum - 1) * limitNum;
 
-    // Execute query with population
     const listings = await Listing.find(filter)
       .populate("sellerId", "fullName phone avatar")
       .sort(sort)
@@ -446,11 +561,9 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       .limit(limitNum)
       .lean();
 
-    // Get total count for pagination
     const totalCount = await Listing.countDocuments(filter);
     const totalPages = Math.ceil(totalCount / limitNum);
 
-    // Tự động lưu lịch sử tìm kiếm nếu có keyword
     const userId = (req as any).user?._id;
     if (keyword && keyword.toString().trim()) {
       try {
@@ -459,6 +572,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
           searchQuery: keyword.toString().trim(),
           searchType: "listing",
           filters: {
+            type: type as string,
             make: make as string,
             model: model as string,
             year: year ? parseInt(year as string, 10) : undefined,
@@ -477,12 +591,10 @@ export const searchListings: RequestHandler = async (req, res, next) => {
         });
         console.log(`Search history saved for keyword: ${keyword}, userId: ${userId || "anonymous"}`);
       } catch (err) {
-        // Không làm fail API chính nếu lưu lịch sử bị lỗi
         console.error("Error saving search history:", err);
       }
     }
 
-    // Response with pagination info
     res.json({
       listings,
       pagination: {
@@ -495,6 +607,7 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       },
       filters: {
         keyword,
+        type,
         make,
         model,
         year,
@@ -518,24 +631,32 @@ export const searchListings: RequestHandler = async (req, res, next) => {
  */
 export const getFilterOptions: RequestHandler = async (_req, res, next) => {
   try {
-    const publishedListings = await Listing.find({ status: "Published" }).lean();
+    // ⬇️ cast về union để dùng narrowing
+    const publishedListings = (await Listing.find({ status: "Published" }).lean()) as IListing[];
 
-    // Extract unique values cho dropdown
     const makes = [...new Set(publishedListings.map(l => l.make).filter(Boolean))].sort();
     const models = [...new Set(publishedListings.map(l => l.model).filter(Boolean))].sort();
-    const years = [...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number"))]
-      .sort((a, b) => b - a);
+    const years = [
+      ...new Set(publishedListings.map(l => l.year).filter((v): v is number => typeof v === "number")),
+    ].sort((a, b) => b - a);
+
+    // ⬇️ NEW: chỉ lấy batteryCapacityKWh cho Battery
     const batteryCapacities = [
       ...new Set(
-        publishedListings.map(l => l.batteryCapacityKWh).filter((v): v is number => typeof v === "number")
+        publishedListings
+          .filter(isBattery)
+          .map(l => l.batteryCapacityKWh)
+          .filter((v): v is number => typeof v === "number")
       ),
     ].sort((a, b) => a - b);
+
     const conditions = [...new Set(publishedListings.map(l => l.condition).filter(Boolean))];
     const cities = [...new Set(publishedListings.map(l => l.location?.city).filter(Boolean))].sort();
     const districts = [...new Set(publishedListings.map(l => l.location?.district).filter(Boolean))].sort();
 
-    // Price range an toàn khi rỗng
-    const priceVals = publishedListings.map(l => l.priceListed).filter((v): v is number => typeof v === "number");
+    const priceVals = publishedListings
+      .map(l => l.priceListed)
+      .filter((v): v is number => typeof v === "number");
     const minPrice = priceVals.length ? Math.min(...priceVals) : 0;
     const maxPrice = priceVals.length ? Math.max(...priceVals) : 0;
 
@@ -568,7 +689,7 @@ export const getListingById: RequestHandler = async (req, res, next) => {
 
     const listing = await Listing.findOne({
       _id: id,
-      status: "Published", // Chỉ lấy sản phẩm đã được duyệt
+      status: "Published",
     })
       .populate("sellerId", "fullName phone email avatar createdAt")
       .lean();

@@ -4,28 +4,14 @@ const options = {
   definition: {
     openapi: "3.0.0",
     info: {
-      title: "Second Hand EV Platform API",
+      title: "EV Platform API",
       version: "1.0.0",
-      description: `
-      📘 **Tài liệu API - Nền tảng Mua Bán Xe Điện Cũ**
-      
-      Hệ thống bao gồm:
-      - Đăng ký, đăng nhập, xác thực người dùng
-      - Quản lý hồ sơ cá nhân
-      - Đăng và quản lý tin rao bán xe điện
-      - Quản lý lịch hẹn, tin nhắn, và đàm phán giá
-      
-      ⚡ Tất cả các endpoint (ngoại trừ đăng nhập, đăng ký) yêu cầu JWT Bearer Token.
-      `,
-      contact: {
-        name: "HoiBK Developer Team",
-        email: "support@evplatform.com",
-      },
+      description: "API documentation for Second-hand EV Platform System",
     },
 
     servers: [
       {
-        url: "http://localhost:5000/api",
+        url: "http://localhost:8081",
         description: "Local development server",
       },
       {
@@ -36,15 +22,45 @@ const options = {
 
     tags: [
       { name: "Auth", description: "Đăng ký, đăng nhập, xác minh email, OTP" },
-      { name: "Users", description: "Quản lý tài khoản người dùng (Admin & User)" },
-      { name: "Profile", description: "Cập nhật và lấy thông tin hồ sơ người dùng" },
+      {
+        name: "Users",
+        description: "Quản lý tài khoản người dùng (Admin & User)",
+      },
+      {
+        name: "Profile",
+        description: "Cập nhật và lấy thông tin hồ sơ người dùng",
+      },
       { name: "Listings", description: "Quản lý và tìm kiếm tin rao xe điện" },
-      { name: "Appointments", description: "Lịch hẹn xem xe & xác nhận cuộc hẹn" },
+      {
+        name: "Appointments",
+        description: "Lịch hẹn xem xe & xác nhận cuộc hẹn",
+      },
       { name: "Offers", description: "Đề nghị giá và phản hồi đàm phán" },
-      { name: "Chat", description: "Tin nhắn trực tiếp giữa người mua & người bán" },
-      { name: "Search History", description: "Theo dõi từ khóa & lịch sử tìm kiếm" },
+      {
+        name: "Chat",
+        description: "Tin nhắn trực tiếp giữa người mua & người bán",
+      },
+      {
+        name: "Search History",
+        description: "Theo dõi từ khóa & lịch sử tìm kiếm",
+      },
+      {
+        name: "Deposits",
+        description: "Đặt cọc và quản lý giao dịch",
+      },
+      {
+        name: "Contracts",
+        description: "Tạo và quản lý hợp đồng mua bán",
+      },
+      {
+        name: "Wallet",
+        description: "Quản lý ví điện tử và thanh toán",
+      },
+      {
+        name: "Transactions",
+        description: "Quản lý giao dịch và xác nhận hoàn thành",
+      },
     ],
-
     components: {
       securitySchemes: {
         bearerAuth: {
@@ -63,9 +79,17 @@ const options = {
             fullName: { type: "string", example: "Nguyễn Văn A" },
             email: { type: "string", example: "a.nguyen@example.com" },
             phone: { type: "string", example: "0912345678" },
-            role: { type: "string", enum: ["user", "admin"], example: "user" },
+            role: {
+              type: "string",
+              enum: ["user", "staff", "admin"],
+              example: "user",
+            },
             emailVerified: { type: "boolean", example: true },
-            isActive: { type: "boolean", example: true },
+            status: {
+              type: "string",
+              enum: ["ACTIVE", "SUSPENDED", "DELETED"],
+              example: "ACTIVE",
+            },
           },
         },
 
@@ -83,25 +107,26 @@ const options = {
           required: ["title", "price", "location"],
           properties: {
             _id: { type: "string" },
-            title: { type: "string", example: "Xe máy điện VinFast Klara" },
-            description: { type: "string", example: "Xe còn rất mới, đi được 3000km" },
-            price: { type: "number", example: 14500000 },
+            title: { type: "string", example: "VinFast VF8 2023" },
+            description: {
+              type: "string",
+              example: "Xe còn rất mới, đi được 3000km",
+            },
+            price: { type: "number", example: 500000000 },
             images: { type: "array", items: { type: "string" } },
             location: { type: "string", example: "Hà Nội" },
             sellerId: { type: "string" },
-            status: { type: "string", enum: ["available", "sold"], example: "available" },
+            brand: { type: "string", example: "VinFast" },
+            model: { type: "string", example: "VF8" },
+            year: { type: "number", example: 2023 },
+            color: { type: "string", example: "Đen" },
+            licensePlate: { type: "string", example: "30A-12345" },
+            status: {
+              type: "string",
+              enum: ["Published", "Sold", "Draft"],
+              example: "Published",
+            },
             createdAt: { type: "string", format: "date-time" },
-          },
-        },
-
-        Offer: {
-          type: "object",
-          properties: {
-            _id: { type: "string" },
-            listingId: { type: "string" },
-            buyerId: { type: "string" },
-            offerPrice: { type: "number", example: 14000000 },
-            status: { type: "string", enum: ["pending", "accepted", "rejected"], example: "pending" },
           },
         },
 
@@ -109,20 +134,118 @@ const options = {
           type: "object",
           properties: {
             _id: { type: "string" },
+            depositRequestId: { type: "string" },
+            buyerId: { type: "string" },
+            sellerId: { type: "string" },
+            scheduledDate: {
+              type: "string",
+              format: "date-time",
+              example: "2024-11-02T10:00:00Z",
+            },
+            status: {
+              type: "string",
+              enum: ["PENDING", "CONFIRMED", "RESCHEDULED", "COMPLETED", "CANCELLED"],
+              example: "PENDING",
+            },
+            type: {
+              type: "string",
+              enum: ["CONTRACT_SIGNING", "VEHICLE_INSPECTION", "DELIVERY"],
+              example: "CONTRACT_SIGNING",
+            },
+            location: { type: "string", example: "Văn phòng giao dịch" },
+            rescheduledCount: { type: "number", example: 0 },
+            maxReschedules: { type: "number", example: 3 },
+            buyerConfirmed: { type: "boolean", example: false },
+            sellerConfirmed: { type: "boolean", example: false },
+          },
+        },
+
+        DepositRequest: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
             listingId: { type: "string" },
             buyerId: { type: "string" },
-            date: { type: "string", format: "date-time", example: "2025-10-23T10:00:00Z" },
-            status: { type: "string", enum: ["pending", "confirmed", "cancelled"], example: "pending" },
+            sellerId: { type: "string" },
+            depositAmount: { type: "number", example: 50000000 },
+            status: {
+              type: "string",
+              enum: ["PENDING_SELLER_CONFIRMATION", "SELLER_CONFIRMED", "IN_ESCROW", "COMPLETED", "CANCELLED"],
+              example: "PENDING_SELLER_CONFIRMATION",
+            },
+            expiresAt: { type: "string", format: "date-time" },
+            createdAt: { type: "string", format: "date-time" },
+          },
+        },
+
+        Contract: {
+          type: "object",
+          properties: {
+            appointmentId: { type: "string" },
+            buyer: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                email: { type: "string" },
+                phone: { type: "string" },
+                idNumber: { type: "string" },
+                address: { type: "string" },
+              },
+            },
+            seller: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                email: { type: "string" },
+                phone: { type: "string" },
+                idNumber: { type: "string" },
+                address: { type: "string" },
+              },
+            },
+            vehicle: {
+              type: "object",
+              properties: {
+                title: { type: "string" },
+                brand: { type: "string" },
+                model: { type: "string" },
+                year: { type: "number" },
+                price: { type: "number" },
+                licensePlate: { type: "string" },
+              },
+            },
+            transaction: {
+              type: "object",
+              properties: {
+                depositAmount: { type: "number" },
+                appointmentDate: { type: "string", format: "date-time" },
+                location: { type: "string" },
+              },
+            },
+          },
+        },
+
+        Wallet: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            userId: { type: "string" },
+            balance: { type: "number", example: 1000000 },
+            frozenAmount: { type: "number", example: 500000 },
+            totalDeposited: { type: "number", example: 2000000 },
+            totalWithdrawn: { type: "number", example: 500000 },
+            currency: { type: "string", example: "VND" },
+            status: { type: "string", example: "ACTIVE" },
           },
         },
       },
     },
-
-    security: [{ bearerAuth: [] }],
+    security: [
+      {
+        bearerAuth: [],
+      },
+    ],
   },
-
-  // quét các route và controller có comment @swagger
-  apis: ["./src/routes/*.ts", "./src/controllers/*.ts"],
+  apis: ["./src/routes/*.ts", "./src/controllers/*.ts"], // Đường dẫn tới các file có comment swagger
 };
 
 export const swaggerSpec = swaggerJSDoc(options);
