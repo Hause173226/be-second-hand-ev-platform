@@ -3,9 +3,12 @@ import express from "express";
 import {
     createAppointment,
     getUserAppointments,
-    updateAppointmentStatus,
-    getAppointmentById,
-    deleteAppointment,
+    confirmAppointment,
+    rejectAppointment,
+    rescheduleAppointment,
+    cancelAppointment,
+    getAppointmentDetails,
+    getStaffAppointments,
 } from "../controllers/appointmentController";
 import { authenticate } from "../middlewares/authenticate";
 
