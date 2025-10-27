@@ -1,9 +1,39 @@
 import { Request, Response } from "express";
 import { userService } from "../services/userService";
+import { FileUploadService } from "../services/fileUploadService";
 
 export const signUp = async (req: Request, res: Response) => {
   try {
-    const user = await userService.signUp(req.body);
+    // Xử lý upload avatar nếu có
+    let avatarUrl = req.body.avatar; // URL từ form data
+
+    if (req.file) {
+      // Upload file từ local lên server
+      const uploadedFile = await FileUploadService.processUploadedFiles([
+        req.file,
+      ]);
+      avatarUrl = uploadedFile[0].url;
+    }
+
+    // Xử lý address nếu là JSON string
+    let address = req.body.address;
+    if (typeof address === "string") {
+      try {
+        address = JSON.parse(address);
+      } catch (parseErr) {
+        res.status(400).json({ error: "Địa chỉ không đúng định dạng JSON" });
+        return;
+      }
+    }
+
+    // Tạo user data với avatar và address đã parse
+    const userData = {
+      ...req.body,
+      avatar: avatarUrl,
+      address: address,
+    };
+
+    const user = await userService.signUp(userData);
     res.status(201).json(user);
   } catch (err) {
     if (err instanceof Error) {

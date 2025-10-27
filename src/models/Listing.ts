@@ -1,18 +1,18 @@
 // src/models/Listing.ts
-import { Schema, model } from "mongoose";
+import { Schema, model, Types } from "mongoose";
 import { IListing } from "../interfaces/IListing";
 
 /** ---- Sub-schemas ---- */
 const mediaSchema = new Schema(
   {
-    url: { type: String, required: true },               // Cloudinary secure_url
+    url: { type: String, required: true }, // Cloudinary secure_url
     kind: { type: String, enum: ["photo", "doc"], default: "photo" },
-    publicId: { type: String },                          // Cloudinary public_id
+    publicId: { type: String, required: true, index: true }, // ✅ bắt buộc & index
     width: { type: Number },
     height: { type: Number },
     format: { type: String },
   },
-  { _id: false }
+  { _id: false, id: false }
 );
 
 const locationSchema = new Schema(
@@ -20,18 +20,19 @@ const locationSchema = new Schema(
     city: { type: String },
     district: { type: String },
     address: { type: String },
-    // lat/lng đã bỏ theo yêu cầu
   },
-  { _id: false }
+  { _id: false, id: false }
 );
 
-/** ---- Listing schema ----
- * Lưu ý: Mongoose không hiểu union TS. Ta khai báo tất cả field cần dùng ở runtime,
- * những field chỉ áp dụng cho Car/Battery để optional.
+/**
+ * Lưu ý:
+ * - Mongoose không hiểu union TypeScript => khai báo tất cả field có thể dùng.
+ * - Các ràng buộc như "Car phải có ...", "Battery phải có ..." xử lý ở controller/UI.
+ * - Số lượng ảnh tối thiểu (>=3) được kiểm tra lúc create/submit, không ép ở schema.
  */
 const listingSchema = new Schema<IListing>(
   {
-    sellerId: { type: Schema.Types.ObjectId as any, ref: "User", required: true },
+    sellerId: { type: Types.ObjectId, ref: "User", required: true } as any,
 
     type: { type: String, enum: ["Car", "Battery"], required: true },
 
@@ -46,23 +47,24 @@ const listingSchema = new Schema<IListing>(
       default: "Used",
     },
 
-    // Battery-only (optional trong DB, ràng buộc ở controller/UI)
+    // Battery-only
     batteryCapacityKWh: { type: Number },
     chargeCycles: { type: Number },
 
-    // Car-only (theo mẫu hợp đồng, tất cả optional)
-    licensePlate: { type: String, trim: true },          // Biển số
-    engineDisplacementCc: { type: Number },              // Dung tích xi lanh
-    vehicleType: { type: String },                       // Loại xe
-    paintColor: { type: String },                        // Màu sơn
-    engineNumber: { type: String },                      // Số máy
-    chassisNumber: { type: String },                     // Số khung
-    otherFeatures: { type: String },                     // Đặc điểm khác
+    // Car-only (mẫu hợp đồng)
+    licensePlate: { type: String, trim: true },
+    engineDisplacementCc: { type: Number },
+    vehicleType: { type: String },
+    paintColor: { type: String },
+    engineNumber: { type: String },
+    chassisNumber: { type: String },
+    otherFeatures: { type: String },
 
     // Chung tiếp
     mileageKm: { type: Number },
 
-    photos: { type: [mediaSchema], required: true, default: [] },
+    // Ảnh & tài liệu
+    photos: { type: [mediaSchema], default: [] },     // ✅ KHÔNG required để edit linh hoạt
     documents: { type: [mediaSchema], default: [] },
 
     location: { type: locationSchema, default: undefined },
@@ -96,10 +98,12 @@ const listingSchema = new Schema<IListing>(
   { timestamps: true }
 );
 
-/** (tuỳ chọn) Index nhẹ cho tìm kiếm/filter phổ biến */
+/** ---- Indexes ---- */
 listingSchema.index({ status: 1, publishedAt: -1 });
 listingSchema.index({ make: 1, model: 1, year: -1 });
 listingSchema.index({ "location.city": 1, "location.district": 1 });
-listingSchema.index({ licensePlate: 1 }, { sparse: true }); // biển số có thể trùng/thiếu → sparse
+listingSchema.index({ licensePlate: 1 }, { sparse: true });
+// hữu ích khi reorder/xoá ảnh theo publicId
+listingSchema.index({ "photos.publicId": 1 }, { sparse: true });
 
 export default model<IListing>("Listing", listingSchema);

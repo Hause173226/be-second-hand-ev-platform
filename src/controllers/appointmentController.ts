@@ -7,7 +7,7 @@ import emailService from '../services/emailService';
 import walletService from '../services/walletService';
 
 // Tạo lịch hẹn sau khi người bán xác nhận cọc
-export const createAppointment = async (req: Request, res: Response) => {
+export const createAppointment = async (req: Request, res: Response): Promise<any> => {
   try {
     const { depositRequestId, scheduledDate, location, notes } = req.body;
     const userId = req.user?.id;
@@ -108,7 +108,7 @@ export const createAppointment = async (req: Request, res: Response) => {
 };
 
 // Xác nhận lịch hẹn
-export const confirmAppointment = async (req: Request, res: Response) => {
+export const confirmAppointment = async (req: Request, res: Response): Promise<any> => {
   try {
     const { appointmentId } = req.params;
     const userId = req.user?.id;
@@ -238,7 +238,7 @@ export const confirmAppointment = async (req: Request, res: Response) => {
 };
 
 // Từ chối appointment và tự động dời lịch
-export const rejectAppointment = async (req: Request, res: Response) => {
+export const rejectAppointment = async (req: Request, res: Response): Promise<any> => {
   try {
     const { appointmentId } = req.params;
     const { reason } = req.body;
@@ -372,7 +372,7 @@ export const rejectAppointment = async (req: Request, res: Response) => {
 };
 
 // Dời lịch hẹn (tối đa 1 lần)
-export const rescheduleAppointment = async (req: Request, res: Response) => {
+export const rescheduleAppointment = async (req: Request, res: Response): Promise<any> => {
     try {
         const { appointmentId } = req.params;
     const { newDate, reason } = req.body;
@@ -456,7 +456,7 @@ export const rescheduleAppointment = async (req: Request, res: Response) => {
 };
 
 // Hủy lịch hẹn
-export const cancelAppointment = async (req: Request, res: Response) => {
+export const cancelAppointment = async (req: Request, res: Response): Promise<any> => {
   try {
     const { appointmentId } = req.params;
     const { reason } = req.body;
@@ -526,7 +526,7 @@ export const cancelAppointment = async (req: Request, res: Response) => {
 };
 
 // Lấy danh sách lịch hẹn của user
-export const getUserAppointments = async (req: Request, res: Response) => {
+export const getUserAppointments = async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.id;
     if (!userId) {
@@ -580,7 +580,7 @@ export const getUserAppointments = async (req: Request, res: Response) => {
 };
 
 // Lấy chi tiết lịch hẹn
-export const getAppointmentDetails = async (req: Request, res: Response) => {
+export const getAppointmentDetails = async (req: Request, res: Response): Promise<any> => {
     try {
         const { appointmentId } = req.params;
     const userId = req.user?.id;
@@ -630,7 +630,7 @@ export const getAppointmentDetails = async (req: Request, res: Response) => {
 };
 
 // Lấy danh sách appointment cho staff
-export const getStaffAppointments = async (req: Request, res: Response) => {
+export const getStaffAppointments = async (req: Request, res: Response): Promise<any> => {
   try {
     const userId = req.user?.id;
     if (!userId) {

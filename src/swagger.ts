@@ -292,6 +292,36 @@ const options = {
             status: { type: "string", example: "ACTIVE" },
           },
         },
+
+        EscrowAccount: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            depositRequestId: { type: "string" },
+            buyerId: { type: "string" },
+            sellerId: { type: "string" },
+            listingId: { type: "string" },
+            amount: { type: "number", example: 50000000 },
+            status: {
+              type: "string",
+              enum: ["ACTIVE", "RELEASED", "REFUNDED"],
+              example: "ACTIVE",
+            },
+            releasedAt: { type: "string", format: "date-time" },
+            refundedAt: { type: "string", format: "date-time" },
+          },
+        },
+
+        ContractPhoto: {
+          type: "object",
+          properties: {
+            url: { type: "string", example: "https://res.cloudinary.com/.../contract.jpg" },
+            publicId: { type: "string" },
+            uploadedBy: { type: "string" },
+            uploadedAt: { type: "string", format: "date-time" },
+            description: { type: "string", example: "Ảnh hợp đồng đã ký" },
+          },
+        },
       },
     },
     security: [

@@ -49,10 +49,23 @@ export interface IContract extends Document {
   // Contract status
   status: 'DRAFT' | 'SIGNED' | 'COMPLETED' | 'CANCELLED';
   signedAt?: Date;
-  completedAt?: Date;
   
   // Contract file (optional)
   contractPdfUrl?: string;
+  
+  // Contract photos uploaded by staff
+  contractPhotos: [{
+    url: string;           // Cloudinary URL
+    publicId: string;      // Cloudinary public_id
+    uploadedBy: string;    // Staff ID
+    uploadedAt: Date;
+    description?: string;  // Mô tả ảnh
+  }];
+  
+  // Staff information
+  staffId?: string;       // ID của nhân viên xử lý
+  staffName?: string;     // Tên nhân viên
+  completedAt?: Date;     // Thời gian hoàn thành giao dịch
   
   createdAt: Date;
   updatedAt: Date;
@@ -138,10 +151,23 @@ const ContractSchema = new Schema({
     default: 'DRAFT'
   },
   signedAt: { type: Date },
-  completedAt: { type: Date },
   
   // Contract file (optional)
-  contractPdfUrl: { type: String }
+  contractPdfUrl: { type: String },
+  
+  // Contract photos uploaded by staff
+  contractPhotos: [{
+    url: { type: String, required: true },
+    publicId: { type: String, required: true },
+    uploadedBy: { type: String, required: true, ref: 'User' },
+    uploadedAt: { type: Date, default: Date.now },
+    description: { type: String }
+  }],
+  
+  // Staff information
+  staffId: { type: String, ref: 'User' },
+  staffName: { type: String },
+  completedAt: { type: Date }
 }, {
   timestamps: true
 });

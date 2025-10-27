@@ -232,6 +232,84 @@ export class EmailService {
       throw error;
     }
   }
+
+  // Gửi email thông báo có yêu cầu đặt cọc mới cho seller
+  async sendDepositRequestEmail(
+    sellerId: string,
+    buyerInfo: any,
+    listingInfo: any,
+    depositAmount: number
+  ) {
+    try {
+      const seller = await User.findById(sellerId);
+      if (!seller) {
+        throw new Error('Không tìm thấy thông tin người bán');
+      }
+
+      // Tạo tên sản phẩm từ make, model, year
+      const make = listingInfo?.make || '';
+      const model = listingInfo?.model || '';
+      const year = listingInfo?.year || '';
+      const productName = make && model && year 
+        ? `${make} ${model} ${year}`.trim()
+        : listingInfo?.title || 'sản phẩm';
+      
+      const buyerName = buyerInfo.fullName || buyerInfo.name || buyerInfo.email;
+      const formattedAmount = depositAmount.toLocaleString('vi-VN');
+
+      const emailContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
+          <h2 style="color: #28a745;">🚗 Có yêu cầu đặt cọc mới</h2>
+          
+          <p>Xin chào <strong>${(seller as any).fullName || (seller as any).name || seller.email}</strong>,</p>
+          
+          <p>Bạn có một yêu cầu đặt cọc mới từ người mua:</p>
+          
+          <div style="background-color: #d4edda; padding: 20px; border-radius: 5px; margin: 20px 0;">
+            <p><strong>👤 Người mua:</strong> ${buyerName}</p>
+            <p><strong>🚗 Sản phẩm:</strong> ${productName}</p>
+            <p><strong>💰 Số tiền đặt cọc:</strong> ${formattedAmount} VND</p>
+            <p><strong>📅 Thời gian:</strong> ${new Date().toLocaleDateString('vi-VN', {
+              weekday: 'long',
+              year: 'numeric',
+              month: 'long',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            })}</p>
+          </div>
+          
+          <p>Vui lòng đăng nhập vào ứng dụng để xem chi tiết và xác nhận yêu cầu đặt cọc này.</p>
+          
+          <div style="margin: 30px 0; text-align: center;">
+            <a href="${process.env.FRONTEND_URL || 'http://localhost:8081'}notifications" 
+               style="background-color: #28a745; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; display: inline-block;">
+              Xem yêu cầu đặt cọc
+            </a>
+          </div>
+          
+          <p><strong>Lưu ý:</strong> Bạn có 7 ngày để xác nhận yêu cầu đặt cọc này. Sau thời hạn, yêu cầu sẽ tự động hết hạn.</p>
+          
+          <p>Trân trọng,<br>
+          <strong>Đội ngũ hỗ trợ</strong></p>
+        </div>
+      `;
+
+      await transporter.sendMail({
+        from: process.env.EMAIL_USERNAME,
+        to: seller.email,
+        subject: 'Có yêu cầu đặt cọc mới - ' + productName,
+        html: emailContent
+      });
+
+      console.log('Email thông báo đặt cọc đã được gửi cho seller:', seller.email);
+      return true;
+
+    } catch (error) {
+      console.error('Lỗi gửi email thông báo đặt cọc:', error);
+      throw error;
+    }
+  }
 }
 
 export default new EmailService();
