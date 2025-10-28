@@ -1,8 +1,7 @@
 // src/utils/upload.ts (hoặc src/services/upload.ts)
 import multer, { FileFilterCallback } from "multer";
-import { CloudinaryStorage } from "multer-storage-cloudinary";
-import { v2 as cloudinary } from "cloudinary";
 
+<<<<<<< Updated upstream
 /** ---- Init Cloudinary (có guard) ---- */
 const {
   CLOUDINARY_CLOUD_NAME,
@@ -47,14 +46,23 @@ const storage = new CloudinaryStorage({
     };
   },
 });
+=======
+// Memory storage để lấy buffer trước khi upload lên Cloudinary
+const memoryStorage = multer.memoryStorage();
+>>>>>>> Stashed changes
 
 /** ---- Multer instance ---- */
 export const upload = multer({
+<<<<<<< Updated upstream
   storage,
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB/ảnh
     files: 20, // tuỳ nhu cầu
   },
+=======
+  storage: memoryStorage,
+  limits: { fileSize: 10 * 1024 * 1024 },
+>>>>>>> Stashed changes
   fileFilter: (_req, file, cb: FileFilterCallback) => {
     const ok =
       /^image\/(png|jpe?g|webp|gif|heic|heif)$/i.test(file.mimetype) ||

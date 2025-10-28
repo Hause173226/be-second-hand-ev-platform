@@ -159,6 +159,14 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
     const uploadedPhotos = [];
     for (const file of files) {
       try {
+        // Check file buffer
+        if (!file.buffer || file.buffer.length === 0) {
+          console.error('Empty file buffer:', file.originalname);
+          continue;
+        }
+
+        console.log(`Uploading file: ${file.originalname}, size: ${file.buffer.length} bytes`);
+
         const uploadResult = await uploadFromBuffer(
           file.buffer,
           `contract-${appointmentId}-${Date.now()}`,
@@ -175,6 +183,8 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
           uploadedAt: new Date(),
           description: description || 'Ảnh hợp đồng đã ký'
         });
+
+        console.log(`Successfully uploaded: ${file.originalname}`);
       } catch (uploadError) {
         console.error('Error uploading photo:', uploadError);
         // Tiếp tục với các ảnh khác nếu có lỗi
@@ -216,33 +226,33 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
         
         // Thông tin người mua
         buyerName: buyer.fullName || buyer.email,
-        buyerIdNumber: buyer.citizenId || '',
+        buyerIdNumber: buyer.citizenId || 'N/A',
         buyerIdIssuedDate: new Date(), // Default value
         buyerIdIssuedBy: 'Cơ quan có thẩm quyền', // Default value
-        buyerAddress: buyer.address?.fullAddress || '',
+        buyerAddress: buyer.address?.fullAddress || 'N/A',
         
         // Thông tin người bán
         sellerName: seller.fullName || seller.email,
-        sellerIdNumber: seller.citizenId || '',
+        sellerIdNumber: seller.citizenId || 'N/A',
         sellerIdIssuedDate: new Date(), // Default value
         sellerIdIssuedBy: 'Cơ quan có thẩm quyền', // Default value
-        sellerAddress: seller.address?.fullAddress || '',
+        sellerAddress: seller.address?.fullAddress || 'N/A',
         
         // Thông tin xe
-        vehicleBrand: listing.make || '',
-        vehicleModel: listing.model || '',
-        vehicleType: (listing as any).vehicleType || '',
-        vehicleColor: (listing as any).paintColor || '',
-        engineNumber: (listing as any).engineNumber || '',
-        chassisNumber: (listing as any).chassisNumber || '',
-        seatCount: 0, // Default value - không có trong model
-        manufactureYear: listing.year || 0,
-        licensePlate: (listing as any).licensePlate || '',
-        registrationNumber: '', // Default value - không có trong model
+        vehicleBrand: listing.make || 'N/A',
+        vehicleModel: listing.model || 'N/A',
+        vehicleType: (listing as any).vehicleType || 'N/A',
+        vehicleColor: (listing as any).paintColor || 'N/A',
+        engineNumber: (listing as any).engineNumber || 'N/A',
+        chassisNumber: (listing as any).chassisNumber || 'N/A',
+        seatCount: 1, // Default value - xe máy thường 1-2 chỗ
+        manufactureYear: listing.year || new Date().getFullYear(),
+        licensePlate: (listing as any).licensePlate || 'N/A',
+        registrationNumber: 'N/A', // Default value - không có trong model
         registrationIssuedDate: new Date(), // Default value
         registrationIssuedBy: 'Cơ quan có thẩm quyền', // Default value
-        registrationIssuedTo: '', // Default value
-        registrationAddress: '', // Default value
+        registrationIssuedTo: 'N/A', // Default value
+        registrationAddress: 'N/A', // Default value
         
         // Thông tin giao dịch
         purchasePrice: listing.priceListed || 0,

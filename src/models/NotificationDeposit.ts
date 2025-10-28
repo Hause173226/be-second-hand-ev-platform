@@ -3,10 +3,11 @@ import mongoose from "mongoose";
 
 export interface INotificationDeposit extends mongoose.Document {
     userId: string; // Người nhận notification
-    type: 'deposit' | 'deposit_confirmation' | 'contract' | 'transaction_complete';
+    type: 'deposit' | 'deposit_confirmation' | 'contract' | 'transaction_complete' | 'appointment_created' | 'appointment_rejected';
     title: string;
     message: string;
     depositId?: string; // ID deposit request
+    appointmentId?: string; // ID appointment
     contractId?: string; // ID contract
     transactionId?: string; // ID transaction
     metadata?: {
@@ -40,7 +41,7 @@ const NotificationDepositSchema = new mongoose.Schema<INotificationDeposit>(
         },
         type: {
             type: String,
-            enum: ['deposit', 'deposit_confirmation', 'contract', 'transaction_complete'],
+            enum: ['deposit', 'deposit_confirmation', 'contract', 'transaction_complete', 'appointment_created', 'appointment_rejected'],
             required: true,
         },
         title: {
@@ -55,7 +56,7 @@ const NotificationDepositSchema = new mongoose.Schema<INotificationDeposit>(
             type: String,
             index: true,
         },
-        contractId: {
+        appointmentId: {
             type: String,
             index: true,
         },

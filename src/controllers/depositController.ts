@@ -188,13 +188,11 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
 
       res.json({
         success: true,
-        message: 'Xác nhận cọc thành công, tiền đã chuyển vào Escrow và lịch hẹn đã được tạo',
-        appointment: {
-          id: result.appointment._id,
-          scheduledDate: result.appointment.scheduledDate,
-          location: result.appointment.location,
-          status: result.appointment.status,
-          type: result.appointment.type
+        message: 'Xác nhận cọc thành công, tiền đã chuyển vào Escrow',
+        escrow: {
+          id: result.escrow._id,
+          amount: result.escrow.amount,
+          status: result.escrow.status
         }
       });
 
@@ -395,6 +393,83 @@ export const cancelDepositRequest = async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Error cancelling deposit request:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Hủy giao dịch khi tiền đã vào escrow (Buyer muốn hủy)
+export const cancelTransactionInEscrow = async (req: Request, res: Response) => {
+  try {
+    const { depositRequestId } = req.params;
+    const buyerId = req.user?.id;
+    const { reason } = req.body;
+    
+    if (!buyerId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập'
+      });
+    }
+
+    const depositRequest = await DepositRequest.findById(depositRequestId);
+    if (!depositRequest) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy yêu cầu đặt cọc'
+      });
+    }
+
+    // Kiểm tra quyền sở hữu
+    if (depositRequest.buyerId !== buyerId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền hủy giao dịch này'
+      });
+    }
+
+    // Kiểm tra trạng thái (phải là IN_ESCROW)
+    if (depositRequest.status !== 'IN_ESCROW') {
+      return res.status(400).json({
+        success: false,
+        message: 'Chỉ có thể hủy giao dịch khi tiền đã vào escrow. Trạng thái hiện tại: ' + depositRequest.status
+      });
+    }
+
+    // Hoàn tiền từ escrow về ví buyer
+    await walletService.refundFromEscrow(depositRequestId);
+
+    // Cập nhật trạng thái
+    depositRequest.status = 'CANCELLED';
+    await depositRequest.save();
+
+    // Gửi notification cho seller
+    try {
+      const buyer = await User.findById(buyerId);
+      const listing = await Listing.findById(depositRequest.listingId);
+      
+      if (buyer && listing) {
+        // TODO: Thêm notification service cho trường hợp này
+        console.log(`Buyer ${buyer.fullName} đã hủy giao dịch ${depositRequestId}. Lý do: ${reason || 'Không nêu lý do'}`);
+      }
+    } catch (notificationError) {
+      console.error('Error sending notification:', notificationError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Đã hủy giao dịch thành công, tiền đã hoàn về ví của bạn',
+      depositRequest: {
+        id: depositRequest._id,
+        status: depositRequest.status
+      }
+    });
+
+  } catch (error) {
+    console.error('Error cancelling transaction in escrow:', error);
     res.status(500).json({
       success: false,
       message: 'Lỗi hệ thống',
