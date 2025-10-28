@@ -1,6 +1,7 @@
 import { Request, Response } from "express";
 import { profileService } from "../services/profileService";
 import { FileUploadService } from "../services/fileUploadService";
+import { uploadFromBuffer } from "../services/cloudinaryService";
 
 // ===== PROFILE MANAGEMENT =====
 
@@ -32,11 +33,16 @@ export const updatePersonalInfo = async (req: Request, res: Response) => {
     let avatarUrl = req.body.avatar; // URL từ form data
 
     if (req.file) {
-      // Upload file từ local lên server
-      const uploadedFile = await FileUploadService.processUploadedFiles([
-        req.file,
-      ]);
-      avatarUrl = uploadedFile[0].url;
+      // Upload avatar to Cloudinary instead of local storage
+      const uploadResult = await uploadFromBuffer(
+        req.file.buffer,
+        `avatar-${userId}-${Date.now()}`,
+        {
+          folder: 'secondhand-ev/profiles/avatars',
+          resource_type: 'image'
+        }
+      );
+      avatarUrl = uploadResult.secureUrl;
     }
 
     // Xử lý addresses nếu là JSON string
@@ -95,10 +101,16 @@ export const uploadAvatar = async (req: Request, res: Response) => {
     }
 
     // Upload file từ local lên server
-    const uploadedFile = await FileUploadService.processUploadedFiles([
-      req.file,
-    ]);
-    const avatarUrl = uploadedFile[0].url;
+    // Upload avatar to Cloudinary
+    const uploadResult = await uploadFromBuffer(
+      req.file.buffer,
+      `avatar-${userId}-${Date.now()}`,
+      {
+        folder: 'secondhand-ev/profiles/avatars',
+        resource_type: 'image'
+      }
+    );
+    const avatarUrl = uploadResult.secureUrl;
 
     // Cập nhật avatar trong profile
     const profile = await profileService.updatePersonalInfo(userId, {

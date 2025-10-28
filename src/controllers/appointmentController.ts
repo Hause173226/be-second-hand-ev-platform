@@ -5,6 +5,7 @@ import Listing from '../models/Listing';
 import { User } from '../models/User';
 import emailService from '../services/emailService';
 import walletService from '../services/walletService';
+import depositNotificationService from '../services/depositNotificationService';
 
 // Tạo lịch hẹn sau khi người bán xác nhận cọc
 export const createAppointment = async (req: Request, res: Response): Promise<any> => {
@@ -75,27 +76,35 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
 
         await appointment.save();
 
-    // TODO: Gửi thông báo cho cả 2 bên
-    // await notificationService.sendAppointmentNotification(
-    //   depositRequest.buyerId, 
-    //   appointment
-    // );
-    // await notificationService.sendAppointmentNotification(
-    //   depositRequest.sellerId, 
-    //   appointment
-    // );
+    // Gửi thông báo cho người mua
+    try {
+      const seller = await User.findById(depositRequest.sellerId);
+      const listing = await Listing.findById(depositRequest.listingId);
+      
+      if (seller) {
+        await depositNotificationService.sendAppointmentCreatedNotification(
+          depositRequest.buyerId,
+          appointment,
+          seller,
+          listing
+        );
+      }
+    } catch (notificationError) {
+      console.error('Error sending appointment notification:', notificationError);
+      // Không throw error để không ảnh hưởng đến flow chính
+    }
 
     res.json({
       success: true,
-      message: 'Đã tạo lịch hẹn ký hợp đồng',
+      message: 'Đã tạo lịch hẹn ký hợp đồng thành công',
       appointment: {
         id: appointment._id,
-                scheduledDate: appointment.scheduledDate,
-                location: appointment.location,
-                status: appointment.status,
+        scheduledDate: appointment.scheduledDate,
+        location: appointment.location,
+        status: appointment.status,
         type: appointment.type
       }
-            });
+    });
 
     } catch (error) {
     console.error('Error creating appointment:', error);
@@ -127,11 +136,11 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       });
     }
 
-    // Kiểm tra quyền xác nhận (chỉ người mua hoặc người bán)
-    if (appointment.buyerId !== userId && appointment.sellerId !== userId) {
+    // Kiểm tra quyền xác nhận (chỉ người mua)
+    if (appointment.buyerId !== userId) {
       return res.status(403).json({
         success: false,
-        message: 'Bạn không có quyền xác nhận lịch hẹn này'
+        message: 'Chỉ người mua mới có quyền xác nhận lịch hẹn này'
       });
     }
 
@@ -143,89 +152,51 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       });
     }
 
-    // Kiểm tra xem user đã xác nhận chưa
-    const isBuyer = appointment.buyerId === userId;
-    const isSeller = appointment.sellerId === userId;
-    
-    // Thêm trường để track ai đã xác nhận
-    if (!appointment.buyerConfirmed && !appointment.sellerConfirmed) {
-      // Lần đầu tiên có người xác nhận
-      if (isBuyer) {
-        appointment.buyerConfirmed = true;
-        appointment.buyerConfirmedAt = new Date();
-      } else if (isSeller) {
-        appointment.sellerConfirmed = true;
-        appointment.sellerConfirmedAt = new Date();
-      }
-      
-      await appointment.save();
-
-        res.json({
-        success: true,
-        message: isBuyer ? 'Bạn đã xác nhận, hãy đợi người bán xác nhận' : 'Bạn đã xác nhận, hãy đợi người mua xác nhận',
-        appointment: {
-          id: appointment._id,
-          scheduledDate: appointment.scheduledDate,
-          status: appointment.status,
-          buyerConfirmed: appointment.buyerConfirmed,
-          sellerConfirmed: appointment.sellerConfirmed
-        }
+    // Kiểm tra đã xác nhận chưa
+    if (appointment.buyerConfirmed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bạn đã xác nhận lịch hẹn này rồi'
       });
-    } else {
-      // Người thứ 2 xác nhận
-      if (isBuyer && !appointment.buyerConfirmed) {
-        appointment.buyerConfirmed = true;
-        appointment.buyerConfirmedAt = new Date();
-      } else if (isSeller && !appointment.sellerConfirmed) {
-        appointment.sellerConfirmed = true;
-        appointment.sellerConfirmedAt = new Date();
-      }
+    }
+
+    // Người mua xác nhận lịch hẹn
+    appointment.buyerConfirmed = true;
+    appointment.buyerConfirmedAt = new Date();
+    appointment.status = 'CONFIRMED';
+    appointment.confirmedAt = new Date();
+    
+    await appointment.save();
+    
+    // Gửi email thông báo cho seller
+    try {
+      const buyer = await User.findById(appointment.buyerId);
+      const seller = await User.findById(appointment.sellerId);
+      const listing = await DepositRequest.findById(appointment.depositRequestId).populate('listingId');
       
-      // Kiểm tra cả 2 đã xác nhận chưa
-      if (appointment.buyerConfirmed && appointment.sellerConfirmed) {
-        appointment.status = 'CONFIRMED';
-        appointment.confirmedAt = new Date();
-        
-        // Gửi email thông báo xác nhận
-        try {
-          await emailService.sendAppointmentConfirmedNotification(
-            appointment.buyerId,
-            appointment.sellerId,
-            appointment
-          );
-        } catch (emailError) {
-          console.error('Lỗi gửi email thông báo xác nhận:', emailError);
-        }
+      if (buyer && seller) {
+        await emailService.sendAppointmentConfirmedByBuyerNotification(
+          appointment.sellerId,
+          buyer,
+          appointment,
+          listing.listingId
+        );
       }
-      
-      await appointment.save();
-      
-      if (appointment.status === 'CONFIRMED') {
-        res.json({
-          success: true,
-          message: 'Xác nhận lịch hẹn thành công - Cả hai bên đã xác nhận',
-          appointment: {
-            id: appointment._id,
-            scheduledDate: appointment.scheduledDate,
-            status: appointment.status,
-            buyerConfirmed: appointment.buyerConfirmed,
-            sellerConfirmed: appointment.sellerConfirmed
-          }
-        });
-      } else {
-        res.json({
-          success: true,
-          message: isBuyer ? 'Bạn đã xác nhận, hãy đợi người bán xác nhận' : 'Bạn đã xác nhận, hãy đợi người mua xác nhận',
-          appointment: {
-            id: appointment._id,
-                scheduledDate: appointment.scheduledDate,
-                status: appointment.status,
-            buyerConfirmed: appointment.buyerConfirmed,
-            sellerConfirmed: appointment.sellerConfirmed
-          }
-            });
+    } catch (emailError) {
+      console.error('Lỗi gửi email thông báo xác nhận:', emailError);
+    }
+
+    res.json({
+      success: true,
+      message: 'Xác nhận lịch hẹn thành công',
+      appointment: {
+        id: appointment._id,
+        scheduledDate: appointment.scheduledDate,
+        status: appointment.status,
+        buyerConfirmed: appointment.buyerConfirmed,
+        confirmedAt: appointment.confirmedAt
       }
-        }
+    });
 
     } catch (error) {
     console.error('Error confirming appointment:', error);
@@ -259,105 +230,57 @@ export const rejectAppointment = async (req: Request, res: Response): Promise<an
       });
     }
 
-    // Kiểm tra quyền từ chối (chỉ người mua hoặc người bán)
-    if (appointment.buyerId !== userId && appointment.sellerId !== userId) {
+    // Kiểm tra quyền từ chối (chỉ người mua)
+    if (appointment.buyerId !== userId) {
       return res.status(403).json({
         success: false,
-        message: 'Bạn không có quyền từ chối lịch hẹn này'
+        message: 'Chỉ người mua mới có quyền từ chối lịch hẹn này'
       });
     }
 
     // Kiểm tra trạng thái
-    if (appointment.status === 'COMPLETED' || appointment.status === 'CANCELLED') {
+    if (appointment.status === 'COMPLETED' || appointment.status === 'CANCELLED' || appointment.status === 'REJECTED') {
       return res.status(400).json({
         success: false,
-        message: 'Không thể từ chối lịch hẹn đã hoàn thành hoặc đã hủy'
+        message: 'Không thể từ chối lịch hẹn đã hoàn thành hoặc đã hủy hoặc đã bị từ chối'
       });
     }
 
-    // Kiểm tra số lần dời lịch
-    if (appointment.rescheduledCount >= appointment.maxReschedules) {
-      // Tự động hủy appointment và hoàn tiền
-      appointment.status = 'CANCELLED';
-      appointment.cancelledAt = new Date();
-      appointment.notes = 'Hủy do hết số lần dời lịch cho phép';
-      
-      await appointment.save();
-      
-      // Hoàn tiền từ Escrow về ví người mua
-      try {
-        await walletService.refundFromEscrow(appointment.depositRequestId);
-      } catch (refundError) {
-        console.error('Lỗi hoàn tiền:', refundError);
-        // Vẫn tiếp tục xử lý dù có lỗi hoàn tiền
-      }
-      
-      // Gửi email thông báo hủy
-      try {
-        await emailService.sendAppointmentCancelledNotification(
-          appointment.buyerId,
-          appointment.sellerId,
-          appointment,
-          'Hủy do hết số lần dời lịch cho phép'
-        );
-      } catch (emailError) {
-        console.error('Lỗi gửi email thông báo hủy:', emailError);
-      }
-      
-      return res.json({
-        success: true,
-        message: 'Đã hết số lần dời lịch. Appointment đã bị hủy và tiền đã hoàn về ví người mua.',
-        appointment: {
-          id: appointment._id,
-          status: appointment.status,
-          cancelledAt: appointment.cancelledAt,
-          rescheduledCount: appointment.rescheduledCount
-        }
-      });
-    }
-
-    // Tự động dời lịch 1 tuần
-    const newScheduledDate = new Date();
-    newScheduledDate.setDate(newScheduledDate.getDate() + 7);
-
-    // Reset trạng thái xác nhận
-    appointment.scheduledDate = newScheduledDate;
-    appointment.status = 'RESCHEDULED';
-    appointment.rescheduledCount += 1;
-    appointment.buyerConfirmed = false;
-    appointment.sellerConfirmed = false;
-    appointment.buyerConfirmedAt = undefined;
-    appointment.sellerConfirmedAt = undefined;
-    appointment.confirmedAt = undefined;
+    // Đánh dấu appointment đã bị reject
+    appointment.status = 'REJECTED' as any;
+    appointment.rejectedAt = new Date();
     appointment.notes = reason || appointment.notes;
 
     await appointment.save();
 
-    // Gửi email thông báo dời lịch
+    // Gửi notification + email thông báo cho seller rằng buyer đã reject và lý do
     try {
-      const rejecterName = appointment.buyerId === userId ? 'người mua' : 'người bán';
-      const reasonText = `Vì lý do ${reason || 'cá nhân'} từ phía ${rejecterName}, hệ thống quyết định dời lại lịch hẹn 1 tuần.`;
+      const buyer = await User.findById(appointment.buyerId);
+      const depositRequest = await DepositRequest.findById(appointment.depositRequestId);
+      const listing = await Listing.findById(depositRequest?.listingId);
       
-      await emailService.sendRescheduleNotification(
-        appointment.buyerId,
-        appointment.sellerId,
-        appointment,
-        reasonText
-      );
-    } catch (emailError) {
-      console.error('Lỗi gửi email thông báo dời lịch:', emailError);
+      if (buyer && depositRequest && listing) {
+        // Gửi notification (database + websocket + email)
+        await depositNotificationService.sendAppointmentRejectedNotification(
+          appointment.sellerId,
+          buyer,
+          appointment,
+          reason || 'Không có lý do cụ thể',
+          listing
+        );
+      }
+    } catch (notificationError) {
+      console.error('Lỗi gửi thông báo reject:', notificationError);
     }
 
         res.json({
       success: true,
-      message: 'Đã từ chối lịch hẹn. Hệ thống đã tự động dời lịch 1 tuần và gửi thông báo cho cả hai bên.',
+      message: 'Đã từ chối lịch hẹn. Người bán sẽ nhận được thông báo với lý do và có thể tạo lịch hẹn mới.',
       appointment: {
         id: appointment._id,
-        scheduledDate: appointment.scheduledDate,
         status: appointment.status,
-        rescheduledCount: appointment.rescheduledCount,
-        buyerConfirmed: appointment.buyerConfirmed,
-        sellerConfirmed: appointment.sellerConfirmed
+        rejectedAt: appointment.rejectedAt,
+        notes: appointment.notes
       }
     });
 
@@ -654,11 +577,11 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
     // Filter appointments
     const filter: any = {};
     
-    // Chỉ lấy appointment đã xác nhận hoặc đang chờ
+    // Lấy appointment theo filter hoặc default (CONFIRMED, PENDING, RESCHEDULED, COMPLETED)
     if (status) {
       filter.status = status;
     } else {
-      filter.status = { $in: ['CONFIRMED', 'PENDING', 'RESCHEDULED'] };
+      filter.status = { $in: ['CONFIRMED', 'PENDING', 'RESCHEDULED', 'COMPLETED'] };
     }
 
     // Search theo tên người mua/bán hoặc ID
@@ -673,13 +596,13 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
 
     const appointments = await Appointment.find(filter)
       .populate('depositRequestId', 'depositAmount status listingId')
-      .populate('buyerId', 'name email phone')
-      .populate('sellerId', 'name email phone')
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone')
       .populate({
         path: 'depositRequestId',
         populate: {
           path: 'listingId',
-          select: 'title brand model year price'
+          select: 'title brand make model year price '
         }
       })
       .sort({ scheduledDate: 1 }) // Sắp xếp theo ngày hẹn gần nhất
@@ -702,7 +625,7 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       // Thông tin người mua
       buyer: {
         id: appointment.buyerId._id,
-        name: appointment.buyerId.name,
+        name: appointment.buyerId.fullName,
         email: appointment.buyerId.email,
         phone: appointment.buyerId.phone
       },
@@ -710,7 +633,7 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       // Thông tin người bán
       seller: {
         id: appointment.sellerId._id,
-        name: appointment.sellerId.name,
+        name: appointment.sellerId.fullName,
         email: appointment.sellerId.email,
         phone: appointment.sellerId.phone
       },
@@ -719,6 +642,7 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       vehicle: {
         title: (appointment.depositRequestId as any).listingId?.title || 'N/A',
         brand: (appointment.depositRequestId as any).listingId?.brand || 'N/A',
+        make: (appointment.depositRequestId as any).listingId?.make || 'N/A',
         model: (appointment.depositRequestId as any).listingId?.model || 'N/A',
         year: (appointment.depositRequestId as any).listingId?.year || 'N/A',
         price: (appointment.depositRequestId as any).listingId?.price || 0
@@ -752,7 +676,7 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
         limit: Number(limit)
       },
       filters: {
-        status: status || 'CONFIRMED,PENDING,RESCHEDULED',
+        status: status || 'CONFIRMED,PENDING,RESCHEDULED,COMPLETED',
         search: search || ''
       }
     });

@@ -5,7 +5,7 @@ export interface IAppointment extends Document {
   buyerId: string;
   sellerId: string;
   scheduledDate: Date;
-  status: 'PENDING' | 'CONFIRMED' | 'RESCHEDULED' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING' | 'CONFIRMED' | 'RESCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
   type: 'CONTRACT_SIGNING' | 'VEHICLE_INSPECTION' | 'DELIVERY';
   location?: string;
   notes?: string;
@@ -18,6 +18,7 @@ export interface IAppointment extends Document {
   confirmedAt?: Date;
   completedAt?: Date;
   cancelledAt?: Date;
+  rejectedAt?: Date;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -44,7 +45,7 @@ const AppointmentSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED'],
+    enum: ['PENDING', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED', 'CANCELLED', 'REJECTED'],
     default: 'PENDING'
   },
   type: {
@@ -84,6 +85,9 @@ const AppointmentSchema = new Schema({
     type: Date
   },
   completedAt: {
+    type: Date
+  },
+  rejectedAt: {
     type: Date
   },
   cancelledAt: {
