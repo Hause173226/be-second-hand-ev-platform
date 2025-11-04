@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { userService } from "../services/userService";
-import { FileUploadService } from "../services/fileUploadService";
 import { uploadFromBuffer } from "../services/cloudinaryService";
 
 export const signUp = async (req: Request, res: Response) => {
@@ -14,8 +13,8 @@ export const signUp = async (req: Request, res: Response) => {
         req.file.buffer,
         `avatar-signup-${Date.now()}`,
         {
-          folder: 'secondhand-ev/profiles/avatars',
-          resource_type: 'image'
+          folder: "secondhand-ev/profiles/avatars",
+          resource_type: "image",
         }
       );
       avatarUrl = uploadResult.secureUrl;

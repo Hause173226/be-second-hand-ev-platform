@@ -1,4 +1,5 @@
 import express from "express";
+import multer from "multer";
 import {
   getProfile,
   updatePersonalInfo,
@@ -6,7 +7,16 @@ import {
   uploadAvatar,
 } from "../controllers/profileController";
 import { authenticate } from "../middlewares/authenticate";
-import { upload } from "../services/fileUploadService";
+// Dùng memory storage để có Buffer cho Cloudinary
+const memoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ok = /^image\/(png|jpe?g|webp|gif|heic)$/i.test(file.mimetype);
+    if (ok) cb(null, true);
+    else cb(new Error("Invalid image type"));
+  },
+});
 
 const profileRoutes = express.Router();
 
@@ -188,7 +198,7 @@ profileRoutes.put("/", authenticate, updatePersonalInfo);
 profileRoutes.put(
   "/upload-avatar",
   authenticate,
-  upload.single("avatar"),
+  memoryUpload.single("avatar"),
   uploadAvatar
 );
 profileRoutes.get("/stats", authenticate, getProfileStats);
