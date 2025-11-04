@@ -1,6 +1,5 @@
 import { Request, Response } from "express";
 import { profileService } from "../services/profileService";
-import { FileUploadService } from "../services/fileUploadService";
 import { uploadFromBuffer } from "../services/cloudinaryService";
 
 // ===== PROFILE MANAGEMENT =====
@@ -38,8 +37,8 @@ export const updatePersonalInfo = async (req: Request, res: Response) => {
         req.file.buffer,
         `avatar-${userId}-${Date.now()}`,
         {
-          folder: 'secondhand-ev/profiles/avatars',
-          resource_type: 'image'
+          folder: "secondhand-ev/profiles/avatars",
+          resource_type: "image",
         }
       );
       avatarUrl = uploadResult.secureUrl;
@@ -106,8 +105,8 @@ export const uploadAvatar = async (req: Request, res: Response) => {
       req.file.buffer,
       `avatar-${userId}-${Date.now()}`,
       {
-        folder: 'secondhand-ev/profiles/avatars',
-        resource_type: 'image'
+        folder: "secondhand-ev/profiles/avatars",
+        resource_type: "image",
       }
     );
     const avatarUrl = uploadResult.secureUrl;
