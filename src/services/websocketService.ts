@@ -84,7 +84,7 @@ export class WebSocketService {
 
                 // Send online status update to all users
                 this.sendOnlineStatusUpdate(socket.userId, true);
-                
+
                 // Broadcast to all chats this user is part of
                 this.broadcastUserOnlineStatusToChats(socket.userId, true);
             }
@@ -193,10 +193,10 @@ export class WebSocketService {
 
                     // Tạo notification cho người nhận (nếu không online trong chat)
                     try {
-                        const receiverId = chat.buyerId.toString() === socket.userId 
-                            ? chat.sellerId.toString() 
+                        const receiverId = chat.buyerId.toString() === socket.userId
+                            ? chat.sellerId.toString()
                             : chat.buyerId.toString();
-                        
+
                         const { default: notificationMessageService } = await import('./notificationMessageService');
                         await notificationMessageService.createMessageNotification({
                             userId: receiverId,
@@ -214,7 +214,7 @@ export class WebSocketService {
                     // Broadcast chat list update to both users
                     const buyerIdStr = chat.buyerId.toString();
                     const sellerIdStr = chat.sellerId.toString();
-                    
+
                     [buyerIdStr, sellerIdStr].forEach(userId => {
                         this.io.to(`user_${userId}`).emit('chat_list_update', {
                             chatId: data.chatId,
@@ -325,7 +325,7 @@ export class WebSocketService {
                     // Broadcast chat list update to both users
                     const buyerIdStr = chat.buyerId.toString();
                     const sellerIdStr = chat.sellerId.toString();
-                    
+
                     [buyerIdStr, sellerIdStr].forEach(userId => {
                         this.io.to(`user_${userId}`).emit('chat_list_update', {
                             chatId: data.chatId,
@@ -420,6 +420,57 @@ export class WebSocketService {
                     location: data.location,
                     senderId: socket.userId,
                 });
+            });
+
+            // Đấu giá: Tham gia 1 phòng auction
+            socket.on('join_auction', (auctionId: string) => {
+                socket.join(`auction_${auctionId}`);
+                // Optionally: gửi thông báo user tham gia
+            });
+
+            socket.on('leave_auction', (auctionId: string) => {
+                socket.leave(`auction_${auctionId}`);
+            });
+
+            // Khi user submit bid mới
+            socket.on('bid_auction', async (data: { auctionId: string; bid: number }) => {
+                const userId = socket.userId;
+                const { auctionId, bid } = data;
+                try {
+                    const Auction = (await import('../models/Auction')).default;
+                    const auction = await Auction.findById(auctionId);
+                    if (!auction) {
+                        socket.emit('auction_bid_result', { error: 'Không tồn tại phiên' });
+                        return;
+                    }
+                    if (auction.status !== 'active') {
+                        socket.emit('auction_bid_result', { error: 'Phiên đã kết thúc hoặc đóng' });
+                        return;
+                    }
+                    const now = new Date();
+                    if (now < auction.startAt || now > auction.endAt) {
+                        socket.emit('auction_bid_result', { error: 'Ngoài thời gian phiên đấu giá' });
+                        return;
+                    }
+                    const highestBid = auction.bids.length > 0 ? Math.max(...auction.bids.map(b => b.price)) : auction.startingPrice;
+                    if (bid <= highestBid) {
+                        socket.emit('auction_bid_result', { error: `Giá phải lớn hơn hiện tại (${highestBid})` });
+                        return;
+                    }
+                    // Push bid mới
+                    auction.bids.push({ userId, price: bid, createdAt: now });
+                    await auction.save();
+                    // Broadcast cho tất cả user đã join auction
+                    this.io.to(`auction_${auctionId}`).emit('auction_bid_update', {
+                        auctionId,
+                        bid: { userId, price: bid, createdAt: now },
+                        highest: bid,
+                        bidsCount: auction.bids.length
+                    });
+                    socket.emit('auction_bid_result', { success: true });
+                } catch (err) {
+                    socket.emit('auction_bid_result', { error: err instanceof Error ? err.message : err });
+                }
             });
 
             // Handle disconnection
