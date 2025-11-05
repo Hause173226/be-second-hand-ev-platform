@@ -1,6 +1,6 @@
 import { Request, Response } from "express";
 import { userService } from "../services/userService";
-import { FileUploadService } from "../services/fileUploadService";
+import { uploadFromBuffer } from "../services/cloudinaryService";
 
 export const signUp = async (req: Request, res: Response) => {
   try {
@@ -8,11 +8,16 @@ export const signUp = async (req: Request, res: Response) => {
     let avatarUrl = req.body.avatar; // URL từ form data
 
     if (req.file) {
-      // Upload file từ local lên server
-      const uploadedFile = await FileUploadService.processUploadedFiles([
-        req.file,
-      ]);
-      avatarUrl = uploadedFile[0].url;
+      // Upload avatar to Cloudinary instead of local storage
+      const uploadResult = await uploadFromBuffer(
+        req.file.buffer,
+        `avatar-signup-${Date.now()}`,
+        {
+          folder: "secondhand-ev/profiles/avatars",
+          resource_type: "image",
+        }
+      );
+      avatarUrl = uploadResult.secureUrl;
     }
 
     // Xử lý address nếu là JSON string

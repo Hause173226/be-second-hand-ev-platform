@@ -126,23 +126,13 @@ const walletService = {
 
     await escrow.save();
 
+    // Cập nhật trạng thái deposit request
+    depositRequest.status = 'IN_ESCROW';
+    await depositRequest.save();
+
     console.log(`✅ Transferred ${depositRequest.depositAmount} VND to escrow for deposit ${depositRequestId}`);
 
-    // Tạo appointment
-    const Appointment = (await import('../models/Appointment')).default;
-    const appointment = new Appointment({
-      depositRequestId,
-      buyerId: depositRequest.buyerId,
-      sellerId: depositRequest.sellerId,
-      scheduledDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // 7 days from now
-      location: "Văn phòng công ty",
-      status: "PENDING",
-      type: "CONTRACT_SIGNING"
-    });
-
-    await appointment.save();
-
-    return { escrow, appointment };
+    return { escrow };
   },
 
   // Refund from escrow - hoàn tiền từ escrow về ví

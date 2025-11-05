@@ -4,7 +4,8 @@ import {
   sellerConfirmDeposit,
   getBuyerDepositRequests,
   getSellerDepositRequests,
-  cancelDepositRequest
+  cancelDepositRequest,
+  cancelTransactionInEscrow
 } from '../controllers/depositController';
 import { authenticate } from '../middlewares/authenticate';
 
@@ -138,5 +139,33 @@ router.get('/seller', authenticate, getSellerDepositRequests);
  *         description: Hủy đặt cọc thành công
  */
 router.delete('/:depositRequestId', authenticate, cancelDepositRequest);
+
+/**
+ * @swagger
+ * /api/deposits/{depositRequestId}/cancel-transaction:
+ *   post:
+ *     summary: Hủy giao dịch khi tiền đã vào escrow (Buyer)
+ *     tags: [Deposits]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: depositRequestId
+ *         required: true
+ *         schema:
+ *           type: string
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               reason:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Hủy giao dịch thành công, tiền đã hoàn về ví
+ */
+router.post('/:depositRequestId/cancel-transaction', authenticate, cancelTransactionInEscrow);
 
 export default router;

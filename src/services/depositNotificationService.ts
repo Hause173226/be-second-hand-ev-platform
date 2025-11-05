@@ -227,6 +227,150 @@ export class DepositNotificationService {
     }
 
     /**
+     * Gửi notification khi appointment bị reject bởi buyer
+     */
+    public async sendAppointmentRejectedNotification(
+        sellerId: string,
+        buyerInfo: any,
+        appointment: any,
+        reason: string,
+        listingInfo?: any
+    ) {
+        try {
+            // Tạo notification trong database
+            const make = listingInfo?.make || '';
+            const model = listingInfo?.model || '';
+            const year = listingInfo?.year || '';
+            
+            // Tạo tên sản phẩm từ make, model, year
+            const productName = make && model && year 
+                ? `${make} ${model} ${year}`.trim()
+                : listingInfo?.title || 'sản phẩm';
+            
+            const notification = new NotificationDeposit({
+                userId: sellerId,
+                type: 'appointment_rejected',
+                title: 'Người mua đã từ chối lịch hẹn',
+                message: `${buyerInfo.fullName || 'Người mua'} đã từ chối lịch hẹn cho ${productName}${reason ? `. Lý do: ${reason}` : ''}`,
+                appointmentId: String(appointment._id),
+                metadata: {
+                    listingId: listingInfo?._id,
+                    amount: listingInfo?.price,
+                    status: appointment.status,
+                    listingTitle: listingInfo?.title,
+                    make: listingInfo?.make,
+                    model: listingInfo?.model,
+                    year: listingInfo?.year,
+                    buyerId: buyerInfo._id,
+                    buyerName: buyerInfo.fullName,
+                    sellerId: sellerId,
+                    sellerName: (await User.findById(sellerId))?.fullName,
+                    reason: reason,
+                    scheduledDate: appointment.scheduledDate,
+                    depositRequestId: appointment.depositRequestId
+                },
+                isRead: false
+            });
+
+            await notification.save();
+
+            // Gửi WebSocket notification (nếu có)
+            const wsService = this.getWsService();
+            if (wsService) {
+                wsService.sendToUser(sellerId, 'appointment_rejected', {
+                    notificationId: notification._id,
+                    type: 'appointment_rejected',
+                    title: notification.title,
+                    message: notification.message,
+                    appointmentId: appointment._id,
+                    metadata: notification.metadata,
+                    timestamp: notification.createdAt
+                });
+            }
+
+            // Gửi email (đã có method sẵn trong emailService)
+            await emailService.sendAppointmentRejectedByBuyerNotification(
+                sellerId,
+                buyerInfo,
+                appointment,
+                reason,
+                listingInfo
+            );
+
+        } catch (error) {
+            console.error('Error sending appointment rejection notification:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Gửi notification khi tạo lịch hẹn
+     */
+    public async sendAppointmentCreatedNotification(
+        receiverId: string,
+        appointment: any,
+        otherPartyInfo: any,
+        listingInfo?: any
+    ) {
+        try {
+            // Tạo message với thông tin sản phẩm
+            const make = listingInfo?.make || '';
+            const model = listingInfo?.model || '';
+            const year = listingInfo?.year || '';
+            
+            // Tạo tên sản phẩm từ make, model, year
+            const productName = make && model && year 
+                ? `${make} ${model} ${year}`.trim()
+                : listingInfo?.title || 'sản phẩm';
+            
+            const notification = new NotificationDeposit({
+                userId: receiverId,
+                type: 'appointment_created',
+                title: 'Lịch hẹn ký hợp đồng đã được tạo',
+                message: `Lịch hẹn ký hợp đồng cho ${productName} đã được tạo vào ${appointment.scheduledDate.toLocaleDateString('vi-VN')} tại ${appointment.location}`,
+                appointmentId: appointment._id?.toString(),
+                metadata: {
+                    appointmentId: appointment._id,
+                    scheduledDate: appointment.scheduledDate,
+                    location: appointment.location,
+                    status: appointment.status,
+                    type: appointment.type,
+                    otherPartyId: otherPartyInfo._id,
+                    otherPartyName: otherPartyInfo.fullName || otherPartyInfo.email,
+                    listingTitle: listingInfo?.title,
+                    listingBrand: listingInfo?.make,
+                    listingModel: listingInfo?.model,
+                    listingYear: listingInfo?.year,
+                },
+                isRead: false,
+            });
+
+            await notification.save();
+
+            // Gửi qua WebSocket
+            const wsService = this.getWsService();
+            if (wsService) {
+                wsService.sendToUser(receiverId, 'appointment_created', {
+                    notificationId: notification._id,
+                    type: 'appointment_created',
+                    title: notification.title,
+                    message: notification.message,
+                    appointmentId: appointment._id,
+                    metadata: notification.metadata,
+                    timestamp: notification.createdAt,
+                });
+            }
+
+            console.log('Appointment created notification sent to user:', receiverId);
+
+            return notification;
+        } catch (error) {
+            console.error('Error sending appointment created notification:', error);
+            throw error;
+        }
+    }
+
+    /**
      * Gửi notification hoàn thành giao dịch
      */
     public async sendTransactionCompleteNotification(
