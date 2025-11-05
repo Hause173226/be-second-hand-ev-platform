@@ -20,6 +20,8 @@ import walletRoutes from "./routes/walletRoutes";
 import paymentRoutes from "./routes/paymentRoutes";
 import notificationDepositRoutes from "./routes/notificationDepositRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import auctionRoutes from "./routes/auctionRoutes";
+import auctionDepositRoutes from "./routes/auctionDepositRoutes";
 
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
@@ -66,6 +68,8 @@ app.use("/api/wallet", walletRoutes);
 app.use("/api/payment", paymentRoutes);
 app.use("/api/notifications", notificationDepositRoutes);
 app.use("/api/notification-messages", notificationRoutes);
+app.use("/api/auctions", auctionRoutes);
+app.use("/api/auctions", auctionDepositRoutes);
 
 // 📘 Swagger Docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
