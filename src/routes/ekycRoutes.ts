@@ -78,7 +78,11 @@ export default router;
  *               image:
  *                 type: string
  *                 format: binary
- *                 description: Ảnh mặt trước CCCD/CMND
+ *                 description: Ảnh mặt trước CCCD/CMND (bắt buộc)
+ *               image_back:
+ *                 type: string
+ *                 format: binary
+ *                 description: Ảnh mặt sau CCCD/CMND (tùy chọn)
  *     responses:
  *       200:
  *         description: Trả về JSON OCR từ FPT
@@ -89,7 +93,10 @@ export default router;
 router.post(
   "/ocr",
   authenticate,
-  upload.fields([{ name: "image", maxCount: 1 }]),
+  upload.fields([
+    { name: "image", maxCount: 1 },
+    { name: "image_back", maxCount: 1 },
+  ]),
   ocrId
 );
 
