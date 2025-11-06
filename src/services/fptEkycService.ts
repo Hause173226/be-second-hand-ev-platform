@@ -19,15 +19,11 @@ export type EkycResult = {
   raw?: any;
 };
 
-function assertConfig({
-  requireSecret = false,
-}: { requireSecret?: boolean } = {}) {
-  const { baseUrl, apiKey, apiSecret } = getEkycConfig();
-  if (!baseUrl || !apiKey || (requireSecret && !apiSecret)) {
+function assertConfig() {
+  const { baseUrl, apiKey } = getEkycConfig();
+  if (!baseUrl || !apiKey) {
     throw new Error(
-      "Missing FPT eKYC configuration (require: BASE_URL, API_KEY" +
-        (requireSecret ? ", API_SECRET" : "") +
-        ")"
+      "Missing FPT eKYC configuration (require: BASE_URL, API_KEY)"
     );
   }
 }
@@ -144,15 +140,5 @@ export const fptEkycService = {
       raw: json,
     };
     return result;
-  },
-
-  // Xác thực webhook nếu sử dụng callback từ FPT
-  verifyWebhookSignature(payload: string, signature: string): boolean {
-    const { webhookSecret } = getEkycConfig();
-    if (!webhookSecret) return false;
-    const hmac = crypto.createHmac("sha256", webhookSecret);
-    hmac.update(payload);
-    const expected = hmac.digest("hex");
-    return expected === signature;
   },
 };

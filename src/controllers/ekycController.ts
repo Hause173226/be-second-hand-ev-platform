@@ -24,12 +24,35 @@ export const verifyWithFpt = async (req: Request, res: Response) => {
       return;
     }
 
-    const result = await fptEkycService.verify({
-      idFrontPath: idFront.path,
-      idBackPath: idBack?.path,
-      facePath: face?.path,
-      userId: authUserId,
-    });
+    // 1) OCR mặt trước và (nếu có) mặt sau
+    const ocrFront = await fptEkycService.ocrId(idFront.path);
+    let ocrBack: any | undefined;
+    if (idBack) {
+      ocrBack = await fptEkycService.ocrId(idBack.path);
+    }
+
+    // 2) FaceMatch giữa ảnh giấy tờ (dùng luôn id_front) và ảnh selfie nếu có
+    let faceMatchResult: any | undefined;
+    if (face) {
+      faceMatchResult = await fptEkycService.checkFaceMatch(
+        idFront.path,
+        face.path
+      );
+    }
+
+    // 3) Quyết định trạng thái dựa trên điểm FaceMatch
+    const score = Number(
+      faceMatchResult?.score ??
+        faceMatchResult?.similarity ??
+        faceMatchResult?.data?.score ??
+        faceMatchResult?.data?.similarity ??
+        NaN
+    );
+    const PASS_THRESHOLD = 0.6;
+    const isVerified =
+      typeof score === "number" &&
+      !Number.isNaN(score) &&
+      score >= PASS_THRESHOLD;
 
     const user = await User.findById(authUserId);
     if (!user) {
@@ -37,25 +60,28 @@ export const verifyWithFpt = async (req: Request, res: Response) => {
       return;
     }
 
-    (user as any).ekycStatus =
-      typeof result.faceMatchScore === "number" && result.faceMatchScore >= 0.6
-        ? "verified"
-        : "pending";
+    (user as any).ekycStatus = isVerified ? "verified" : "pending";
     (user as any).ekycProvider = "FPT";
-    (user as any).ekycRefId = result.refId;
-    (user as any).ekycResult = result.raw;
+    (user as any).ekycRefId = (ocrFront?.ref_id ||
+      ocrFront?.reference_id ||
+      undefined) as any;
+    (user as any).ekycResult = {
+      ocr: { front: ocrFront, back: ocrBack },
+      faceMatch: faceMatchResult,
+      score,
+    };
     if ((user as any).ekycStatus === "verified") {
       (user as any).verifiedAt = new Date();
     }
     await user.save();
 
     res.status(200).json({
-      message: "Đã gửi xác minh eKYC",
+      message: "Xác minh eKYC (tổng hợp) thành công",
       status: (user as any).ekycStatus,
-      refId: result.refId,
-      faceMatchScore: result.faceMatchScore,
-      livenessScore: result.livenessScore,
-      ocr: result.ocrData,
+      refId: (user as any).ekycRefId,
+      score,
+      ocr: { front: ocrFront, back: ocrBack },
+      faceMatch: faceMatchResult,
     });
   } catch (err) {
     res
@@ -72,16 +98,23 @@ export const ocrId = async (req: Request, res: Response) => {
       return;
     }
 
-    const file = (req as any).files?.["image"]?.[0] as
-      | Express.Multer.File
+    const files = req.files as
+      | Record<string, Express.Multer.File[]>
       | undefined;
-    if (!file) {
-      res.status(400).json({ error: "Thiếu file 'image'" });
+    const imageFront = files?.["image"]?.[0];
+    const imageBack = files?.["image_back"]?.[0];
+    if (!imageFront) {
+      res.status(400).json({ error: "Thiếu file 'image' (mặt trước)" });
       return;
     }
 
-    const result = await fptEkycService.ocrId(file.path);
-    res.status(200).json({ message: "OCR thành công", result });
+    const front = await fptEkycService.ocrId(imageFront.path);
+    let back: any | undefined;
+    if (imageBack) {
+      back = await fptEkycService.ocrId(imageBack.path);
+    }
+
+    res.status(200).json({ message: "OCR thành công", front, back });
   } catch (err) {
     res
       .status(400)
