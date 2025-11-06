@@ -255,14 +255,27 @@ const userRoutes = express.Router();
  *             properties:
  *               email:
  *                 type: string
+ *                 example: "user@example.com"
  *               password:
  *                 type: string
+ *                 example: "password123"
  *             required:
  *               - email
  *               - password
  *     responses:
  *       200:
  *         description: Đăng nhập thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 user:
+ *                   $ref: '#/components/schemas/User'
+ *                 accessToken:
+ *                   type: string
+ *                 refreshToken:
+ *                   type: string
  *       400:
  *         description: Email hoặc mật khẩu không đúng
  *       500:
@@ -453,8 +466,10 @@ const userRoutes = express.Router();
  * @swagger
  * /api/users/{id}:
  *   put:
- *     summary: Cập nhật thông tin user theo ID
+ *     summary: Cập nhật status của user (Chỉ cập nhật status)
  *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
@@ -469,26 +484,18 @@ const userRoutes = express.Router();
  *           schema:
  *             type: object
  *             properties:
- *               fullName:
+ *               status:
  *                 type: string
- *               phone:
- *                 type: string
- *               email:
- *                 type: string
- *               citizenId:
- *                 type: string
- *               dateOfBirth:
- *                 type: string
- *                 format: date
- *               gender:
- *                 type: string
- *               address:
- *                 type: string
+ *                 enum: [ACTIVE, SUSPENDED, DELETED]
+ *                 example: "ACTIVE"
+ *                 description: Trạng thái của user
+ *             required:
+ *               - status
  *     responses:
  *       200:
- *         description: User đã được cập nhật thành công
+ *         description: Status đã được cập nhật thành công
  *       400:
- *         description: Dữ liệu không hợp lệ
+ *         description: Status không hợp lệ hoặc thiếu status
  *       404:
  *         description: User không tìm thấy
  *       500:
