@@ -27,6 +27,10 @@ const options = {
         description: "Quản lý tài khoản người dùng (Admin & User)",
       },
       {
+        name: "eKYC",
+        description: "Xác minh danh tính: OCR giấy tờ & FaceMatch",
+      },
+      {
         name: "Profile",
         description: "Cập nhật và lấy thông tin hồ sơ người dùng",
       },
@@ -199,7 +203,13 @@ const options = {
             },
             status: {
               type: "string",
-              enum: ["PENDING", "CONFIRMED", "RESCHEDULED", "COMPLETED", "CANCELLED"],
+              enum: [
+                "PENDING",
+                "CONFIRMED",
+                "RESCHEDULED",
+                "COMPLETED",
+                "CANCELLED",
+              ],
               example: "PENDING",
             },
             type: {
@@ -225,7 +235,13 @@ const options = {
             depositAmount: { type: "number", example: 50000000 },
             status: {
               type: "string",
-              enum: ["PENDING_SELLER_CONFIRMATION", "SELLER_CONFIRMED", "IN_ESCROW", "COMPLETED", "CANCELLED"],
+              enum: [
+                "PENDING_SELLER_CONFIRMATION",
+                "SELLER_CONFIRMED",
+                "IN_ESCROW",
+                "COMPLETED",
+                "CANCELLED",
+              ],
               example: "PENDING_SELLER_CONFIRMATION",
             },
             expiresAt: { type: "string", format: "date-time" },
@@ -315,7 +331,10 @@ const options = {
         ContractPhoto: {
           type: "object",
           properties: {
-            url: { type: "string", example: "https://res.cloudinary.com/.../contract.jpg" },
+            url: {
+              type: "string",
+              example: "https://res.cloudinary.com/.../contract.jpg",
+            },
             publicId: { type: "string" },
             uploadedBy: { type: "string" },
             uploadedAt: { type: "string", format: "date-time" },

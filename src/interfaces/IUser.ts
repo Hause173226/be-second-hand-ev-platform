@@ -55,6 +55,13 @@ export interface IUser {
   googleId?: string;
   facebookId?: string;
 
+  // eKYC
+  ekycStatus?: "unverified" | "pending" | "verified" | "rejected";
+  ekycProvider?: "FPT";
+  ekycRefId?: string;
+  ekycResult?: any;
+  verifiedAt?: Date;
+
   // Timestamps
   createdAt?: Date;
   updatedAt?: Date;
