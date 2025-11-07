@@ -3,7 +3,7 @@ import Listing from "../models/Listing";
 import { WebSocketService } from './websocketService';
 import auctionDepositService from './auctionDepositService';
 
-// Map lưu các timeout đóng phiên trong RAM
+
 const auctionTimeouts = new Map<string, NodeJS.Timeout>();
 
 async function scheduleAuctionClose(auction) {
@@ -55,8 +55,29 @@ export const auctionService = {
         const listing = await Listing.findById(listingId);
         if (!listing) throw new Error("Không tìm thấy sản phẩm");
         if (listing.sellerId.toString() !== sellerId.toString()) throw new Error("Bạn không phải chủ sở hữu");
-        const existing = await Auction.findOne({ listingId, status: { $in: ["active"] } });
-        if (existing) throw new Error("Đã có phiên đấu giá đang hoạt động");
+        
+        // Kiểm tra listing này đã có phiên đấu giá active chưa
+        const existingForListing = await Auction.findOne({ listingId, status: { $in: ["active"] } });
+        if (existingForListing) throw new Error("Sản phẩm này đã có phiên đấu giá đang hoạt động");
+        
+        // Kiểm tra seller có phiên đấu giá active nào khác không
+        const now = new Date();
+        const sellerListings = await Listing.find({ sellerId }).select('_id');
+        const sellerListingIds = sellerListings.map(l => l._id);
+        
+        const existingActiveAuction = await Auction.findOne({
+            listingId: { $in: sellerListingIds },
+            status: "active",
+            $or: [
+                { startAt: { $lte: now }, endAt: { $gte: now } }, // Đang diễn ra
+                { startAt: { $gt: now } } // Hoặc sắp diễn ra
+            ]
+        });
+        
+        if (existingActiveAuction) {
+            throw new Error("Bạn đang có phiên đấu giá khác đang hoạt động hoặc sắp diễn ra. Vui lòng chờ phiên đó kết thúc.");
+        }
+        
         if (!startAt || !endAt) throw new Error("Thiếu thời gian phiên");
         if (new Date(endAt) <= new Date(startAt)) throw new Error("endAt phải sau startAt");
         if ((Date.now() - Date.parse(startAt)) > 3600000) throw new Error("startAt đã quá xa hiện tại");
@@ -126,6 +147,162 @@ export const auctionService = {
         await autoCloseAuction(auctionId, ws);
         return auction;
     },
+
+    /**
+     * Lấy danh sách phiên đấu giá đang diễn ra
+     * Điều kiện: status = "active" VÀ startAt <= now <= endAt
+     */
+    async getOngoingAuctions(page = 1, limit = 10) {
+        const now = new Date();
+        const skip = (page - 1) * limit;
+
+        const query = {
+            status: "active",
+            startAt: { $lte: now },
+            endAt: { $gte: now }
+        };
+
+        const auctions = await Auction.find(query)
+            .populate("listingId", "make model year priceListed photos status")
+            .populate("winnerId", "fullName avatar email")
+            .sort({ startAt: -1 })
+            .skip(skip)
+            .limit(limit);
+
+        const total = await Auction.countDocuments(query);
+
+        return {
+            auctions,
+            pagination: {
+                current: page,
+                pages: Math.ceil(total / limit),
+                total
+            }
+        };
+    },
+
+    /**
+     * Lấy danh sách phiên đấu giá sắp diễn ra
+     * Điều kiện: status = "active" VÀ startAt > now
+     */
+    async getUpcomingAuctions(page = 1, limit = 10) {
+        const now = new Date();
+        const skip = (page - 1) * limit;
+
+        const query = {
+            status: "active",
+            startAt: { $gt: now }
+        };
+
+        const auctions = await Auction.find(query)
+            .populate("listingId", "make model year priceListed photos status")
+            .sort({ startAt: 1 }) // Sắp xếp theo thời gian bắt đầu sớm nhất
+            .skip(skip)
+            .limit(limit);
+
+        const total = await Auction.countDocuments(query);
+
+        return {
+            auctions,
+            pagination: {
+                current: page,
+                pages: Math.ceil(total / limit),
+                total
+            }
+        };
+    },
+
+    /**
+     * Lấy danh sách phiên đấu giá đã kết thúc
+     * Điều kiện: status = "ended" HOẶC (status = "active" VÀ endAt < now)
+     */
+    async getEndedAuctions(page = 1, limit = 10) {
+        const now = new Date();
+        const skip = (page - 1) * limit;
+
+        const query = {
+            $or: [
+                { status: "ended" },
+                { status: "cancelled" },
+                { status: "active", endAt: { $lt: now } }
+            ]
+        };
+
+        const auctions = await Auction.find(query)
+            .populate("listingId", "make model year priceListed photos status")
+            .populate("winnerId", "fullName avatar email")
+            .populate("winningBid.userId", "fullName avatar email")
+            .sort({ endAt: -1 }) // Sắp xếp theo thời gian kết thúc gần nhất
+            .skip(skip)
+            .limit(limit);
+
+        const total = await Auction.countDocuments(query);
+
+        return {
+            auctions,
+            pagination: {
+                current: page,
+                pages: Math.ceil(total / limit),
+                total
+            }
+        };
+    },
+
+    /**
+     * Lấy tất cả phiên đấu giá (có filter theo status logic)
+     */
+    async getAllAuctions(filters: any = {}, page = 1, limit = 10) {
+        const skip = (page - 1) * limit;
+        const now = new Date();
+        const query: any = {};
+
+        // Filter theo status logic (ongoing, upcoming, ended)
+        if (filters.status) {
+            switch (filters.status) {
+                case 'ongoing':
+                    query.status = 'active';
+                    query.startAt = { $lte: now };
+                    query.endAt = { $gte: now };
+                    break;
+                case 'upcoming':
+                    query.status = 'active';
+                    query.startAt = { $gt: now };
+                    break;
+                case 'ended':
+                    query.$or = [
+                        { status: 'ended' },
+                        { status: 'cancelled' },
+                        { status: 'active', endAt: { $lt: now } }
+                    ];
+                    break;
+            }
+        }
+
+        // Filter theo listingId nếu có
+        if (filters.listingId) {
+            query.listingId = filters.listingId;
+        }
+
+        const auctions = await Auction.find(query)
+            .populate("listingId", "make model year priceListed photos status")
+            .populate("winnerId", "fullName avatar email")
+            .populate("bids.userId", "fullName avatar")
+            .sort({ createdAt: -1 })
+            .skip(skip)
+            .limit(limit);
+
+        const total = await Auction.countDocuments(query);
+
+        return {
+            auctions,
+            pagination: {
+                current: page,
+                pages: Math.ceil(total / limit),
+                total
+            }
+        };
+    },
+
     scheduleAuctionClose,
     autoCloseAuction,
     auctionTimeouts, // expose for test/monitor
