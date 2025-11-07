@@ -1,6 +1,15 @@
 import express from "express";
 import { authenticate } from "../middlewares/authenticate";
-import { createAuction, placeBid, getAuctionById, endAuction } from "../controllers/auctionController";
+import { 
+    createAuction, 
+    placeBid, 
+    getAuctionById, 
+    endAuction,
+    getOngoingAuctions,
+    getUpcomingAuctions,
+    getEndedAuctions,
+    getAllAuctions
+} from "../controllers/auctionController";
 
 const router = express.Router();
 
@@ -74,23 +83,6 @@ router.post("/:auctionId/bid", authenticate, placeBid);
 
 /**
  * @swagger
- * /api/auctions/{auctionId}:
- *   get:
- *     summary: Lấy chi tiết một phiên đấu giá
- *     tags: [Auction]
- *     parameters:
- *       - in: path
- *         name: auctionId
- *         required: true
- *         schema: { type: string }
- *     responses:
- *       200: { description: Chi tiết phiên }
- *       404: { description: Không tồn tại }
- */
-router.get("/:auctionId", getAuctionById);
-
-/**
- * @swagger
  * /api/auctions/{auctionId}/end:
  *   post:
  *     summary: Kết thúc phiên đấu giá (bằng tay, hệ thống tự động sẽ gọi trực tiếp khi đúng giờ)
@@ -108,5 +100,101 @@ router.get("/:auctionId", getAuctionById);
  *       401: { description: Unauthorized }
  */
 router.post("/:auctionId/end", authenticate, endAuction);
+
+/**
+ * @swagger
+ * /api/auctions/ongoing:
+ *   get:
+ *     summary: Lấy danh sách phiên đấu giá đang diễn ra
+ *     tags: [Auction]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *     responses:
+ *       200: { description: Danh sách phiên đang diễn ra }
+ */
+router.get("/ongoing", getOngoingAuctions);
+
+/**
+ * @swagger
+ * /api/auctions/upcoming:
+ *   get:
+ *     summary: Lấy danh sách phiên đấu giá sắp diễn ra
+ *     tags: [Auction]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *     responses:
+ *       200: { description: Danh sách phiên sắp diễn ra }
+ */
+router.get("/upcoming", getUpcomingAuctions);
+
+/**
+ * @swagger
+ * /api/auctions/ended:
+ *   get:
+ *     summary: Lấy danh sách phiên đấu giá đã kết thúc
+ *     tags: [Auction]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *     responses:
+ *       200: { description: Danh sách phiên đã kết thúc }
+ */
+router.get("/ended", getEndedAuctions);
+
+/**
+ * @swagger
+ * /api/auctions/all:
+ *   get:
+ *     summary: Lấy tất cả phiên đấu giá (có filter)
+ *     tags: [Auction]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [ongoing, upcoming, ended] }
+ *         description: Filter theo trạng thái logic (ongoing, upcoming, ended)
+ *       - in: query
+ *         name: listingId
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Danh sách tất cả phiên }
+ */
+router.get("/all", getAllAuctions);
+
+/**
+ * @swagger
+ * /api/auctions/{auctionId}:
+ *   get:
+ *     summary: Lấy chi tiết một phiên đấu giá
+ *     tags: [Auction]
+ *     parameters:
+ *       - in: path
+ *         name: auctionId
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Chi tiết phiên }
+ *       404: { description: Không tồn tại }
+ */
+router.get("/:auctionId", getAuctionById);
 
 export default router;
