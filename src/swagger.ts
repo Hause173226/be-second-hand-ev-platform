@@ -27,6 +27,10 @@ const options = {
         description: "Quản lý tài khoản người dùng (Admin & User)",
       },
       {
+        name: "eKYC",
+        description: "Xác minh danh tính: OCR giấy tờ & FaceMatch",
+      },
+      {
         name: "Profile",
         description: "Cập nhật và lấy thông tin hồ sơ người dùng",
       },
@@ -71,6 +75,31 @@ const options = {
       },
 
       schemas: {
+        Address: {
+          type: "object",
+          properties: {
+            _id: { type: "string" },
+            fullAddress: {
+              type: "string",
+              example: "123 Đường ABC, Phường 1",
+            },
+            ward: { type: "string", example: "Phường 1" },
+            district: { type: "string", example: "Quận 1" },
+            city: { type: "string", example: "TP.HCM" },
+            province: { type: "string", example: "Hồ Chí Minh" },
+            coordinates: {
+              type: "object",
+              properties: {
+                lat: { type: "number", example: 10.762622 },
+                lng: { type: "number", example: 106.660172 },
+              },
+            },
+            isActive: { type: "boolean", example: true },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
+          },
+        },
+
         User: {
           type: "object",
           required: ["fullName", "email", "phone"],
@@ -84,12 +113,42 @@ const options = {
               enum: ["user", "staff", "admin"],
               example: "user",
             },
-            emailVerified: { type: "boolean", example: true },
             status: {
               type: "string",
               enum: ["ACTIVE", "SUSPENDED", "DELETED"],
               example: "ACTIVE",
             },
+            emailVerified: { type: "boolean", example: true },
+            gender: {
+              type: "string",
+              enum: ["male", "female", "other"],
+              example: "male",
+            },
+            dateOfBirth: {
+              type: "string",
+              format: "date",
+              example: "1990-01-01",
+            },
+            avatar: {
+              type: "string",
+              example: "https://example.com/avatar.jpg",
+            },
+            address: { $ref: "#/components/schemas/Address" },
+            citizenId: { type: "string", example: "001234567890" },
+            rating: { type: "number", example: 4.5 },
+            stats: {
+              type: "object",
+              properties: {
+                soldCount: { type: "number", example: 5 },
+                buyCount: { type: "number", example: 3 },
+                cancelRate: { type: "number", example: 0.1 },
+                responseTime: { type: "number", example: 2.5 },
+                completionRate: { type: "number", example: 0.95 },
+              },
+            },
+            lastLoginAt: { type: "string", format: "date-time" },
+            createdAt: { type: "string", format: "date-time" },
+            updatedAt: { type: "string", format: "date-time" },
           },
         },
 
@@ -144,7 +203,13 @@ const options = {
             },
             status: {
               type: "string",
-              enum: ["PENDING", "CONFIRMED", "RESCHEDULED", "COMPLETED", "CANCELLED"],
+              enum: [
+                "PENDING",
+                "CONFIRMED",
+                "RESCHEDULED",
+                "COMPLETED",
+                "CANCELLED",
+              ],
               example: "PENDING",
             },
             type: {
@@ -170,7 +235,13 @@ const options = {
             depositAmount: { type: "number", example: 50000000 },
             status: {
               type: "string",
-              enum: ["PENDING_SELLER_CONFIRMATION", "SELLER_CONFIRMED", "IN_ESCROW", "COMPLETED", "CANCELLED"],
+              enum: [
+                "PENDING_SELLER_CONFIRMATION",
+                "SELLER_CONFIRMED",
+                "IN_ESCROW",
+                "COMPLETED",
+                "CANCELLED",
+              ],
               example: "PENDING_SELLER_CONFIRMATION",
             },
             expiresAt: { type: "string", format: "date-time" },
@@ -260,7 +331,10 @@ const options = {
         ContractPhoto: {
           type: "object",
           properties: {
-            url: { type: "string", example: "https://res.cloudinary.com/.../contract.jpg" },
+            url: {
+              type: "string",
+              example: "https://res.cloudinary.com/.../contract.jpg",
+            },
             publicId: { type: "string" },
             uploadedBy: { type: "string" },
             uploadedAt: { type: "string", format: "date-time" },
