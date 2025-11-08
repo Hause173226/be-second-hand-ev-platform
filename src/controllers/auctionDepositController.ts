@@ -16,8 +16,8 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
       });
     }
 
-    // Lấy thông tin auction để check depositAmount
-    const auction = await Auction.findById(auctionId);
+    // Lấy thông tin auction và populate listing để kiểm tra seller
+    const auction = await Auction.findById(auctionId).populate('listingId');
     if (!auction) {
       return res.status(404).json({
         success: false,
@@ -25,13 +25,25 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
       });
     }
 
+    // KIỂM TRA: User có phải là seller không?
+    const listing = auction.listingId as any;
+    if (listing.sellerId.toString() === userId.toString()) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không thể đặt cọc cho sản phẩm của chính mình'
+      });
+    }
+
+    // Lấy phí cọc cố định (1 triệu VNĐ)
+    const participationFee = auctionDepositService.getParticipationFee();
+
     // Kiểm tra số dư ví
     const wallet = await walletService.getWallet(userId);
-    if (wallet.balance < auction.depositAmount) {
+    if (wallet.balance < participationFee) {
       // Không đủ tiền -> Tạo link nạp tiền qua VNPay
       const vnpayUrl = await walletService.createDepositUrl(
         userId.toString(),
-        auction.depositAmount,
+        participationFee,
         `Nạp tiền đặt cọc tham gia đấu giá #${auctionId}`,
         req
       );
@@ -40,7 +52,7 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
         success: false,
         message: 'Số dư không đủ để đặt cọc',
         vnpayUrl: vnpayUrl,
-        requiredAmount: auction.depositAmount,
+        requiredAmount: participationFee,
         currentBalance: wallet.balance
       });
     }
@@ -185,6 +197,31 @@ export const deductWinnerDeposit = async (req: Request, res: Response) => {
 
   } catch (error) {
     console.error('Error deducting winner deposit:', error);
+    res.status(400).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Lỗi hệ thống'
+    });
+  }
+};
+
+/**
+ * Lấy phí cọc tham gia đấu giá
+ * GET /api/auctions/deposit/fee
+ */
+export const getParticipationFee = async (req: Request, res: Response) => {
+  try {
+    const fee = auctionDepositService.getParticipationFee();
+    
+    res.json({
+      success: true,
+      data: {
+        participationFee: fee,
+        description: 'Phí cọc bắt buộc để tham gia đấu giá'
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting participation fee:', error);
     res.status(400).json({
       success: false,
       message: error instanceof Error ? error.message : 'Lỗi hệ thống'

@@ -5,10 +5,23 @@ import {
   cancelAuctionDeposit,
   getAuctionDeposits,
   checkDepositStatus,
-  deductWinnerDeposit
+  deductWinnerDeposit,
+  getParticipationFee
 } from '../controllers/auctionDepositController';
 
 const router = Router();
+
+/**
+ * @swagger
+ * /api/auctions/deposit/fee:
+ *   get:
+ *     summary: Lấy phí cọc tham gia đấu giá (cố định 1 triệu VNĐ)
+ *     tags: [Auction Deposits]
+ *     responses:
+ *       200:
+ *         description: Thông tin phí cọc
+ */
+router.get('/deposit/fee', getParticipationFee);
 
 /**
  * @swagger
