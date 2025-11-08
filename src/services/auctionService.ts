@@ -98,18 +98,24 @@ export const auctionService = {
     },
 
     async placeBid({ auctionId, price, userId }) {
-        const auction = await Auction.findById(auctionId);
+        const auction = await Auction.findById(auctionId).populate('listingId');
         if (!auction) throw new Error("Phiên đấu giá không tồn tại");
         if (auction.status !== "active") throw new Error("Phiên đã đóng");
+        
+        // Kiểm tra user có phải là seller của sản phẩm không
+        const listing = auction.listingId as any;
+        if (listing.sellerId.toString() === userId.toString()) {
+            throw new Error("Bạn không thể đấu giá sản phẩm của chính mình");
+        }
+        
         const now = new Date();
         if (now < auction.startAt || now > auction.endAt) throw new Error("Ngoài thời gian đấu giá");
         
-        // Kiểm tra đã đặt cọc chưa (nếu phiên yêu cầu cọc)
-        if (auction.depositAmount > 0) {
-            const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
-            if (!hasDeposited) {
-                throw new Error(`Bạn cần đặt cọc ${auction.depositAmount.toLocaleString('vi-VN')} VNĐ để tham gia đấu giá`);
-            }
+        // BẮT BUỘC phải đặt cọc trước khi bid (PHÍ CỐ ĐỊNH 1 TRIỆU)
+        const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
+        if (!hasDeposited) {
+            const participationFee = auctionDepositService.getParticipationFee();
+            throw new Error(`Bạn cần đặt cọc ${participationFee.toLocaleString('vi-VN')} VNĐ để tham gia đấu giá`);
         }
         
         // Tính giá cao nhất hiện tại (từ các bid hoặc giá khởi điểm)
