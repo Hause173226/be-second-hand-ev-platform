@@ -20,23 +20,49 @@ export const membershipService = {
   },
 
   getCurrentMembership: async (userId: string) => {
-    // ✅ FIX: Dùng UserMembership
-    const membership = await UserMembership.findOne({
+    let membership = await UserMembership.findOne({
       userId,
       isActive: true,
       status: "ACTIVE",
     }).populate("packageId");
 
-    // Kiểm tra expiration (chỉ với gói có endDate)
+    // Kiểm tra expiration
     if (membership && membership.endDate) {
       const now = new Date();
       if (membership.endDate < now) {
         membership.status = "EXPIRED";
         membership.isActive = false;
         await membership.save();
-
         console.log(`⏰ Membership expired for user ${userId}`);
-        return null;
+        membership = null;
+      }
+    }
+
+    // NẾU KHÔNG CÓ MEMBERSHIP → TỰ ĐỘNG TẠO GÓI FREE
+    if (!membership) {
+      const freePackage = await MembershipPackage.findOne({ slug: "free" });
+
+      if (freePackage) {
+        membership = await UserMembership.create({
+          userId,
+          packageId: freePackage._id,
+          startDate: new Date(),
+          endDate: null, // FREE vĩnh viễn
+          isActive: true,
+          status: "ACTIVE",
+          listingsUsed: 0,
+        });
+
+        // Cập nhật user
+        await User.findByIdAndUpdate(userId, {
+          currentMembership: freePackage._id,
+          membershipBadge: freePackage.features.badge,
+        });
+
+        // Populate packageId
+        membership = await UserMembership.findById(membership._id).populate(
+          "packageId"
+        );
       }
     }
 
