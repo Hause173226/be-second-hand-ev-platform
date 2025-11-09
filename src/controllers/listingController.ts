@@ -3,6 +3,7 @@ import { RequestHandler } from "express";
 import Listing from "../models/Listing";
 import { moderationService } from "../services/moderationService";
 import { SearchHistory } from "../models/SearchHistory";
+import { membershipService } from "../services/membershipService";
 
 // Heuristic only (theo yêu cầu tạm thời không dùng Gemini)
 import { suggestHeuristic } from "../services/priceAI.heuristic";
@@ -50,7 +51,25 @@ export const createListing: RequestHandler = async (req, res, next) => {
   try {
     const sellerId = (req as any).user?._id;
     if (!sellerId) {
-      res.status(401).json({ message: "Unauthorized" });
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+      return;
+    }
+
+    // ✅ CHECK MEMBERSHIP LIMIT - THÊM MỚI
+    const limitCheck = await membershipService.canCreateListing(sellerId);
+    if (!limitCheck.canCreate) {
+      res.status(403).json({
+        success: false,
+        message: limitCheck.reason,
+        data: {
+          current: limitCheck.current,
+          max: limitCheck.max,
+          packageName: limitCheck.packageName,
+        },
+      });
       return;
     }
 
@@ -58,6 +77,7 @@ export const createListing: RequestHandler = async (req, res, next) => {
     const acceptedTerms = toBool((req.body as any)?.commissionTermsAccepted);
     if (acceptedTerms !== true) {
       res.status(400).json({
+        success: false,
         message:
           "Bạn phải đồng ý Điều khoản & Phí hoa hồng trước khi đăng bán (commissionTermsAccepted=true).",
         field: "commissionTermsAccepted",
@@ -67,7 +87,10 @@ export const createListing: RequestHandler = async (req, res, next) => {
 
     const files = (req.files as MulterCloudinaryFile[]) || [];
     if (!Array.isArray(files) || files.length < 3) {
-      res.status(400).json({ message: "Cần tối thiểu 3 ảnh" });
+      res.status(400).json({
+        success: false,
+        message: "Cần tối thiểu 3 ảnh",
+      });
       return;
     }
 
@@ -104,7 +127,10 @@ export const createListing: RequestHandler = async (req, res, next) => {
         ? Number(priceListed)
         : Number(priceListed);
     if (!Number.isFinite(priceListedNum) || priceListedNum < 0) {
-      res.status(400).json({ message: "priceListed không hợp lệ" });
+      res.status(400).json({
+        success: false,
+        message: "priceListed không hợp lệ",
+      });
       return;
     }
 
@@ -149,9 +175,9 @@ export const createListing: RequestHandler = async (req, res, next) => {
       type === "Car"
         ? {
             ...base,
-             batteryCapacityKWh: batteryCapacityKWh
-          ? Number(batteryCapacityKWh)
-          : undefined,     // ✅ giữ lại khi là Car
+            batteryCapacityKWh: batteryCapacityKWh
+              ? Number(batteryCapacityKWh)
+              : undefined, // ✅ giữ lại khi là Car
             licensePlate,
             engineDisplacementCc: engineDisplacementCc
               ? Number(engineDisplacementCc)
@@ -172,7 +198,19 @@ export const createListing: RequestHandler = async (req, res, next) => {
 
     const listing = await Listing.create(payload);
 
-    res.status(201).json(listing);
+    // ✅ SAU KHI TẠO LISTING THÀNH CÔNG - INCREMENT LISTING USED
+    await membershipService.incrementListingUsed(sellerId);
+
+    res.status(201).json({
+      success: true,
+      message: "Tạo listing thành công",
+      data: listing,
+      membership: {
+        current: limitCheck.current + 1,
+        max: limitCheck.max,
+        packageName: limitCheck.packageName,
+      },
+    });
   } catch (err) {
     next(err);
   }
@@ -819,26 +857,41 @@ export const deleteListing: RequestHandler = async (req, res, next) => {
 
     const listing = await Listing.findById(id);
     if (!listing) {
-      res.status(404).json({ message: "Listing không tồn tại" });
+      res.status(404).json({
+        success: false,
+        message: "Listing không tồn tại",
+      });
       return;
     }
 
     const isAdmin = user?.role === "admin";
     if (!isAdmin && !isOwner(user?._id, listing.sellerId)) {
-      res.status(403).json({ message: "Forbidden" });
+      res.status(403).json({
+        success: false,
+        message: "Forbidden",
+      });
       return;
     }
 
-    if (
-      !isAdmin &&
-      !["Draft", "Rejected"].includes((listing as any).status)
-    ) {
-      res.status(409).json({ message: "Chỉ được xóa khi Draft/Rejected" });
+    if (!isAdmin && !["Draft", "Rejected"].includes((listing as any).status)) {
+      res.status(409).json({
+        success: false,
+        message: "Chỉ được xóa khi Draft/Rejected",
+      });
       return;
+    }
+
+    // ✅ THÊM MỚI: Giảm counter nếu không phải admin
+    if (!isAdmin && ["Draft", "Rejected"].includes((listing as any).status)) {
+      await membershipService.decrementListingUsed(user._id);
     }
 
     await listing.deleteOne();
-    res.json({ message: "Đã xóa thành công" });
+
+    res.json({
+      success: true,
+      message: "Đã xóa thành công",
+    });
   } catch (err) {
     next(err);
   }
@@ -1038,4 +1091,3 @@ export const reorderListingPhotos: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
-

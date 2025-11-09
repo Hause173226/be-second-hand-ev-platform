@@ -1,5 +1,9 @@
 import Auction from "../models/Auction";
 import Listing from "../models/Listing";
+import DepositRequest from "../models/DepositRequest";
+import EscrowAccount from "../models/EscrowAccount";
+import AuctionDeposit from "../models/AuctionDeposit";
+import Appointment from "../models/Appointment";
 import { WebSocketService } from './websocketService';
 import auctionDepositService from './auctionDepositService';
 
@@ -20,7 +24,7 @@ async function scheduleAuctionClose(auction) {
 
 async function autoCloseAuction(auctionId, ws) {
     const Auction = (await import('../models/Auction')).default;
-    const auction = await Auction.findById(auctionId);
+    const auction = await Auction.findById(auctionId).populate('listingId');
     if (!auction || auction.status !== 'active') return;
     
     let winningBid = null;
@@ -41,6 +45,40 @@ async function autoCloseAuction(auctionId, ws) {
         );
     } catch (error) {
         console.error('Error refunding non-winners:', error);
+    }
+
+    // Tạo DepositRequest ảo cho winner để tương thích với luồng thông thường
+    if (auction.winnerId && winningBid) {
+        try {
+            const listing = auction.listingId as any;
+            if (listing) {
+                // Tạo DepositRequest với status IN_ESCROW sẵn
+                const depositRequest = await DepositRequest.create({
+                    listingId: listing._id.toString(),
+                    buyerId: auction.winnerId.toString(),
+                    sellerId: listing.sellerId.toString(),
+                    depositAmount: auctionDepositService.getParticipationFee(), // 1 triệu VND
+                    status: 'IN_ESCROW', // Đã có tiền cọc từ đấu giá
+                    sellerConfirmedAt: new Date() // Tự động xác nhận vì đấu giá
+                });
+
+                // Tạo EscrowAccount ảo để tương thích
+                const escrowAccount = await EscrowAccount.create({
+                    buyerId: auction.winnerId.toString(),
+                    sellerId: listing.sellerId.toString(),
+                    listingId: listing._id.toString(),
+                    amount: auctionDepositService.getParticipationFee(),
+                    status: 'LOCKED'
+                });
+
+                depositRequest.escrowAccountId = (escrowAccount as any)._id.toString();
+                await depositRequest.save();
+
+                console.log(`Created virtual DepositRequest ${depositRequest._id} for auction winner`);
+            }
+        } catch (error) {
+            console.error('Error creating virtual deposit request:', error);
+        }
     }
     
     ws.io.to(`auction_${auctionId}`).emit('auction_closed', {
@@ -98,18 +136,24 @@ export const auctionService = {
     },
 
     async placeBid({ auctionId, price, userId }) {
-        const auction = await Auction.findById(auctionId);
+        const auction = await Auction.findById(auctionId).populate('listingId');
         if (!auction) throw new Error("Phiên đấu giá không tồn tại");
         if (auction.status !== "active") throw new Error("Phiên đã đóng");
+        
+        // Kiểm tra user có phải là seller của sản phẩm không
+        const listing = auction.listingId as any;
+        if (listing.sellerId.toString() === userId.toString()) {
+            throw new Error("Bạn không thể đấu giá sản phẩm của chính mình");
+        }
+        
         const now = new Date();
         if (now < auction.startAt || now > auction.endAt) throw new Error("Ngoài thời gian đấu giá");
         
-        // Kiểm tra đã đặt cọc chưa (nếu phiên yêu cầu cọc)
-        if (auction.depositAmount > 0) {
-            const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
-            if (!hasDeposited) {
-                throw new Error(`Bạn cần đặt cọc ${auction.depositAmount.toLocaleString('vi-VN')} VNĐ để tham gia đấu giá`);
-            }
+        // BẮT BUỘC phải đặt cọc trước khi bid (PHÍ CỐ ĐỊNH 1 TRIỆU)
+        const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
+        if (!hasDeposited) {
+            const participationFee = auctionDepositService.getParticipationFee();
+            throw new Error(`Bạn cần đặt cọc ${participationFee.toLocaleString('vi-VN')} VNĐ để tham gia đấu giá`);
         }
         
         // Tính giá cao nhất hiện tại (từ các bid hoặc giá khởi điểm)
@@ -128,9 +172,48 @@ export const auctionService = {
     },
 
     async getAuctionById(auctionId) {
-        return Auction.findById(auctionId)
-            .populate("listingId", "make model year priceListed photos")
+        const auction = await Auction.findById(auctionId)
+            .populate("listingId", "make model year priceListed photos batteryCapacity range sellerId")
             .populate("bids.userId", "fullName avatar");
+        
+        if (!auction) {
+            throw new Error("Không tìm thấy phiên đấu giá");
+        }
+
+        // Lấy danh sách người đã đặt cọc (participants)
+        const deposits = await AuctionDeposit.find({ 
+            auctionId,
+            status: { $in: ['FROZEN', 'DEDUCTED'] } // Chỉ lấy người còn tham gia
+        }).populate('userId', 'fullName email phone avatar');
+
+        // Lấy thông tin seller (chủ xe)
+        const listing = auction.listingId as any;
+        let seller = null;
+        if (listing && listing.sellerId) {
+            const User = (await import('../models/User')).User;
+            seller = await User.findById(listing.sellerId).select('fullName email phone avatar');
+        }
+
+        // Format response
+        const auctionData = auction.toObject();
+        return {
+            ...auctionData,
+            participants: deposits.map(d => ({
+                userId: (d.userId as any)._id,
+                fullName: (d.userId as any).fullName,
+                avatar: (d.userId as any).avatar,
+                depositStatus: d.status,
+                depositedAt: d.frozenAt
+            })),
+            seller: seller ? {
+                userId: seller._id,
+                fullName: seller.fullName,
+                email: seller.email,
+                phone: seller.phone,
+                avatar: seller.avatar
+            } : null,
+            totalParticipants: deposits.length
+        };
     },
 
     async endAuction(auctionId) {
@@ -139,7 +222,8 @@ export const auctionService = {
         const auction = await Auction.findById(auctionId);
         if (!auction) throw new Error("Không tìm thấy phiên");
         if (auction.status !== "active") throw new Error("Phiên đã đóng");
-        if (new Date() < auction.endAt) throw new Error("Chưa hết thời gian");
+        // Bỏ check thời gian - cho phép kết thúc sớm
+        // if (new Date() < auction.endAt) throw new Error("Chưa hết thời gian");
         if (auctionTimeouts.has(auctionId)) {
             clearTimeout(auctionTimeouts.get(auctionId));
             auctionTimeouts.delete(auctionId);
@@ -295,6 +379,57 @@ export const auctionService = {
 
         return {
             auctions,
+            pagination: {
+                current: page,
+                pages: Math.ceil(total / limit),
+                total
+            }
+        };
+    },
+
+    /**
+     * Lấy danh sách phiên đấu giá đã thắng, chưa tạo lịch hẹn
+     * Dành cho winner để biết phiên nào cần tạo appointment
+     */
+    async getWonAuctionsPendingAppointment(userId: string, page = 1, limit = 10) {
+        const skip = (page - 1) * limit;
+
+        // Tìm tất cả auction mà user là winner và status = ended
+        const wonAuctions = await Auction.find({
+            winnerId: userId,
+            status: 'ended'
+        })
+        .populate("listingId", "make model year priceListed photos batteryCapacity range sellerId")
+        .sort({ endAt: -1 })
+        .lean();
+
+        // Với mỗi auction, check xem đã có appointment chưa
+        const auctionsWithAppointmentStatus = await Promise.all(
+            wonAuctions.map(async (auction) => {
+                const appointment = await Appointment.findOne({
+                    auctionId: auction._id,
+                    appointmentType: 'AUCTION'
+                }).select('_id status scheduledDate createdAt');
+
+                return {
+                    ...auction,
+                    hasAppointment: !!appointment,
+                    appointment: appointment || null
+                };
+            })
+        );
+
+        // Filter chỉ lấy những phiên chưa có appointment
+        const pendingAuctions = auctionsWithAppointmentStatus.filter(
+            auction => !auction.hasAppointment
+        );
+
+        // Pagination
+        const total = pendingAuctions.length;
+        const paginatedAuctions = pendingAuctions.slice(skip, skip + limit);
+
+        return {
+            auctions: paginatedAuctions,
             pagination: {
                 current: page,
                 pages: Math.ceil(total / limit),

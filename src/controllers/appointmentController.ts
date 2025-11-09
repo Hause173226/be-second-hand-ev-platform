@@ -78,6 +78,7 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
 
         const appointment = new Appointment({
       depositRequestId,
+      appointmentType: 'NORMAL_DEPOSIT',
       buyerId: depositRequest.buyerId,
       sellerId: depositRequest.sellerId,
             scheduledDate: appointmentDate,
@@ -149,35 +150,58 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       });
     }
 
-    // Kiểm tra quyền xác nhận (chỉ người mua)
-    if (appointment.buyerId !== userId) {
+    // Kiểm tra quyền xác nhận (phải là buyer hoặc seller)
+    const buyerId = appointment.buyerId.toString();
+    const sellerId = appointment.sellerId.toString();
+    const isBuyer = buyerId === userId;
+    const isSeller = sellerId === userId;
+
+    if (!isBuyer && !isSeller) {
       return res.status(403).json({
         success: false,
-        message: 'Chỉ người mua mới có quyền xác nhận lịch hẹn này'
+        message: 'Bạn không có quyền xác nhận lịch hẹn này'
       });
     }
 
     // Kiểm tra trạng thái
-    if (appointment.status !== 'PENDING') {
+    if (appointment.status !== 'PENDING' && appointment.status !== 'CONFIRMED') {
       return res.status(400).json({
         success: false,
-        message: 'Lịch hẹn đã được xác nhận hoặc đã hoàn thành'
+        message: 'Lịch hẹn không thể xác nhận'
       });
     }
 
     // Kiểm tra đã xác nhận chưa
-    if (appointment.buyerConfirmed) {
+    if (isBuyer && appointment.buyerConfirmed) {
       return res.status(400).json({
         success: false,
         message: 'Bạn đã xác nhận lịch hẹn này rồi'
       });
     }
 
-    // Người mua xác nhận lịch hẹn
-    appointment.buyerConfirmed = true;
-    appointment.buyerConfirmedAt = new Date();
-    appointment.status = 'CONFIRMED';
-    appointment.confirmedAt = new Date();
+    if (isSeller && appointment.sellerConfirmed) {
+      return res.status(400).json({
+        success: false,
+        message: 'Bạn đã xác nhận lịch hẹn này rồi'
+      });
+    }
+
+    // Xác nhận lịch hẹn
+    if (isBuyer) {
+      appointment.buyerConfirmed = true;
+      appointment.buyerConfirmedAt = new Date();
+    }
+
+    if (isSeller) {
+      appointment.sellerConfirmed = true;
+      appointment.sellerConfirmedAt = new Date();
+    }
+
+    // Nếu cả 2 đều đã confirm → chuyển sang CONFIRMED
+    if (appointment.buyerConfirmed && appointment.sellerConfirmed) {
+      appointment.status = 'CONFIRMED';
+      appointment.confirmedAt = new Date();
+    }
     
     await appointment.save();
     
@@ -210,14 +234,21 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       console.error('Lỗi gửi email thông báo xác nhận:', emailError);
     }
 
+    const responseMessage = appointment.status === 'CONFIRMED'
+      ? 'Xác nhận lịch hẹn thành công - Cả hai bên đã xác nhận'
+      : 'Xác nhận lịch hẹn thành công - Đang chờ bên còn lại';
+
     res.json({
       success: true,
-      message: 'Xác nhận lịch hẹn thành công',
+      message: responseMessage,
       appointment: {
         id: appointment._id,
         scheduledDate: appointment.scheduledDate,
         status: appointment.status,
         buyerConfirmed: appointment.buyerConfirmed,
+        sellerConfirmed: appointment.sellerConfirmed,
+        buyerConfirmedAt: appointment.buyerConfirmedAt,
+        sellerConfirmedAt: appointment.sellerConfirmedAt,
         confirmedAt: appointment.confirmedAt
       }
     });
@@ -561,8 +592,9 @@ export const getUserAppointments = async (req: Request, res: Response): Promise<
 
     const appointments = await Appointment.find(filter)
       .populate('depositRequestId', 'depositAmount status')
-      .populate('buyerId', 'name email phone')
-      .populate('sellerId', 'name email phone')
+      .populate('auctionId', 'startingPrice winningBid status')
+      .populate('buyerId', 'fullName email phone avatar')
+      .populate('sellerId', 'fullName email phone avatar')
       .sort({ scheduledDate: -1 })
       .limit(Number(limit) * 1)
       .skip((Number(page) - 1) * Number(limit));
@@ -821,6 +853,106 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
 
   } catch (error) {
     console.error('Error getting staff appointments:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Tạo lịch hẹn từ auction (cho người thắng cuộc)
+export const createAppointmentFromAuction = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { auctionId } = req.params;
+    const { scheduledDate, location, notes } = req.body;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập'
+      });
+    }
+
+    const appointmentService = (await import('../services/appointmentService')).default;
+
+    const appointment = await appointmentService.createAppointmentFromAuction({
+      auctionId,
+      userId,
+      scheduledDate,
+      location,
+      notes
+    });
+
+    res.status(200).json({
+      success: true,
+      message: 'Đã tạo lịch hẹn ký hợp đồng từ phiên đấu giá',
+      appointment
+    });
+
+  } catch (error) {
+    console.error('Error creating appointment from auction:', error);
+    res.status(400).json({
+      success: false,
+      message: error instanceof Error ? error.message : 'Lỗi tạo lịch hẹn'
+    });
+  }
+};
+
+// Lấy danh sách lịch hẹn từ các phiên đấu giá
+export const getAuctionAppointments = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập'
+      });
+    }
+
+    const { status, page = 1, limit = 10 } = req.query;
+
+    const filter: any = {
+      appointmentType: 'AUCTION',
+      $or: [{ buyerId: userId }, { sellerId: userId }]
+    };
+
+    if (status) {
+      filter.status = status;
+    }
+
+    const appointments = await Appointment.find(filter)
+      .populate('auctionId', 'startingPrice winningBid status startAt endAt')
+      .populate({
+        path: 'auctionId',
+        populate: {
+          path: 'listingId',
+          select: 'make model year photos priceListed batteryCapacity range'
+        }
+      })
+      .populate('buyerId', 'fullName email phone avatar')
+      .populate('sellerId', 'fullName email phone avatar')
+      .sort({ scheduledDate: -1 })
+      .limit(Number(limit) * 1)
+      .skip((Number(page) - 1) * Number(limit))
+      .lean();
+
+    const total = await Appointment.countDocuments(filter);
+
+    res.json({
+      success: true,
+      message: 'Lấy danh sách lịch hẹn đấu giá thành công',
+      data: appointments,
+      pagination: {
+        current: Number(page),
+        pages: Math.ceil(total / Number(limit)),
+        total
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting auction appointments:', error);
     res.status(500).json({
       success: false,
       message: 'Lỗi hệ thống',
