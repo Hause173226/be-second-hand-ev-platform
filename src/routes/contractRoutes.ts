@@ -1,14 +1,14 @@
-import express from 'express';
+import express from "express";
 import {
   getContractInfo,
   uploadContractPhotos,
   completeTransaction,
   getStaffContracts,
-  cancelContractTransaction
-} from '../controllers/contractController';
-import { authenticate } from '../middlewares/authenticate';
-import { requireRole } from '../middlewares/role';
-import multer from 'multer';
+  cancelContractTransaction,
+} from "../controllers/contractController";
+import { authenticate } from "../middlewares/authenticate";
+import { requireRole } from "../middlewares/role";
+import multer from "multer";
 
 const router = express.Router();
 
@@ -34,7 +34,7 @@ const router = express.Router();
  *             schema:
  *               $ref: "#/components/schemas/Contract"
  */
-router.get('/:appointmentId', authenticate, getContractInfo);
+router.get("/:appointmentId", authenticate, getContractInfo);
 
 /**
  * @swagger
@@ -71,19 +71,21 @@ const memoryUpload = multer({
   storage: multer.memoryStorage(),
   limits: {
     fileSize: 10 * 1024 * 1024, // 10MB/ảnh
-    files: 10
+    files: 10,
   },
   fileFilter: (_req, file, cb) => {
-    const ok = /^image\/(png|jpe?g|webp|gif)$/i.test(file.mimetype) ||
-               /\.(png|jpe?g|webp|gif)$/i.test(file.originalname);
+    const ok =
+      /^image\/(png|jpe?g|webp|gif)$/i.test(file.mimetype) ||
+      /\.(png|jpe?g|webp|gif)$/i.test(file.originalname);
     if (ok) cb(null, true);
-    else cb(new Error('Invalid image type'));
-  }
+    else cb(new Error("Invalid image type"));
+  },
 });
 
-router.post('/:appointmentId/upload-photos', 
-  authenticate, 
-  memoryUpload.array('photos', 10), // ✅ Tối đa 10 ảnh, lưu vào memory để có buffer
+router.post(
+  "/:appointmentId/upload-photos",
+  authenticate,
+  memoryUpload.array("photos", 10), // ✅ Tối đa 10 ảnh, lưu vào memory để có buffer
   uploadContractPhotos
 );
 
@@ -105,7 +107,7 @@ router.post('/:appointmentId/upload-photos',
  *       200:
  *         description: Hoàn thành giao dịch thành công
  */
-router.post('/:appointmentId/complete', authenticate, completeTransaction);
+router.post("/:appointmentId/complete", authenticate, completeTransaction);
 
 /**
  * @swagger
@@ -119,7 +121,7 @@ router.post('/:appointmentId/complete', authenticate, completeTransaction);
  *       200:
  *         description: Danh sách contract
  */
-router.get('/', authenticate, getStaffContracts);
+router.get("/", authenticate, getStaffContracts);
 
 /**
  * @swagger
@@ -187,9 +189,10 @@ router.get('/', authenticate, getStaffContracts);
  *       500:
  *         description: Lỗi server
  */
-router.post('/:appointmentId/cancel', 
-  authenticate, 
-  requireRole(['staff', 'admin']), 
+router.post(
+  "/:appointmentId/cancel",
+  authenticate,
+  requireRole(["staff", "admin"]),
   cancelContractTransaction
 );
 
