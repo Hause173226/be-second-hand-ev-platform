@@ -1,6 +1,7 @@
 import Appointment from "../models/Appointment";
 import DepositRequest from "../models/DepositRequest";
 import Listing from "../models/Listing";
+import Auction from "../models/Auction";
 import { EmailService } from "./emailService";
 import walletService from "./walletService";
 
@@ -52,6 +53,7 @@ export class AppointmentService {
 
     const appointment = await Appointment.create({
       depositRequestId: data.depositRequestId,
+      appointmentType: 'NORMAL_DEPOSIT',
       buyerId: buyerId,
       sellerId: sellerId,
       scheduledDate: appointmentDate,
@@ -73,6 +75,90 @@ export class AppointmentService {
     try {
       // await emailService.sendAppointmentCreated(buyerId, sellerId, appointment as any);
       console.log('TODO: Send appointment created email');
+    } catch (error) {
+      console.error("Error sending appointment email:", error);
+    }
+
+    return appointment;
+  }
+
+  // Tạo lịch hẹn từ auction (cho người thắng cuộc)
+  async createAppointmentFromAuction(data: {
+    auctionId: string;
+    userId: string;
+    scheduledDate?: Date;
+    location?: string;
+    notes?: string;
+  }) {
+    // Kiểm tra auction tồn tại
+    const auction = await Auction.findById(data.auctionId).populate('listingId');
+    if (!auction) {
+      throw new Error("Không tìm thấy phiên đấu giá");
+    }
+
+    // Kiểm tra auction đã kết thúc
+    if (auction.status !== 'ended') {
+      throw new Error("Phiên đấu giá chưa kết thúc");
+    }
+
+    // Kiểm tra có người thắng cuộc không
+    if (!auction.winnerId) {
+      throw new Error("Phiên đấu giá không có người thắng cuộc");
+    }
+
+    // Kiểm tra user có phải là winner không
+    const winnerId = auction.winnerId.toString();
+    if (winnerId !== data.userId) {
+      throw new Error("Chỉ người thắng cuộc mới được tạo lịch hẹn");
+    }
+
+    // Lấy thông tin listing
+    const listing = auction.listingId as any;
+    if (!listing) {
+      throw new Error("Không tìm thấy thông tin sản phẩm");
+    }
+    const sellerId = listing.sellerId.toString();
+
+    // Kiểm tra đã có lịch hẹn chưa
+    const existingAppointment = await Appointment.findOne({
+      auctionId: data.auctionId,
+      status: { $in: ["PENDING", "CONFIRMED", "RESCHEDULED"] },
+    });
+
+    if (existingAppointment) {
+      throw new Error("Đã có lịch hẹn cho phiên đấu giá này");
+    }
+
+    // Tạo lịch hẹn mặc định 1 tuần sau nếu không có
+    let appointmentDate = data.scheduledDate ? new Date(data.scheduledDate) : new Date();
+    if (!data.scheduledDate) {
+      appointmentDate.setDate(appointmentDate.getDate() + 7);
+    }
+
+    const appointment = await Appointment.create({
+      auctionId: data.auctionId,
+      appointmentType: 'AUCTION',
+      buyerId: winnerId,
+      sellerId: sellerId,
+      scheduledDate: appointmentDate,
+      status: "PENDING",
+      type: "CONTRACT_SIGNING",
+      location: data.location || "Văn phòng công ty",
+      notes: data.notes || `Ký kết hợp đồng mua bán xe - Đấu giá thành công với giá ${auction.winningBid?.price?.toLocaleString('vi-VN')} VNĐ`,
+      buyerConfirmed: false,
+      sellerConfirmed: false,
+      rescheduledCount: 0,
+      maxReschedules: 3,
+    });
+
+    // Populate thông tin
+    await appointment.populate("buyerId", "fullName email phone");
+    await appointment.populate("sellerId", "fullName email phone");
+    await appointment.populate("auctionId");
+
+    // Gửi email thông báo
+    try {
+      console.log('TODO: Send auction appointment created email');
     } catch (error) {
       console.error("Error sending appointment email:", error);
     }

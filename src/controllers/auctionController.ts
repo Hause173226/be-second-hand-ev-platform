@@ -107,3 +107,33 @@ export const getAllAuctions = async (req: Request, res: Response) => {
         res.status(400).json({ message: err instanceof Error ? err.message : err });
     }
 };
+
+// Lấy danh sách phiên đấu giá đã thắng, chưa tạo lịch hẹn
+export const getWonAuctionsPendingAppointment = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user?._id;
+        if (!userId) {
+            return res.status(401).json({ 
+                success: false,
+                message: "Chưa đăng nhập" 
+            });
+        }
+
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        
+        const result = await auctionService.getWonAuctionsPendingAppointment(userId, page, limit);
+        
+        res.json({
+            success: true,
+            message: "Lấy danh sách phiên đấu giá đã thắng thành công",
+            data: result.auctions,
+            pagination: result.pagination
+        });
+    } catch (err) {
+        res.status(400).json({ 
+            success: false,
+            message: err instanceof Error ? err.message : err 
+        });
+    }
+};

@@ -9,6 +9,8 @@ import {
     cancelAppointment,
     getAppointmentDetails,
     getStaffAppointments,
+    createAppointmentFromAuction,
+    getAuctionAppointments,
 } from "../controllers/appointmentController";
 import { authenticate } from "../middlewares/authenticate";
 
@@ -637,5 +639,178 @@ router.get('/staff', authenticate, getStaffAppointments);
  *         description: Lỗi server
  */
 router.get('/:appointmentId', authenticate, getAppointmentDetails);
+
+/**
+ * @swagger
+ * /api/appointments/auction/{auctionId}:
+ *   post:
+ *     summary: Tạo lịch hẹn từ phiên đấu giá (cho người thắng cuộc)
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: auctionId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của phiên đấu giá
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               scheduledDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Ngày giờ hẹn (mặc định 7 ngày sau nếu không cung cấp)
+ *               location:
+ *                 type: string
+ *                 description: Địa điểm gặp mặt
+ *               notes:
+ *                 type: string
+ *                 description: Ghi chú thêm
+ *     responses:
+ *       200:
+ *         description: Tạo lịch hẹn thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 appointment:
+ *                   type: object
+ *       400:
+ *         description: Lỗi tạo lịch hẹn (không phải winner, đấu giá chưa kết thúc, etc.)
+ *       401:
+ *         description: Chưa đăng nhập
+ */
+router.post('/auction/:auctionId', authenticate, createAppointmentFromAuction);
+
+/**
+ * @swagger
+ * /api/appointments/auction/list:
+ *   get:
+ *     summary: Lấy danh sách lịch hẹn từ các phiên đấu giá
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, CONFIRMED, RESCHEDULED, COMPLETED, CANCELLED]
+ *         description: Lọc theo trạng thái
+ *         example: "PENDING"
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Số trang
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 10
+ *         description: Số lượng kết quả mỗi trang
+ *     responses:
+ *       200:
+ *         description: Lấy danh sách thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Lấy danh sách lịch hẹn đấu giá thành công"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       auctionId:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           startingPrice:
+ *                             type: number
+ *                           winningBid:
+ *                             type: object
+ *                           status:
+ *                             type: string
+ *                           listingId:
+ *                             type: object
+ *                             properties:
+ *                               make:
+ *                                 type: string
+ *                               model:
+ *                                 type: string
+ *                               year:
+ *                                 type: number
+ *                               photos:
+ *                                 type: array
+ *                       buyerId:
+ *                         type: object
+ *                         properties:
+ *                           fullName:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           phone:
+ *                             type: string
+ *                           avatar:
+ *                             type: string
+ *                       sellerId:
+ *                         type: object
+ *                         properties:
+ *                           fullName:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           phone:
+ *                             type: string
+ *                           avatar:
+ *                             type: string
+ *                       scheduledDate:
+ *                         type: string
+ *                         format: date-time
+ *                       status:
+ *                         type: string
+ *                       buyerConfirmed:
+ *                         type: boolean
+ *                       sellerConfirmed:
+ *                         type: boolean
+ *                       appointmentType:
+ *                         type: string
+ *                         example: "AUCTION"
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     current:
+ *                       type: integer
+ *                     pages:
+ *                       type: integer
+ *                     total:
+ *                       type: integer
+ *       401:
+ *         description: Chưa đăng nhập
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/auction/list', authenticate, getAuctionAppointments);
 
 export default router;

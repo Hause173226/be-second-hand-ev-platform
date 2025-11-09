@@ -1,7 +1,10 @@
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IAppointment extends Document {
-  depositRequestId: string;
+  // Có thể là depositRequestId (luồng thường) hoặc auctionId (luồng đấu giá)
+  depositRequestId?: string;
+  auctionId?: string;
+  appointmentType: 'NORMAL_DEPOSIT' | 'AUCTION';
   buyerId: string;
   sellerId: string;
   scheduledDate: Date;
@@ -26,8 +29,16 @@ export interface IAppointment extends Document {
 const AppointmentSchema = new Schema({
   depositRequestId: {
     type: String,
-    required: true,
     ref: 'DepositRequest'
+  },
+  auctionId: {
+    type: String,
+    ref: 'Auction'
+  },
+  appointmentType: {
+    type: String,
+    enum: ['NORMAL_DEPOSIT', 'AUCTION'],
+    required: true
   },
   buyerId: {
     type: String,
@@ -102,5 +113,7 @@ AppointmentSchema.index({ buyerId: 1, status: 1 });
 AppointmentSchema.index({ sellerId: 1, status: 1 });
 AppointmentSchema.index({ scheduledDate: 1 });
 AppointmentSchema.index({ depositRequestId: 1 });
+AppointmentSchema.index({ auctionId: 1 });
+AppointmentSchema.index({ appointmentType: 1 });
 
 export default mongoose.model<IAppointment>('Appointment', AppointmentSchema);
