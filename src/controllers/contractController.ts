@@ -7,6 +7,7 @@ import { User } from '../models/User';
 import walletService from '../services/walletService';
 import { uploadFromBuffer } from '../services/cloudinaryService';
 import depositNotificationService from '../services/depositNotificationService';
+import emailService from '../services/emailService';
 
 // Lấy thông tin hợp đồng (người mua/bán và xe)
 export const getContractInfo = async (req: Request, res: Response) => {
@@ -201,6 +202,24 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
     // Tìm hoặc tạo Contract record
     let contract = await Contract.findOne({ appointmentId });
     
+    // ✅ Xóa ảnh cũ trên Cloudinary nếu contract đã có ảnh (để replace)
+    if (contract && contract.contractPhotos && (contract.contractPhotos as any[]).length > 0) {
+      try {
+        const { deleteMany } = await import('../services/cloudinaryService');
+        const oldPublicIds = (contract.contractPhotos as any[])
+          .map(photo => photo.publicId)
+          .filter(Boolean);
+        
+        if (oldPublicIds.length > 0) {
+          await deleteMany(oldPublicIds);
+          console.log(`✅ Deleted ${oldPublicIds.length} old contract photos from Cloudinary`);
+        }
+      } catch (deleteError) {
+        console.error('Error deleting old photos from Cloudinary:', deleteError);
+        // Tiếp tục dù có lỗi xóa (không block upload)
+      }
+    }
+    
     if (!contract) {
       // Tạo contract mới với thông tin cơ bản
       const depositRequest = appointment.depositRequestId as any;
@@ -266,11 +285,11 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
         staffId: staffId!,
         staffName: req.user?.name || req.user?.email,
         
-        contractPhotos: uploadedPhotos
+        contractPhotos: uploadedPhotos // ✅ Ảnh mới
       });
     } else {
-      // Cập nhật contract hiện tại
-      contract.contractPhotos.push(...uploadedPhotos);
+      // ✅ Replace toàn bộ ảnh cũ bằng ảnh mới (không append)
+      contract.contractPhotos = uploadedPhotos as any;
       contract.status = 'SIGNED';
       contract.signedAt = new Date();
       contract.staffId = staffId!;
@@ -278,27 +297,6 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
     }
 
     await contract.save();
-
-    // Gửi thông báo cho buyer và seller
-    try {
-      const staffInfo = { fullName: req.user?.name || req.user?.email || 'Nhân viên', avatar: req.user?.avatar || '' };
-      
-      // Gửi cho buyer
-      await depositNotificationService.sendContractNotification(
-        appointment.buyerId.toString(),
-        contract,
-        staffInfo
-      );
-
-      // Gửi cho seller
-      await depositNotificationService.sendContractNotification(
-        appointment.sellerId.toString(),
-        contract,
-        staffInfo
-      );
-    } catch (notificationError) {
-      console.error('Error sending contract notification:', notificationError);
-    }
 
     res.json({
       success: true,
@@ -372,6 +370,13 @@ export const completeTransaction = async (req: Request, res: Response) => {
     
     // Chuyển tiền từ Escrow về hệ thống
     await walletService.completeTransaction(depositRequest._id);
+
+    // Cập nhật trạng thái listing thành Sold
+    const listing = await Listing.findById(depositRequest.listingId);
+    if (listing && listing.status === 'InTransaction') {
+      listing.status = 'Sold';
+      await listing.save();
+    }
 
     // Cập nhật trạng thái contract
     contract.status = 'COMPLETED';
@@ -461,6 +466,145 @@ export const getStaffContracts = async (req: Request, res: Response) => {
 
   } catch (error: any) {
     console.error('Error getting staff contracts:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error?.message || 'Unknown error'
+    });
+  }
+};
+
+// Staff hủy giao dịch tại cuộc hẹn (trường hợp C)
+export const cancelContractTransaction = async (req: Request, res: Response) => {
+  try {
+    const { appointmentId } = req.params;
+    const { reason } = req.body; // Lý do hủy (bắt buộc)
+    const staffId = req.user?.id;
+
+    // Kiểm tra quyền staff
+    const isStaff = req.user?.role === 'staff' || req.user?.role === 'admin';
+    if (!isStaff) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ nhân viên mới có quyền hủy giao dịch'
+      });
+    }
+
+    // Kiểm tra lý do hủy
+    if (!reason || reason.trim().length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng cung cấp lý do hủy giao dịch'
+      });
+    }
+
+    // Kiểm tra appointment tồn tại
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('depositRequestId');
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy lịch hẹn'
+      });
+    }
+
+    // Kiểm tra trạng thái
+    if (appointment.status === 'COMPLETED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Không thể hủy giao dịch đã hoàn thành'
+      });
+    }
+
+    if (appointment.status === 'CANCELLED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Giao dịch đã bị hủy trước đó'
+      });
+    }
+
+    // Hoàn tiền từ escrow về ví người mua với phí hủy (80% tiền đặt cọc về buyer, 20% về system)
+    // Tiền đặt cọc = 10% giá xe, khi hủy: hoàn 8% giá xe (80% tiền đặt cọc) về buyer, 2% giá xe (20% tiền đặt cọc) về system
+    const depositRequest = appointment.depositRequestId as any;
+    await walletService.refundFromEscrowWithCancellationFee(depositRequest._id.toString());
+
+    // Cập nhật trạng thái listing về Published để có thể bán lại
+    const listing = await Listing.findById(depositRequest.listingId);
+    if (listing && listing.status === 'InTransaction') {
+      listing.status = 'Published';
+      await listing.save();
+    }
+
+    // Cập nhật trạng thái appointment
+    appointment.status = 'CANCELLED';
+    appointment.cancelledAt = new Date();
+    appointment.notes = reason 
+      ? `${appointment.notes ? appointment.notes + '\n' : ''}[Hủy bởi Staff] Lý do: ${reason}` 
+      : appointment.notes;
+    await appointment.save();
+
+    // Cập nhật DepositRequest status
+    const depositRequestDoc = await DepositRequest.findById(depositRequest._id);
+    if (depositRequestDoc) {
+      depositRequestDoc.status = 'CANCELLED';
+      await depositRequestDoc.save();
+    }
+
+    // Cập nhật hợp đồng nếu có
+    const contract = await Contract.findOne({ appointmentId });
+    if (contract) {
+      contract.status = 'CANCELLED';
+      await contract.save();
+    }
+
+    // Gửi email thông báo cho buyer và seller
+    try {
+      const buyer = await User.findById(appointment.buyerId);
+      const seller = await User.findById(appointment.sellerId);
+      const listing = await Listing.findById(depositRequest.listingId);
+      
+      if (buyer && seller && listing) {
+        // Gửi email cho buyer
+        await emailService.sendTransactionCancelledToBuyerNotification(
+          appointment.buyerId.toString(),
+          seller,
+          appointment,
+          reason,
+          listing
+        );
+        
+        // Gửi email cho seller
+        await emailService.sendTransactionCancelledToSellerNotification(
+          appointment.sellerId.toString(),
+          buyer,
+          appointment,
+          reason,
+          listing
+        );
+      }
+      
+      console.log(`Staff ${staffId} đã hủy giao dịch ${appointmentId}. Lý do: ${reason}`);
+      console.log(`Buyer: ${buyer?.fullName || appointment.buyerId}, Seller: ${seller?.fullName || appointment.sellerId}`);
+    } catch (notificationError) {
+      console.error('Error sending cancellation notification:', notificationError);
+      // Không throw error để không ảnh hưởng đến flow chính
+    }
+
+    res.json({
+      success: true,
+      message: 'Hủy giao dịch thành công, tiền đã hoàn về ví người mua',
+      data: {
+        appointmentId: appointment._id,
+        status: appointment.status,
+        cancelledAt: appointment.cancelledAt,
+        reason: reason,
+        cancelledBy: staffId
+      }
+    });
+
+  } catch (error: any) {
+    console.error('Error cancelling contract transaction:', error);
     res.status(500).json({
       success: false,
       message: 'Lỗi hệ thống',

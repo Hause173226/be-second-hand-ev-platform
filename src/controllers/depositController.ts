@@ -28,15 +28,41 @@ export const createDepositRequest = async (req: Request, res: Response) => {
       });
     }
 
-    // Kiểm tra xe còn bán không
+    // Kiểm tra xe còn bán không (phải là Published)
     if (listing.status !== 'Published') {
+      if (listing.status === 'InTransaction') {
+        return res.status(400).json({
+          success: false,
+          message: 'Xe đang trong giao dịch, không thể đặt cọc'
+        });
+      }
+      if (listing.status === 'Sold') {
+        return res.status(400).json({
+          success: false,
+          message: 'Xe đã bán'
+        });
+      }
       return res.status(400).json({
         success: false,
-        message: 'Xe đã bán'
+        message: 'Xe không còn bán'
       });
     }
 
-    // Kiểm tra đã có yêu cầu đặt cọc chưa
+    // Kiểm tra xe có đang được đặt cọc bởi bất kỳ ai không
+    const activeDepositRequest = await DepositRequest.findOne({
+      listingId,
+      status: { $in: ['PENDING_SELLER_CONFIRMATION', 'SELLER_CONFIRMED', 'IN_ESCROW'] }
+    });
+
+    // Nếu có người khác đang đặt cọc xe này → không cho phép
+    if (activeDepositRequest && activeDepositRequest.buyerId.toString() !== buyerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Xe đang được đặt cọc bởi người mua khác, vui lòng thử lại sau'
+      });
+    }
+
+    // Kiểm tra buyer đã đặt cọc xe này chưa
     const existingRequest = await DepositRequest.findOne({
       listingId,
       buyerId,
@@ -50,14 +76,17 @@ export const createDepositRequest = async (req: Request, res: Response) => {
       });
     }
 
+
     // Kiểm tra số dư ví người mua
     const buyerWallet = await walletService.getWallet(buyerId!);
     
     if (buyerWallet.balance < depositAmount) {
-      // Không đủ tiền -> Tạo link nạp tiền qua VNPay
+      // Không đủ tiền -> Tính số tiền còn thiếu và tạo link nạp tiền qua VNPay
+      const missingAmount = depositAmount - buyerWallet.balance; // Số tiền còn thiếu
+      
       const vnpayUrl = await walletService.createDepositUrl(
         buyerId!.toString(),
-        depositAmount,
+        missingAmount, // Chỉ nạp số tiền còn thiếu
         `Nạp tiền đặt cọc mua xe ${(listing as any).title || 'Xe'}`,
         req
       );
@@ -66,8 +95,9 @@ export const createDepositRequest = async (req: Request, res: Response) => {
         success: false,
         message: 'Số dư không đủ để đặt cọc',
         vnpayUrl: vnpayUrl,
-        requiredAmount: depositAmount,
-        currentBalance: buyerWallet.balance
+        requiredAmount: depositAmount, // Tổng tiền đặt cọc cần
+        currentBalance: buyerWallet.balance, // Số dư hiện tại
+        missingAmount: missingAmount // Số tiền còn thiếu (chỉ cần nạp số này)
       });
     }
 
@@ -166,14 +196,20 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
     
     
     if (action === 'CONFIRM') {
-      // Xác nhận cọc -> Chuyển tiền vào Escrow và tạo appointment
+   // Xác nhận cọc -> Chuyển tiền vào Escrow và tạo appointment
       const result = await walletService.transferToEscrow(depositRequestId);
+
+      // Cập nhật status listing thành InTransaction khi seller confirm deposit
+      const listing = await Listing.findById(depositRequest.listingId);
+      if (listing && listing.status === 'Published') {
+        listing.status = 'InTransaction';
+        await listing.save();
+      }
 
       // Gửi thông báo cho người mua
       try {
         const seller = await User.findById(sellerId);
-        const listing = await Listing.findById(depositRequest.listingId);
-        if (seller) {
+        if (seller && listing) {
           await depositNotificationService.sendDepositConfirmationNotification(
             depositRequest.buyerId, 
             depositRequest,
@@ -197,6 +233,9 @@ export const sellerConfirmDeposit = async (req: Request, res: Response) => {
       });
 
     } else if (action === 'REJECT') {
+      // ✅ KHÔNG xóa notification của seller ở đây - để FE tự xóa sau khi reject thành công
+      // (Nếu BE xóa, FE sẽ bị lỗi "Notification not found" khi cố gắng xóa lại)
+
       // Từ chối cọc -> Hoàn tiền từ frozen về ví người mua
       await walletService.unfreezeAmount(
         depositRequest.buyerId,
@@ -442,6 +481,13 @@ export const cancelTransactionInEscrow = async (req: Request, res: Response) => 
     // Hoàn tiền từ escrow về ví buyer
     await walletService.refundFromEscrow(depositRequestId);
 
+    // Cập nhật trạng thái listing về Published để có thể bán lại
+    const listing = await Listing.findById(depositRequest.listingId);
+    if (listing && listing.status === 'InTransaction') {
+      listing.status = 'Published';
+      await listing.save();
+    }
+
     // Cập nhật trạng thái
     depositRequest.status = 'CANCELLED';
     await depositRequest.save();
@@ -449,7 +495,6 @@ export const cancelTransactionInEscrow = async (req: Request, res: Response) => 
     // Gửi notification cho seller
     try {
       const buyer = await User.findById(buyerId);
-      const listing = await Listing.findById(depositRequest.listingId);
       
       if (buyer && listing) {
         // TODO: Thêm notification service cho trường hợp này

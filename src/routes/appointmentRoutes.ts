@@ -466,7 +466,7 @@ router.get('/user', authenticate, getUserAppointments);
  * @swagger
  * /api/appointments/staff:
  *   get:
- *     summary: Lấy danh sách lịch hẹn cho Staff/Admin
+ *     summary: Lấy danh sách lịch hẹn cho Staff/Admin (không phân trang)
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -475,25 +475,13 @@ router.get('/user', authenticate, getUserAppointments);
  *         name: status
  *         schema:
  *           type: string
- *         description: Lọc theo trạng thái (có thể nhiều, ngăn cách bằng dấu phẩy)
- *         example: "CONFIRMED,PENDING,RESCHEDULED"
+ *         description: Lọc theo trạng thái (CONFIRMED, COMPLETED, CANCELLED - có thể nhiều, ngăn cách bằng dấu phẩy)
+ *         example: "CONFIRMED,COMPLETED,CANCELLED"
  *       - in: query
  *         name: search
  *         schema:
  *           type: string
- *         description: Tìm kiếm theo tên buyer/seller
- *       - in: query
- *         name: page
- *         schema:
- *           type: integer
- *           default: 1
- *         description: Số trang
- *       - in: query
- *         name: limit
- *         schema:
- *           type: integer
- *           default: 10
- *         description: Số lượng kết quả mỗi trang
+ *         description: Tìm kiếm theo tên buyer/seller, email, phone hoặc appointment ID
  *     responses:
  *       200:
  *         description: Lấy danh sách thành công
@@ -512,24 +500,20 @@ router.get('/user', authenticate, getUserAppointments);
  *                   type: array
  *                   items:
  *                     $ref: '#/components/schemas/Appointment'
- *                 pagination:
- *                   type: object
- *                   properties:
- *                     page:
- *                       type: integer
- *                     limit:
- *                       type: integer
- *                     total:
- *                       type: integer
- *                     totalPages:
- *                       type: integer
+ *                 total:
+ *                   type: integer
+ *                   description: Tổng số appointments sau khi filter
+ *                   example: 10
  *                 filters:
  *                   type: object
  *                   properties:
  *                     status:
  *                       type: string
+ *                       example: "CONFIRMED,COMPLETED,CANCELLED"
+ *                       description: "Mặc định hiển thị 3 trạng thái: CONFIRMED (chờ xử lý), COMPLETED (đã hoàn thành), CANCELLED (đã hủy)"
  *                     search:
  *                       type: string
+ *                       example: ""
  *       401:
  *         description: Chưa đăng nhập
  *       403:

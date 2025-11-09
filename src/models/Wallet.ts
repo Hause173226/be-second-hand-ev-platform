@@ -5,8 +5,10 @@ interface IWallet extends Document {
   userId: string; // ID người dùng
   balance: number; // Số dư hiện tại (VNĐ)
   frozenAmount: number; // Số tiền bị đóng băng (trong escrow)
-  totalDeposited: number; // Tổng tiền đã nạp
+  totalDeposited: number; // Tổng tiền đã nạp (từ VNPay)
   totalWithdrawn: number; // Tổng tiền đã rút
+  totalSpent: number; // Tổng tiền đã dùng để đặt cọc/mua hàng trong hệ thống
+  totalRefunded: number; // Tổng tiền đã hoàn lại từ escrow
   currency: string; // Đơn vị tiền tệ (VND)
   status: WalletStatus; // Trạng thái ví
   lastTransactionAt?: Date; // Thời gian giao dịch cuối
@@ -46,6 +48,18 @@ const WalletSchema = new Schema({
     min: 0,
   },
   totalWithdrawn: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+  },
+  totalSpent: {
+    type: Number,
+    required: true,
+    default: 0,
+    min: 0,
+  },
+  totalRefunded: {
     type: Number,
     required: true,
     default: 0,
