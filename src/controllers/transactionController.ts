@@ -249,6 +249,91 @@ export const getUserTransactionHistory = async (req: Request, res: Response) => 
   }
 };
 
+// Lấy lịch sử giao dịch cho admin (tất cả giao dịch)
+export const getAdminTransactionHistory = async (req: Request, res: Response) => {
+  try {
+    // Kiểm tra quyền admin
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'staff';
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ admin/staff mới có quyền xem lịch sử giao dịch'
+      });
+    }
+
+    const { status, buyerId, sellerId, page = 1, limit = 20, startDate, endDate } = req.query;
+
+    const filter: any = {};
+
+    // Filter theo status
+    if (status) {
+      filter.status = status;
+    }
+
+    // Filter theo buyer
+    if (buyerId) {
+      filter.buyerId = buyerId;
+    }
+
+    // Filter theo seller
+    if (sellerId) {
+      filter.sellerId = sellerId;
+    }
+
+    // Filter theo thời gian
+    if (startDate || endDate) {
+      filter.createdAt = {};
+      if (startDate) {
+        filter.createdAt.$gte = new Date(startDate as string);
+      }
+      if (endDate) {
+        filter.createdAt.$lte = new Date(endDate as string);
+      }
+    }
+
+    const appointments = await Appointment.find(filter)
+      .populate('depositRequestId', 'depositAmount status')
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone')
+      .populate('listingId', 'title make model year priceListed')
+      .sort({ createdAt: -1 })
+      .limit(Number(limit) * 1)
+      .skip((Number(page) - 1) * Number(limit));
+
+    const total = await Appointment.countDocuments(filter);
+
+    // Lấy thông tin contract cho mỗi appointment
+    const appointmentsWithContract = await Promise.all(
+      appointments.map(async (appointment) => {
+        const contract = await Contract.findOne({ appointmentId: appointment._id });
+        return {
+          ...appointment.toObject(),
+          contract: contract || null
+        };
+      })
+    );
+
+    res.json({
+      success: true,
+      data: appointmentsWithContract,
+      pagination: {
+        current: Number(page),
+        pages: Math.ceil(total / Number(limit)),
+        total,
+        limit: Number(limit)
+      }
+    });
+
+  } catch (error) {
+    console.error('Error getting admin transaction history:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
 // Hủy giao dịch (chỉ trong trường hợp đặc biệt)
 export const cancelTransaction = async (req: Request, res: Response) => {
   try {

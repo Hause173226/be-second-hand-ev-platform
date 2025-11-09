@@ -32,7 +32,14 @@ export class DepositNotificationService {
      */
     public async sendDepositRequestNotification(sellerId: string, depositRequest: any, buyerInfo: any, listingInfo?: any) {
         try {
-
+            // ✅ Xóa notification cũ của listing này (nếu buyer đặt cọc lại)
+            if (listingInfo?._id) {
+                await this.deleteOldNotifications({
+                    userId: sellerId,
+                    type: 'deposit',
+                    listingId: listingInfo._id.toString()
+                });
+            }
             
             // Tạo notification trong database
             // Tạo message với thông tin sản phẩm
@@ -131,8 +138,8 @@ export class DepositNotificationService {
                 ? 'Đặt cọc được chấp nhận' 
                 : 'Đặt cọc bị từ chối';
             const message = action === 'accept'
-                ? `${sellerInfo.fullName || sellerInfo.email} đã chấp nhận yêu cầu đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName}`
-                : `${sellerInfo.fullName || sellerInfo.email} đã từ chối yêu cầu đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName}`;
+                ? `${sellerInfo.fullName || sellerInfo.email} đã chấp nhận đặt cọc ${depositRequest.depositAmount?.toLocaleString('vi-VN')} VND cho ${productName} và xin hãy đợi lịch được gửi từ người bán: "${sellerInfo.fullName || sellerInfo.email}".`
+                : `Vì một số lý do bất tiện nên người bán "${sellerInfo.fullName || sellerInfo.email}" đã từ chối bạn. Bạn có thể liên hệ với người bán qua mục 「tin nhắn」 và tiền đặt cọc của bạn đã được hoàn lại về ví`;
 
             // Tạo notification trong database
             const notification = new NotificationDeposit({
@@ -323,14 +330,29 @@ export class DepositNotificationService {
                 ? `${make} ${model} ${year}`.trim()
                 : listingInfo?.title || 'sản phẩm';
             
+            // Format ngày giờ theo định dạng Việt Nam
+            const scheduledDate = appointment.scheduledDate instanceof Date 
+                ? appointment.scheduledDate 
+                : new Date(appointment.scheduledDate);
+            const formattedDateTime = scheduledDate.toLocaleString('vi-VN', {
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit',
+                hour: '2-digit',
+                minute: '2-digit',
+                hour12: false
+            });
+
             const notification = new NotificationDeposit({
                 userId: receiverId,
                 type: 'appointment_created',
                 title: 'Lịch hẹn ký hợp đồng đã được tạo',
-                message: `Lịch hẹn ký hợp đồng cho ${productName} đã được tạo vào ${appointment.scheduledDate.toLocaleDateString('vi-VN')} tại ${appointment.location}`,
+                message: `Lịch hẹn ký hợp đồng cho ${productName} đã được tạo vào ${formattedDateTime} tại ${appointment.location}`,
                 appointmentId: appointment._id?.toString(),
+                depositId: appointment.depositRequestId?.toString(), // ✅ Thêm depositId để dễ query
                 metadata: {
                     appointmentId: appointment._id,
+                    depositRequestId: appointment.depositRequestId, // ✅ Thêm depositRequestId vào metadata
                     scheduledDate: appointment.scheduledDate,
                     location: appointment.location,
                     status: appointment.status,
@@ -366,6 +388,137 @@ export class DepositNotificationService {
             return notification;
         } catch (error) {
             console.error('Error sending appointment created notification:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Gửi notification khi hủy lịch hẹn (có thể kèm hủy giao dịch)
+     */
+    public async sendAppointmentCancelledNotification(
+        buyerId: string,
+        sellerId: string,
+        appointment: any,
+        reason: string,
+        listingInfo?: any,
+        depositRequest?: any,
+        isTransactionCancelled: boolean = false
+    ) {
+        try {
+            // Tạo message với thông tin sản phẩm
+            const make = listingInfo?.make || '';
+            const model = listingInfo?.model || '';
+            const year = listingInfo?.year || '';
+            
+            // Tạo tên sản phẩm từ make, model, year
+            const productName = make && model && year 
+                ? `${make} ${model} ${year}`.trim()
+                : listingInfo?.title || 'sản phẩm';
+
+            const buyer = await User.findById(buyerId);
+            const seller = await User.findById(sellerId);
+
+            // Notification cho buyer
+            const buyerNotification = new NotificationDeposit({
+                userId: buyerId,
+                type: isTransactionCancelled ? 'transaction_cancelled' : 'appointment_cancelled',
+                title: isTransactionCancelled ? 'Giao dịch đã bị hủy' : 'Lịch hẹn đã bị hủy',
+                message: isTransactionCancelled
+                    ? `Giao dịch mua ${productName} đã bị hủy${reason ? `. Lý do: ${reason}` : ''}. Tiền đặt cọc đã được hoàn về ví của bạn.`
+                    : `Lịch hẹn cho ${productName} đã bị hủy${reason ? `. Lý do: ${reason}` : ''}`,
+                appointmentId: appointment._id?.toString(),
+                metadata: {
+                    appointmentId: appointment._id,
+                    listingId: listingInfo?._id,
+                    listingTitle: listingInfo?.title,
+                    make: listingInfo?.make,
+                    model: listingInfo?.model,
+                    year: listingInfo?.year,
+                    buyerId: buyerId,
+                    buyerName: buyer?.fullName,
+                    sellerId: sellerId,
+                    sellerName: seller?.fullName,
+                    reason: reason,
+                    scheduledDate: appointment.scheduledDate,
+                    isTransactionCancelled: isTransactionCancelled,
+                    depositRequestId: appointment.depositRequestId
+                },
+                isRead: false
+            });
+
+            // Notification cho seller
+            const sellerNotification = new NotificationDeposit({
+                userId: sellerId,
+                type: isTransactionCancelled ? 'transaction_cancelled' : 'appointment_cancelled',
+                title: isTransactionCancelled ? 'Giao dịch đã bị hủy' : 'Lịch hẹn đã bị hủy',
+                message: isTransactionCancelled
+                    ? `Giao dịch bán ${productName} đã bị hủy${reason ? `. Lý do: ${reason}` : ''}`
+                    : `Lịch hẹn cho ${productName} đã bị hủy${reason ? `. Lý do: ${reason}` : ''}`,
+                appointmentId: appointment._id?.toString(),
+                metadata: {
+                    appointmentId: appointment._id,
+                    listingId: listingInfo?._id,
+                    listingTitle: listingInfo?.title,
+                    make: listingInfo?.make,
+                    model: listingInfo?.model,
+                    year: listingInfo?.year,
+                    buyerId: buyerId,
+                    buyerName: buyer?.fullName,
+                    sellerId: sellerId,
+                    sellerName: seller?.fullName,
+                    reason: reason,
+                    scheduledDate: appointment.scheduledDate,
+                    isTransactionCancelled: isTransactionCancelled,
+                    depositRequestId: appointment.depositRequestId
+                },
+                isRead: false
+            });
+
+            await buyerNotification.save();
+            await sellerNotification.save();
+
+            // Gửi WebSocket notification
+            const wsService = this.getWsService();
+            if (wsService) {
+                wsService.sendToUser(buyerId, isTransactionCancelled ? 'transaction_cancelled' : 'appointment_cancelled', {
+                    notificationId: buyerNotification._id,
+                    type: isTransactionCancelled ? 'transaction_cancelled' : 'appointment_cancelled',
+                    title: buyerNotification.title,
+                    message: buyerNotification.message,
+                    appointmentId: appointment._id,
+                    metadata: buyerNotification.metadata,
+                    timestamp: buyerNotification.createdAt
+                });
+
+                wsService.sendToUser(sellerId, isTransactionCancelled ? 'transaction_cancelled' : 'appointment_cancelled', {
+                    notificationId: sellerNotification._id,
+                    type: isTransactionCancelled ? 'transaction_cancelled' : 'appointment_cancelled',
+                    title: sellerNotification.title,
+                    message: sellerNotification.message,
+                    appointmentId: appointment._id,
+                    metadata: sellerNotification.metadata,
+                    timestamp: sellerNotification.createdAt
+                });
+            }
+
+            // Gửi email cho cả buyer và seller
+            if (buyer && seller) {
+                await emailService.sendAppointmentCancelledNotification(
+                    buyerId,
+                    sellerId,
+                    appointment,
+                    reason,
+                    listingInfo,
+                    depositRequest,
+                    isTransactionCancelled
+                );
+            }
+
+            console.log(`Appointment cancelled notification sent to buyer ${buyerId} and seller ${sellerId}`);
+
+            return [buyerNotification, sellerNotification];
+        } catch (error) {
+            console.error('Error sending appointment cancelled notification:', error);
             throw error;
         }
     }
@@ -574,6 +727,43 @@ export class DepositNotificationService {
         } catch (error) {
             console.error('Error deleting notification:', error);
             throw error;
+        }
+    }
+
+    /**
+     * Xóa notification cũ theo điều kiện (helper function)
+     */
+    public async deleteOldNotifications(filter: {
+        userId?: string;
+        type?: string;
+        depositId?: string;
+        appointmentId?: string;
+        listingId?: string;
+        depositRequestId?: string; // ✅ Thêm field mới
+    }) {
+        try {
+            const NotificationDepositModel = (await import('../models/NotificationDeposit')).NotificationDeposit;
+            
+            const deleteFilter: any = {};
+            if (filter.userId) deleteFilter.userId = filter.userId;
+            if (filter.type) deleteFilter.type = filter.type;
+            if (filter.depositId) deleteFilter.depositId = filter.depositId;
+            if (filter.appointmentId) deleteFilter.appointmentId = filter.appointmentId;
+            if (filter.listingId) {
+                deleteFilter['metadata.listingId'] = filter.listingId;
+            }
+            // ✅ Xóa notification theo depositRequestId trong metadata
+            if (filter.depositRequestId) {
+                deleteFilter['metadata.depositRequestId'] = filter.depositRequestId;
+            }
+
+            const result = await NotificationDepositModel.deleteMany(deleteFilter);
+            console.log(`✅ Deleted ${result.deletedCount} old notifications with filter:`, deleteFilter);
+            return result;
+        } catch (error) {
+            console.error('Error deleting old notifications:', error);
+            // Không throw error để không ảnh hưởng đến flow chính
+            return { deletedCount: 0 };
         }
     }
 }

@@ -39,9 +39,21 @@ router.get("/", authenticateJWT, async (req, res) => {
 
     const wallet = await walletService.getWallet(userId.toString());
 
+    // ✅ Tính tổng tiền đang trong escrow (ACTIVE) của user
+    const EscrowAccount = (await import('../models/EscrowAccount')).default;
+    const activeEscrows = await EscrowAccount.find({
+      buyerId: userId.toString(),
+      status: 'ACTIVE'
+    });
+    
+    const escrowAmount = activeEscrows.reduce((sum, escrow) => sum + escrow.amount, 0);
+
     res.json({
       success: true,
-      data: wallet,
+      data: {
+        ...wallet.toObject(),
+        escrowAmount: escrowAmount, // ✅ Tổng tiền đang trong escrow
+      },
     });
   } catch (error: any) {
     res.status(500).json({

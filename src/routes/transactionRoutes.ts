@@ -4,6 +4,7 @@ import {
   getPendingTransactions,
   getTransactionDetails,
   getUserTransactionHistory,
+  getAdminTransactionHistory,
   cancelTransaction
 } from '../controllers/transactionController';
 import { authenticate } from '../middlewares/authenticate';
@@ -160,6 +161,80 @@ router.get('/pending', authenticate, requireRole(['staff', 'admin']), getPending
  *         description: Lỗi server
  */
 router.get('/user/history', authenticate, getUserTransactionHistory);
+
+/**
+ * @swagger
+ * /api/transactions/admin/history:
+ *   get:
+ *     summary: Lấy lịch sử giao dịch cho admin (tất cả giao dịch)
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [PENDING, CONFIRMED, COMPLETED, CANCELLED, REJECTED]
+ *         description: Lọc theo trạng thái
+ *       - in: query
+ *         name: buyerId
+ *         schema:
+ *           type: string
+ *         description: Lọc theo ID người mua
+ *       - in: query
+ *         name: sellerId
+ *         schema:
+ *           type: string
+ *         description: Lọc theo ID người bán
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Ngày bắt đầu (YYYY-MM-DD)
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *         description: Ngày kết thúc (YYYY-MM-DD)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Số trang
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Số lượng mỗi trang
+ *     responses:
+ *       200:
+ *         description: Danh sách giao dịch
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 pagination:
+ *                   type: object
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền (chỉ admin/staff)
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/admin/history', authenticate, requireRole(['admin', 'staff']), getAdminTransactionHistory);
 
 /**
  * @swagger
