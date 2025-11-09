@@ -51,3 +51,59 @@ export const endAuction = async (req: Request, res: Response) => {
         res.status(400).json({ message: err instanceof Error ? err.message : err });
     }
 };
+
+
+export const getOngoingAuctions = async (req: Request, res: Response) => {
+    try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        
+        const result = await auctionService.getOngoingAuctions(page, limit);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err instanceof Error ? err.message : err });
+    }
+};
+
+
+export const getUpcomingAuctions = async (req: Request, res: Response) => {
+    try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        
+        const result = await auctionService.getUpcomingAuctions(page, limit);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err instanceof Error ? err.message : err });
+    }
+};
+
+
+export const getEndedAuctions = async (req: Request, res: Response) => {
+    try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        
+        const result = await auctionService.getEndedAuctions(page, limit);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err instanceof Error ? err.message : err });
+    }
+};
+
+
+export const getAllAuctions = async (req: Request, res: Response) => {
+    try {
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const filters = {
+            status: req.query.status as string,
+            listingId: req.query.listingId as string
+        };
+        
+        const result = await auctionService.getAllAuctions(filters, page, limit);
+        res.json(result);
+    } catch (err) {
+        res.status(400).json({ message: err instanceof Error ? err.message : err });
+    }
+};

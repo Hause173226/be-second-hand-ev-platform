@@ -23,6 +23,7 @@ import notificationRoutes from "./routes/notificationRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
 import auctionDepositRoutes from "./routes/auctionDepositRoutes";
 import membershipRoutes from "./routes/membershipRoutes";
+import ekycRoutes from "./routes/ekycRoutes";
 
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
@@ -72,6 +73,7 @@ app.use("/api/notification-messages", notificationRoutes);
 app.use("/api/auctions", auctionRoutes);
 app.use("/api/memberships", membershipRoutes);
 app.use("/api/auctions", auctionDepositRoutes);
+app.use("/api/ekyc", ekycRoutes);
 
 // 📘 Swagger Docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

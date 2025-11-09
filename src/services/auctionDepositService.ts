@@ -3,18 +3,28 @@ import Auction from '../models/Auction';
 import walletService from './walletService';
 import { Types } from 'mongoose';
 
+// PHÍ CỌC THAM GIA ĐẤU GIÁ CỐ ĐỊNH
+const AUCTION_PARTICIPATION_FEE = 1000000; // 1 triệu VNĐ
+
 export const auctionDepositService = {
   /**
    * Đặt cọc để tham gia đấu giá
+   * - Phí cọc cố định: 1,000,000 VNĐ
    * - Kiểm tra số dư ví
    * - Freeze tiền cọc từ ví người dùng
    * - Tạo record AuctionDeposit
    */
   async createAuctionDeposit(auctionId: string, userId: string) {
     // Kiểm tra auction có tồn tại không
-    const auction = await Auction.findById(auctionId);
+    const auction = await Auction.findById(auctionId).populate('listingId');
     if (!auction) {
       throw new Error('Không tìm thấy phiên đấu giá');
+    }
+
+    // Kiểm tra user có phải là seller của sản phẩm không
+    const listing = auction.listingId as any;
+    if (listing.sellerId.toString() === userId.toString()) {
+      throw new Error('Bạn không thể đặt cọc cho sản phẩm của chính mình');
     }
 
     // Kiểm tra trạng thái auction
@@ -39,24 +49,24 @@ export const auctionDepositService = {
       throw new Error('Bạn đã đặt cọc cho phiên đấu giá này rồi');
     }
 
-    // Kiểm tra số dư ví
+    // Kiểm tra số dư ví (PHÍ CỐ ĐỊNH 1 TRIỆU)
     const wallet = await walletService.getWallet(userId);
-    if (wallet.balance < auction.depositAmount) {
-      throw new Error(`Số dư không đủ. Cần ${auction.depositAmount.toLocaleString('vi-VN')} VNĐ để đặt cọc`);
+    if (wallet.balance < AUCTION_PARTICIPATION_FEE) {
+      throw new Error(`Số dư không đủ. Cần ${AUCTION_PARTICIPATION_FEE.toLocaleString('vi-VN')} VNĐ để đặt cọc tham gia đấu giá`);
     }
 
-    // Freeze tiền từ ví
+    // Freeze tiền từ ví (PHÍ CỐ ĐỊNH 1 TRIỆU)
     await walletService.freezeAmount(
       userId,
-      auction.depositAmount,
+      AUCTION_PARTICIPATION_FEE,
       `Đặt cọc tham gia đấu giá #${auctionId}`
     );
 
-    // Tạo record deposit
+    // Tạo record deposit với PHÍ CỐ ĐỊNH
     const deposit = await AuctionDeposit.create({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      depositAmount: auction.depositAmount,
+      depositAmount: AUCTION_PARTICIPATION_FEE,
       status: 'FROZEN',
       frozenAt: new Date()
     });
@@ -199,6 +209,13 @@ export const auctionDepositService = {
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId)
     });
+  },
+
+  /**
+   * Lấy phí cọc tham gia đấu giá (cố định)
+   */
+  getParticipationFee(): number {
+    return AUCTION_PARTICIPATION_FEE;
   }
 };
 

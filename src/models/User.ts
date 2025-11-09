@@ -139,6 +139,18 @@ const userSchema = new Schema<IUser>(
     // SSO
     googleId: { type: String },
     facebookId: { type: String },
+
+    // eKYC
+    ekycStatus: {
+      type: String,
+      enum: ["unverified", "pending", "verified", "rejected"],
+      default: "unverified",
+      index: true,
+    },
+    ekycProvider: { type: String, enum: ["FPT"], default: undefined },
+    ekycRefId: { type: String, index: true },
+    ekycResult: { type: Schema.Types.Mixed },
+    verifiedAt: { type: Date },
   },
   { timestamps: { createdAt: "createdAt", updatedAt: "updatedAt" } }
 );
@@ -175,6 +187,7 @@ userSchema.index({ googleId: 1 });
 userSchema.index({ facebookId: 1 });
 userSchema.index({ status: 1 });
 userSchema.index({ role: 1 });
+userSchema.index({ ekycStatus: 1 });
 
 // Loại bỏ sensitive fields khi trả về JSON
 userSchema.methods.toJSON = function () {

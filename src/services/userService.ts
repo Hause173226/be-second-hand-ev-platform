@@ -112,7 +112,7 @@ export const userService = {
     return { accessToken, refreshToken };
   },
 
-  signIn: async (email: string, password: string, role?: string) => {
+  signIn: async (email: string, password: string) => {
     const emailNorm = normalizeEmail(email);
 
     const user = await User.findOne({ email: emailNorm }).select(
@@ -125,9 +125,6 @@ export const userService = {
 
     const isMatch = await bcrypt.compare(password, userPassword);
     if (!isMatch) throw new Error("Email hoặc mật khẩu không đúng");
-
-    if (role && user.role !== role)
-      throw new Error("Quyền truy cập không phù hợp với tài khoản");
 
     const { accessToken, refreshToken } = await userService.generateTokens(
       user
@@ -231,23 +228,14 @@ export const userService = {
     const user = await User.findById(userId);
     if (!user) throw new Error("User not found");
 
-    if (updateData.password)
-      throw new Error("Sử dụng changePassword để đổi mật khẩu");
-    if (
-      updateData.status &&
-      !["ACTIVE", "SUSPENDED", "DELETED"].includes(updateData.status)
-    )
-      throw new Error("Status không hợp lệ");
-
-    Object.keys(updateData).forEach((key) => {
-      if (
-        updateData[key] !== undefined &&
-        updateData[key] !== null &&
-        !["password", "refreshToken"].includes(key)
-      ) {
-        (user as any)[key] = updateData[key];
-      }
-    });
+    // Chỉ cho phép cập nhật status
+    if (updateData.status) {
+      if (!["ACTIVE", "SUSPENDED", "DELETED"].includes(updateData.status))
+        throw new Error("Status không hợp lệ");
+      (user as any).status = updateData.status;
+    } else {
+      throw new Error("Chỉ có thể cập nhật status");
+    }
 
     await user.save();
     const userObj = user.toObject() as any;
