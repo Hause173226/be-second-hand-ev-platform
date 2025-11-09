@@ -6,6 +6,7 @@ import { Payment } from "../models/Payment";
 import mongoose from "mongoose";
 import { calculateRenewPricing } from "../utils/pricingCalculator";
 import { User } from "../models/User";
+import { UserMembership } from "../models/UserMembership";
 
 export const membershipController = {
   /**
@@ -45,6 +46,14 @@ export const membershipController = {
       }
 
       const membership = await membershipService.getCurrentMembership(userId);
+
+      if (!membership) {
+        res.status(404).json({
+          success: false,
+          message: "Không tìm thấy gói membership",
+        });
+        return;
+      }
 
       res.json({
         success: true,
