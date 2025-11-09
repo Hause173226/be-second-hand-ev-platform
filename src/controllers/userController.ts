@@ -1,6 +1,8 @@
 import { Request, Response } from "express";
 import { userService } from "../services/userService";
 import { uploadFromBuffer } from "../services/cloudinaryService";
+import { membershipService } from "../services/membershipService";
+import { MembershipPackage } from "../models/MembershipPackage";
 
 export const signUp = async (req: Request, res: Response) => {
   try {
@@ -38,7 +40,27 @@ export const signUp = async (req: Request, res: Response) => {
       address: address,
     };
 
+    // Tạo user
     const user = await userService.signUp(userData);
+
+    // TỰ ĐỘNG GÁN GÓI FREE CHO USER MỚI
+    try {
+      const freePackage = await MembershipPackage.findOne({
+        slug: "free",
+        isActive: true,
+      });
+
+      if (freePackage) {
+        await membershipService.purchasePackage(
+          String(user.user._id),
+          String(freePackage._id)
+        );
+      }
+    } catch (membershipError) {
+      // Không fail toàn bộ signup nếu gán membership thất bại
+      console.error("Failed to assign FREE membership:", membershipError);
+    }
+
     res.status(201).json(user);
   } catch (err) {
     if (err instanceof Error) {
