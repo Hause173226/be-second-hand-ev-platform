@@ -30,12 +30,18 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
     }
 
     // Kiểm tra quyền tạo lịch hẹn (chỉ người mua hoặc người bán)
-    if (depositRequest.buyerId !== userId && depositRequest.sellerId !== userId) {
+    const isBuyer = depositRequest.buyerId === userId;
+    const isSeller = depositRequest.sellerId === userId;
+    
+    if (!isBuyer && !isSeller) {
       return res.status(403).json({
         success: false,
         message: 'Bạn không có quyền tạo lịch hẹn cho giao dịch này'
       });
     }
+    
+    // ✅ Xác định ai tạo appointment (để logic confirm chỉ cần bên còn lại confirm)
+    const createdBy = isSeller ? 'SELLER' : 'BUYER';
 
     // Kiểm tra trạng thái deposit request
     if (depositRequest.status !== 'IN_ESCROW') {
@@ -45,18 +51,25 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
       });
     }
 
-    // Kiểm tra đã có lịch hẹn chưa
-    const existingAppointment = await Appointment.findOne({
+    // ✅ Kiểm tra đã có lịch hẹn ACTIVE chưa (chỉ chặn nếu đang active)
+    // Logic: Cho phép tạo appointment mới nếu appointment cũ đã REJECTED hoặc CANCELLED
+    // Chỉ chặn nếu appointment đang active (PENDING, CONFIRMED, RESCHEDULED)
+    const existingActiveAppointment = await Appointment.findOne({
       depositRequestId,
       status: { $in: ['PENDING', 'CONFIRMED', 'RESCHEDULED'] }
     });
 
-    if (existingAppointment) {
+    if (existingActiveAppointment) {
+      // Nếu appointment đang active → không cho phép tạo mới
       return res.status(400).json({
         success: false,
-        message: 'Đã có lịch hẹn cho giao dịch này'
+        message: 'Đã có lịch hẹn đang hoạt động cho giao dịch này. Vui lòng hủy hoặc từ chối lịch hẹn hiện tại trước khi tạo mới.',
+        existingAppointmentId: existingActiveAppointment._id
       });
     }
+    
+    // ✅ Nếu appointment cũ đã REJECTED hoặc CANCELLED → cho phép tạo appointment mới
+    // (theo logic: seller tạo lịch → buyer từ chối → seller tạo lịch lại)
 
     // ✅ Xóa notification cũ của depositRequest này (nếu tạo lại lịch hẹn)
     // Xóa tất cả notification appointment_created cũ của buyer cho depositRequest này
@@ -81,6 +94,7 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
       appointmentType: 'NORMAL_DEPOSIT',
       buyerId: depositRequest.buyerId,
       sellerId: depositRequest.sellerId,
+      createdBy: createdBy, // ✅ Lưu ai tạo appointment
             scheduledDate: appointmentDate,
       status: 'PENDING',
       type: 'CONTRACT_SIGNING',
@@ -163,11 +177,11 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       });
     }
 
-    // Kiểm tra trạng thái
-    if (appointment.status !== 'PENDING' && appointment.status !== 'CONFIRMED') {
+    // ✅ Kiểm tra trạng thái - cho phép confirm nếu PENDING, CONFIRMED, hoặc RESCHEDULED
+    if (appointment.status !== 'PENDING' && appointment.status !== 'CONFIRMED' && appointment.status !== 'RESCHEDULED') {
       return res.status(400).json({
         success: false,
-        message: 'Lịch hẹn không thể xác nhận'
+        message: 'Lịch hẹn không thể xác nhận (chỉ có thể xác nhận lịch hẹn đang chờ xác nhận, đã xác nhận, hoặc đã dời lịch)'
       });
     }
 
@@ -197,11 +211,27 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       appointment.sellerConfirmedAt = new Date();
     }
 
-    // Nếu cả 2 đều đã confirm → chuyển sang CONFIRMED
+    // ✅ Xử lý status sau khi confirm
+    // Logic mới: Chỉ cần bên còn lại (so với người tạo) confirm là đủ
+    const createdBy = (appointment as any).createdBy || 'SELLER'; // Default là SELLER (backward compatible)
+    
     if (appointment.buyerConfirmed && appointment.sellerConfirmed) {
+      // Cả 2 đều đã confirm → chuyển sang CONFIRMED
       appointment.status = 'CONFIRMED';
       appointment.confirmedAt = new Date();
+    } else if (createdBy === 'SELLER' && appointment.buyerConfirmed) {
+      // ✅ Seller tạo → chỉ cần buyer confirm → CONFIRMED
+      appointment.status = 'CONFIRMED';
+      appointment.confirmedAt = new Date();
+    } else if (createdBy === 'BUYER' && appointment.sellerConfirmed) {
+      // ✅ Buyer tạo → chỉ cần seller confirm → CONFIRMED
+      appointment.status = 'CONFIRMED';
+      appointment.confirmedAt = new Date();
+    } else if (appointment.status === 'RESCHEDULED') {
+      // ✅ Nếu chưa đủ điều kiện confirm và status là RESCHEDULED → chuyển về PENDING
+      appointment.status = 'PENDING';
     }
+    // Nếu status đã là PENDING và chưa đủ điều kiện confirm → giữ nguyên PENDING
     
     await appointment.save();
     
@@ -398,21 +428,32 @@ export const rescheduleAppointment = async (req: Request, res: Response): Promis
     }
 
     // Kiểm tra trạng thái
-    if (appointment.status === 'COMPLETED' || appointment.status === 'CANCELLED') {
+    if (appointment.status === 'COMPLETED') {
       return res.status(400).json({
         success: false,
-        message: 'Không thể dời lịch hẹn đã hoàn thành hoặc đã hủy'
+        message: 'Không thể dời lịch hẹn đã hoàn thành'
       });
     }
 
-    // Dời lịch 1 tuần nữa
+    // ✅ Cho phép reschedule appointment bị REJECTED hoặc CANCELLED
+    // Dời lịch (có thể từ REJECTED/CANCELLED → RESCHEDULED)
     const newScheduledDate = new Date(newDate || new Date());
-    newScheduledDate.setDate(newScheduledDate.getDate() + 7);
+    // Không tự động +7 ngày nếu đã có newDate được truyền vào
+    if (!newDate) {
+      newScheduledDate.setDate(newScheduledDate.getDate() + 7);
+    }
 
     appointment.scheduledDate = newScheduledDate;
     appointment.status = 'RESCHEDULED';
     appointment.rescheduledCount += 1;
     appointment.notes = reason || appointment.notes;
+    
+    // ✅ Reset confirmation flags khi reschedule (cả 2 bên cần confirm lại)
+    appointment.buyerConfirmed = false;
+    appointment.sellerConfirmed = false;
+    appointment.buyerConfirmedAt = undefined;
+    appointment.sellerConfirmedAt = undefined;
+    appointment.confirmedAt = undefined;
 
         await appointment.save();
 

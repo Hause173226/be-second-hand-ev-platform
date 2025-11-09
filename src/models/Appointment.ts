@@ -7,6 +7,7 @@ export interface IAppointment extends Document {
   appointmentType: 'NORMAL_DEPOSIT' | 'AUCTION';
   buyerId: string;
   sellerId: string;
+  createdBy?: 'BUYER' | 'SELLER'; // ✅ Người tạo appointment (để xác định chỉ cần bên còn lại confirm)
   scheduledDate: Date;
   status: 'PENDING' | 'CONFIRMED' | 'RESCHEDULED' | 'COMPLETED' | 'CANCELLED' | 'REJECTED';
   type: 'CONTRACT_SIGNING' | 'VEHICLE_INSPECTION' | 'DELIVERY';
@@ -49,6 +50,11 @@ const AppointmentSchema = new Schema({
     type: String,
     required: true,
     ref: 'User'
+  },
+  createdBy: {
+    type: String,
+    enum: ['BUYER', 'SELLER'],
+    default: 'SELLER' // ✅ Mặc định là seller (vì thường seller tạo lịch)
   },
   scheduledDate: {
     type: Date,
