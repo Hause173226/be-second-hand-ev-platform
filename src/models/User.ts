@@ -96,6 +96,14 @@ const userSchema = new Schema<IUser>(
       trim: true,
       maxlength: 500,
     },
+    currentMembership: {
+      type: Schema.Types.ObjectId,
+      ref: "UserMembership",
+    },
+    membershipBadge: {
+      type: String,
+      default: "",
+    },
     address: addressSchema,
     rating: { type: Number, min: 0, max: 5 },
     stats: {

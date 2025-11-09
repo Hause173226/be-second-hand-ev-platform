@@ -22,6 +22,7 @@ import notificationDepositRoutes from "./routes/notificationDepositRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
 import auctionRoutes from "./routes/auctionRoutes";
 import auctionDepositRoutes from "./routes/auctionDepositRoutes";
+import membershipRoutes from "./routes/membershipRoutes";
 
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
@@ -38,7 +39,7 @@ app.use(
       "https://admin-bus-ticket-sales-system.vercel.app",
     ],
     credentials: true,
-    methods: ["GET", "POST","PATCH", "PUT", "DELETE", "OPTIONS"],
+    methods: ["GET", "POST", "PATCH", "PUT", "DELETE", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
   })
 );
@@ -69,6 +70,7 @@ app.use("/api/payment", paymentRoutes);
 app.use("/api/notifications", notificationDepositRoutes);
 app.use("/api/notification-messages", notificationRoutes);
 app.use("/api/auctions", auctionRoutes);
+app.use("/api/memberships", membershipRoutes);
 app.use("/api/auctions", auctionDepositRoutes);
 
 // 📘 Swagger Docs
