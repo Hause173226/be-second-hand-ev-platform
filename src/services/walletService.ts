@@ -57,42 +57,54 @@ const walletService = {
   },
 
   // Freeze amount - đóng băng tiền khi đặt cọc
-  freezeAmount: async (userId: string, amount: number, description?: string) => {
+  freezeAmount: async (
+    userId: string,
+    amount: number,
+    description?: string
+  ) => {
     const wallet = await walletService.getWallet(userId);
     if (wallet.balance < amount) {
       throw new Error("Số dư không đủ để đóng băng");
     }
-    
+
     wallet.balance -= amount;
     wallet.frozenAmount = (wallet.frozenAmount || 0) + amount;
     wallet.lastTransactionAt = new Date();
     await wallet.save();
-    
-    console.log(`✅ Frozen ${amount} VND for user ${userId}. Description: ${description}`);
+
+    console.log(
+      `✅ Frozen ${amount} VND for user ${userId}. Description: ${description}`
+    );
     return wallet;
   },
 
   // Unfreeze amount - hủy đóng băng tiền
-  unfreezeAmount: async (userId: string, amount: number, description?: string) => {
+  unfreezeAmount: async (
+    userId: string,
+    amount: number,
+    description?: string
+  ) => {
     const wallet = await walletService.getWallet(userId);
     if ((wallet.frozenAmount || 0) < amount) {
       throw new Error("Không có tiền đang bị đóng băng");
     }
-    
+
     wallet.balance += amount;
     wallet.frozenAmount = (wallet.frozenAmount || 0) - amount;
     wallet.lastTransactionAt = new Date();
     await wallet.save();
-    
-    console.log(`✅ Unfrozed ${amount} VND for user ${userId}. Description: ${description}`);
+
+    console.log(
+      `✅ Unfrozed ${amount} VND for user ${userId}. Description: ${description}`
+    );
     return wallet;
   },
 
   // Transfer to escrow - chuyển tiền từ frozen vào escrow
   transferToEscrow: async (depositRequestId: string) => {
-    const DepositRequest = (await import('../models/DepositRequest')).default;
-    const EscrowAccount = (await import('../models/EscrowAccount')).default;
-    
+    const DepositRequest = (await import("../models/DepositRequest")).default;
+    const EscrowAccount = (await import("../models/EscrowAccount")).default;
+
     const depositRequest = await DepositRequest.findById(depositRequestId);
     if (!depositRequest) {
       throw new Error("Không tìm thấy yêu cầu đặt cọc");
@@ -103,7 +115,7 @@ const walletService = {
     if (wallet.frozenAmount < depositRequest.depositAmount) {
       throw new Error("Không đủ tiền đang bị đóng băng");
     }
-    
+
     wallet.frozenAmount -= depositRequest.depositAmount;
     wallet.lastTransactionAt = new Date();
     await wallet.save();
@@ -117,7 +129,7 @@ const walletService = {
         sellerId: depositRequest.sellerId,
         listingId: depositRequest.listingId,
         amount: depositRequest.depositAmount,
-        status: "ACTIVE"
+        status: "ACTIVE",
       });
     } else {
       escrow.amount = depositRequest.depositAmount;
@@ -127,19 +139,21 @@ const walletService = {
     await escrow.save();
 
     // Cập nhật trạng thái deposit request
-    depositRequest.status = 'IN_ESCROW';
+    depositRequest.status = "IN_ESCROW";
     await depositRequest.save();
 
-    console.log(`✅ Transferred ${depositRequest.depositAmount} VND to escrow for deposit ${depositRequestId}`);
+    console.log(
+      `✅ Transferred ${depositRequest.depositAmount} VND to escrow for deposit ${depositRequestId}`
+    );
 
     return { escrow };
   },
 
   // Refund from escrow - hoàn tiền từ escrow về ví
   refundFromEscrow: async (depositRequestId: string) => {
-    const DepositRequest = (await import('../models/DepositRequest')).default;
-    const EscrowAccount = (await import('../models/EscrowAccount')).default;
-    
+    const DepositRequest = (await import("../models/DepositRequest")).default;
+    const EscrowAccount = (await import("../models/EscrowAccount")).default;
+
     const depositRequest = await DepositRequest.findById(depositRequestId);
     if (!depositRequest) {
       throw new Error("Không tìm thấy yêu cầu đặt cọc");
@@ -161,7 +175,9 @@ const walletService = {
       escrow.refundedAt = new Date();
       await escrow.save();
 
-      console.log(`✅ Refunded ${depositRequest.depositAmount} VND from escrow to buyer ${depositRequest.buyerId}`);
+      console.log(
+        `✅ Refunded ${depositRequest.depositAmount} VND from escrow to buyer ${depositRequest.buyerId}`
+      );
     }
 
     return escrow;
@@ -169,10 +185,10 @@ const walletService = {
 
   // Complete transaction - hoàn thành giao dịch, chuyển tiền từ escrow vào ví hệ thống
   completeTransaction: async (depositRequestId: string) => {
-    const DepositRequest = (await import('../models/DepositRequest')).default;
-    const EscrowAccount = (await import('../models/EscrowAccount')).default;
-    const SystemWalletService = (await import('./systemWalletService')).default;
-    
+    const DepositRequest = (await import("../models/DepositRequest")).default;
+    const EscrowAccount = (await import("../models/EscrowAccount")).default;
+    const SystemWalletService = (await import("./systemWalletService")).default;
+
     const depositRequest = await DepositRequest.findById(depositRequestId);
     if (!depositRequest) {
       throw new Error("Không tìm thấy yêu cầu đặt cọc");
@@ -197,7 +213,9 @@ const walletService = {
       escrow.releasedAt = new Date();
       await escrow.save();
 
-      console.log(`✅ Released ${depositRequest.depositAmount} VND from escrow to system wallet`);
+      console.log(
+        `✅ Released ${depositRequest.depositAmount} VND from escrow to system wallet`
+      );
     }
 
     return escrow;
@@ -269,15 +287,78 @@ const walletService = {
       "?" +
       querystring.stringify(vnp_Params, { encode: false });
 
-    console.log("=== VNPay Payment URL Created ===");
-    console.log("User ID:", userId);
-    console.log("Amount:", amount, "VND");
-    console.log("Order ID:", orderId);
-    console.log("Sign Data:", signData);
-    console.log("Secure Hash:", signed);
-    console.log("==================================");
-
     return vnpUrl;
+  },
+
+  createPaymentUrl: async (
+    userId: string,
+    amount: number,
+    description: string,
+    req: Request
+  ) => {
+    if (!amount || amount <= 0) {
+      throw new Error("Số tiền không hợp lệ");
+    }
+
+    process.env.TZ = "Asia/Ho_Chi_Minh";
+
+    let date = new Date();
+    let createDate = moment(date).format("YYYYMMDDHHmmss");
+
+    let ipAddr: any =
+      req.headers["x-forwarded-for"] ||
+      req.connection.remoteAddress ||
+      req.socket.remoteAddress ||
+      "127.0.0.1";
+
+    if (Array.isArray(ipAddr)) {
+      ipAddr = ipAddr[0];
+    }
+
+    ipAddr = String(ipAddr).replace("::ffff:", "");
+
+    if (ipAddr === "::1") {
+      ipAddr = "127.0.0.1";
+    }
+
+    let orderId = `${userId}_${moment(date).format("DDHHmmss")}`;
+    let bankCode = "";
+    let locale = "vn";
+    let currCode = "VND";
+
+    let vnp_Params: any = {};
+    vnp_Params["vnp_Version"] = "2.1.0";
+    vnp_Params["vnp_Command"] = "pay";
+    vnp_Params["vnp_TmnCode"] = VNPayConfig.vnp_TmnCode;
+    vnp_Params["vnp_Locale"] = locale;
+    vnp_Params["vnp_CurrCode"] = currCode;
+    vnp_Params["vnp_TxnRef"] = orderId;
+    vnp_Params["vnp_OrderInfo"] = description;
+    vnp_Params["vnp_OrderType"] = "other";
+    vnp_Params["vnp_Amount"] = amount * 100;
+    // ✅ HARDCODE returnUrl cho membership (giống wallet)
+    vnp_Params["vnp_ReturnUrl"] =
+      "http://localhost:8081/api/memberships/vnpay-return";
+    vnp_Params["vnp_IpAddr"] = ipAddr;
+    vnp_Params["vnp_CreateDate"] = createDate;
+
+    if (bankCode !== null && bankCode !== "") {
+      vnp_Params["vnp_BankCode"] = bankCode;
+    }
+
+    vnp_Params = sortObject(vnp_Params);
+
+    let signData = querystring.stringify(vnp_Params, { encode: false });
+    let hmac = crypto.createHmac("sha512", VNPayConfig.vnp_HashSecret);
+    let signed = hmac.update(Buffer.from(signData, "utf-8")).digest("hex");
+    vnp_Params["vnp_SecureHash"] = signed;
+
+    let vnpUrl =
+      VNPayConfig.vnp_Url +
+      "?" +
+      querystring.stringify(vnp_Params, { encode: false });
+
+    return { vnpUrl, orderId };
   },
 };
 

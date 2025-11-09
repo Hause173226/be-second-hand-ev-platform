@@ -8,7 +8,8 @@ import {
     getOngoingAuctions,
     getUpcomingAuctions,
     getEndedAuctions,
-    getAllAuctions
+    getAllAuctions,
+    getWonAuctionsPendingAppointment
 } from "../controllers/auctionController";
 
 const router = express.Router();
@@ -179,6 +180,41 @@ router.get("/ended", getEndedAuctions);
  *       200: { description: Danh sách tất cả phiên }
  */
 router.get("/all", getAllAuctions);
+
+/**
+ * @swagger
+ * /api/auctions/won/pending-appointment:
+ *   get:
+ *     summary: Lấy danh sách phiên đấu giá đã thắng, chưa tạo lịch hẹn
+ *     tags: [Auction]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *     responses:
+ *       200:
+ *         description: Danh sách phiên đấu giá đã thắng, chưa tạo lịch hẹn
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 message:
+ *                   type: string
+ *                 data:
+ *                   type: array
+ *                 pagination:
+ *                   type: object
+ *       401: { description: Chưa đăng nhập }
+ */
+router.get("/won/pending-appointment", authenticate, getWonAuctionsPendingAppointment);
 
 /**
  * @swagger

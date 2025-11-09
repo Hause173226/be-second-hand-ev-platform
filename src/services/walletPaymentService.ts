@@ -32,12 +32,6 @@ export const handleVNPayReturn = async (vnp_Params: any) => {
   let hmac = crypto.createHmac("sha512", VNPayConfig.vnp_HashSecret);
   let signed = hmac.update(Buffer.from(signData, "utf-8")).digest("hex");
 
-  console.log("=== VNPay Return Verification ===");
-  console.log("Sign Data:", signData);
-  console.log("Received Hash:", secureHash);
-  console.log("Calculated Hash:", signed);
-  console.log("Match:", secureHash === signed);
-
   if (secureHash === signed) {
     let orderId = vnp_Params["vnp_TxnRef"];
     let responseCode = vnp_Params["vnp_ResponseCode"];

@@ -123,11 +123,6 @@ const walletService = {
       "?" +
       querystring.stringify(vnp_Params, { encode: false });
 
-    console.log("=== VNPay Payment URL Created ===");
-    console.log("Sign Data:", signData);
-    console.log("Secure Hash:", signed);
-    console.log("==================================");
-
     return vnpUrl;
   },
 };
