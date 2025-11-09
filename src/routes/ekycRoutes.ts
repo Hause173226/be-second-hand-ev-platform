@@ -1,7 +1,30 @@
 import express from "express";
+import multer from "multer";
 import { verifyWithFpt, ocrId, faceMatch } from "../controllers/ekycController";
-import { upload } from "../services/fileUploadService";
 import { authenticate } from "../middlewares/authenticate";
+
+// Dùng memory storage để có Buffer cho Cloudinary và FPT API
+const memoryUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+    files: 5 // Maximum 5 files per request
+  },
+  fileFilter: (_req, file, cb) => {
+    const allowedTypes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/gif',
+      'image/webp'
+    ];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${file.mimetype} is not allowed`));
+    }
+  },
+});
 
 const router = express.Router();
 
@@ -50,7 +73,7 @@ const router = express.Router();
 router.post(
   "/verify",
   authenticate,
-  upload.fields([
+  memoryUpload.fields([
     { name: "id_front", maxCount: 1 },
     { name: "id_back", maxCount: 1 },
     { name: "face", maxCount: 1 },
@@ -93,7 +116,7 @@ export default router;
 router.post(
   "/ocr",
   authenticate,
-  upload.fields([
+  memoryUpload.fields([
     { name: "image", maxCount: 1 },
     { name: "image_back", maxCount: 1 },
   ]),
@@ -133,7 +156,7 @@ router.post(
 router.post(
   "/face-match",
   authenticate,
-  upload.fields([
+  memoryUpload.fields([
     { name: "file1", maxCount: 1 },
     { name: "file2", maxCount: 1 },
   ]),
