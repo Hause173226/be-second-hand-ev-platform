@@ -278,7 +278,7 @@ export const membershipController = {
       }
 
       // ✅ GÓI TRẢ PHÍ - KIỂM TRA VÍ
-      const Wallet = mongoose.model("Wallet"); // ✅ FIX: Wallet thay vì SystemWallet
+      const Wallet = mongoose.model("Wallet");
       const wallet = await Wallet.findOne({ userId });
 
       if (!wallet) {
@@ -314,7 +314,7 @@ export const membershipController = {
 
         // ✅ Trừ tiền ví
         wallet.balance -= packagePrice;
-        wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + packagePrice;
+        wallet.totalSpent = (wallet.totalSpent || 0) + packagePrice;
         wallet.lastTransactionAt = new Date();
         await wallet.save();
 
@@ -575,7 +575,7 @@ export const membershipController = {
 
         // ✅ Trừ tiền ví
         wallet.balance -= renewPrice;
-        wallet.totalWithdrawn = (wallet.totalWithdrawn || 0) + renewPrice;
+        wallet.totalSpent = (wallet.totalSpent || 0) + renewPrice;
         wallet.lastTransactionAt = new Date();
         await wallet.save();
 
