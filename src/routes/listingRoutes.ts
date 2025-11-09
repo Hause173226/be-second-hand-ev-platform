@@ -5,6 +5,7 @@ import { authenticate } from "../middlewares/authenticate";
 import { optionalAuth } from "../middlewares/optionalAuth";
 import { requireProfile } from "../middlewares/requireProfile";
 import { validate } from "../middlewares/validate";
+import { checkListingLimit } from "../middlewares/checkListingLimit";
 import { upload } from "../utils/upload";
 import {
   createListing,
@@ -130,7 +131,9 @@ const createValidators = [
   body("otherFeatures").optional().isString().trim(),
 
   // Cam kết chính chủ
-  body("sellerConfirm").custom((v) => v === "true").withMessage("sellerConfirm phải là 'true'"),
+  body("sellerConfirm")
+    .custom((v) => v === "true")
+    .withMessage("sellerConfirm phải là 'true'"),
 
   // location JSON
   body("location")
@@ -154,13 +157,16 @@ const createValidators = [
       }
       return false;
     })
-    .withMessage("Bạn phải đồng ý Điều khoản & Phí hoa hồng (commissionTermsAccepted=true)."),
+    .withMessage(
+      "Bạn phải đồng ý Điều khoản & Phí hoa hồng (commissionTermsAccepted=true)."
+    ),
 ];
 
 listingRoutes.post(
   "/",
   authenticate as RequestHandler,
   requireProfile as RequestHandler,
+  checkListingLimit as RequestHandler,
   upload.array("photos", 10),
   ...createValidators,
   validate as RequestHandler,
@@ -579,7 +585,11 @@ listingRoutes.post(
  *                   type: object
  *                   description: Các filter đã áp dụng
  */
-listingRoutes.get("/", optionalAuth as RequestHandler, searchListings as unknown as RequestHandler);
+listingRoutes.get(
+  "/",
+  optionalAuth as RequestHandler,
+  searchListings as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -592,7 +602,10 @@ listingRoutes.get("/", optionalAuth as RequestHandler, searchListings as unknown
  *       200:
  *         description: Danh sách các giá trị filter
  */
-listingRoutes.get("/filter-options", getFilterOptions as unknown as RequestHandler);
+listingRoutes.get(
+  "/filter-options",
+  getFilterOptions as unknown as RequestHandler
+);
 
 /* -------------------------------------------------------------------------- */
 /*                                PUBLIC DETAIL                               */

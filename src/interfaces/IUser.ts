@@ -29,6 +29,8 @@ export interface IUser {
   // Profile
   fullName?: string;
   avatar?: string;
+  currentMembership?: string;
+  membershipBadge?: string;
   gender?: string;
   dateOfBirth?: Date;
   citizenId?: string;

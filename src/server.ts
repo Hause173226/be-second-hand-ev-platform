@@ -3,17 +3,38 @@ import { connectDB } from "./config/db";
 import { createServer } from "http";
 import { WebSocketService } from "./services/websocketService";
 import "dotenv/config";
+import { seedMembershipPackages } from "./services/membershipSeedService";
+import { startMembershipCron } from "./jobs/membershipCron";
 
 const PORT = process.env.PORT || 5000;
 
-connectDB().then(() => {
-  const server = createServer(app);
+connectDB()
+  .then(async () => {
+    const server = createServer(app);
 
-  // Initialize WebSocket service
-  const wsService = new WebSocketService(server);
+    // Seed membership packages
+    try {
+      await seedMembershipPackages();
+    } catch (error) {
+      console.error("❌ Error seeding membership packages:", error);
+    }
 
-  server.listen(PORT, () => {
-    console.log(`Server running on port ${PORT}`);
-    console.log(`WebSocket service initialized`);
+    // Start membership cron job
+    try {
+      startMembershipCron();
+    } catch (error) {
+      console.error("❌ Error starting membership cron:", error);
+    }
+
+    // Initialize WebSocket service
+    const wsService = new WebSocketService(server);
+
+    server.listen(PORT, () => {
+      console.log(`Server running on port ${PORT}`);
+      console.log(`WebSocket service initialized`);
+    });
+  })
+  .catch((error) => {
+    console.error("❌ Failed to connect to database:", error);
+    process.exit(1);
   });
-});
