@@ -5,6 +5,7 @@ import {
   getTransactionDetails,
   getUserTransactionHistory,
   getAdminTransactionHistory,
+  getAllTransactions,
   cancelTransaction
 } from '../controllers/transactionController';
 import { authenticate } from '../middlewares/authenticate';
@@ -117,7 +118,7 @@ router.get('/pending', authenticate, requireRole(['staff', 'admin']), getPending
  * @swagger
  * /api/transactions/user/history:
  *   get:
- *     summary: Lấy lịch sử giao dịch của user
+ *     summary: User xem giao dịch của mình
  *     tags: [Transactions]
  *     security:
  *       - bearerAuth: []
@@ -126,7 +127,7 @@ router.get('/pending', authenticate, requireRole(['staff', 'admin']), getPending
  *         name: status
  *         schema:
  *           type: string
- *         description: Trạng thái giao dịch
+ *         description: Trạng thái giao dịch (PENDING, CONFIRMED, COMPLETED, CANCELLED, REJECTED)
  *       - in: query
  *         name: page
  *         schema:
@@ -166,7 +167,7 @@ router.get('/user/history', authenticate, getUserTransactionHistory);
  * @swagger
  * /api/transactions/admin/history:
  *   get:
- *     summary: Lấy lịch sử giao dịch cho admin (tất cả giao dịch)
+ *     summary: Admin xem tất cả giao dịch trong hệ thống
  *     tags: [Transactions]
  *     security:
  *       - bearerAuth: []
@@ -176,29 +177,7 @@ router.get('/user/history', authenticate, getUserTransactionHistory);
  *         schema:
  *           type: string
  *           enum: [PENDING, CONFIRMED, COMPLETED, CANCELLED, REJECTED]
- *         description: Lọc theo trạng thái
- *       - in: query
- *         name: buyerId
- *         schema:
- *           type: string
- *         description: Lọc theo ID người mua
- *       - in: query
- *         name: sellerId
- *         schema:
- *           type: string
- *         description: Lọc theo ID người bán
- *       - in: query
- *         name: startDate
- *         schema:
- *           type: string
- *           format: date
- *         description: Ngày bắt đầu (YYYY-MM-DD)
- *       - in: query
- *         name: endDate
- *         schema:
- *           type: string
- *           format: date
- *         description: Ngày kết thúc (YYYY-MM-DD)
+ *         description: Lọc theo trạng thái (tùy chọn)
  *       - in: query
  *         name: page
  *         schema:
@@ -213,7 +192,7 @@ router.get('/user/history', authenticate, getUserTransactionHistory);
  *         description: Số lượng mỗi trang
  *     responses:
  *       200:
- *         description: Danh sách giao dịch
+ *         description: Danh sách tất cả giao dịch trong hệ thống
  *         content:
  *           application/json:
  *             schema:
@@ -235,6 +214,52 @@ router.get('/user/history', authenticate, getUserTransactionHistory);
  *         description: Lỗi server
  */
 router.get('/admin/history', authenticate, requireRole(['admin', 'staff']), getAdminTransactionHistory);
+
+/**
+ * @swagger
+ * /api/transactions/all:
+ *   get:
+ *     summary: Lấy tất cả giao dịch trong hệ thống (không filter, chỉ pagination)
+ *     tags: [Transactions]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           default: 1
+ *         description: Số trang
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           default: 20
+ *         description: Số lượng mỗi trang
+ *     responses:
+ *       200:
+ *         description: Danh sách tất cả giao dịch trong hệ thống
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                 pagination:
+ *                   type: object
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền (chỉ admin/staff)
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/all', authenticate, requireRole(['admin', 'staff']), getAllTransactions);
 
 /**
  * @swagger

@@ -2,8 +2,12 @@ import { Request, Response } from 'express';
 import Contract from '../models/Contract';
 import Appointment from '../models/Appointment';
 import DepositRequest from '../models/DepositRequest';
+import Listing from '../models/Listing';
 import EscrowAccount from '../models/EscrowAccount';
 import walletService from '../services/walletService';
+// [TRANSACTION_HISTORY_FEATURE] - Import service mới cho tính năng lịch sử giao dịch
+// Để xóa: Xóa dòng import này và xóa file transactionHistoryService.ts
+import { transactionHistoryService } from '../services/transactionHistoryService';
 
 // Nhân viên xác nhận giao dịch hoàn thành
 export const confirmTransaction = async (req: Request, res: Response) => {
@@ -138,53 +142,63 @@ export const getPendingTransactions = async (req: Request, res: Response) => {
   }
 };
 
-// Lấy chi tiết giao dịch
+// [TRANSACTION_HISTORY_FEATURE] - User xem chi tiết giao dịch của mình
+// User chỉ xem được chi tiết giao dịch mà họ là buyer hoặc seller
 export const getTransactionDetails = async (req: Request, res: Response) => {
   try {
     const { appointmentId } = req.params;
-    const userId = req.user?.id;
+    // Lấy userId từ JWT token (đã được set bởi authenticate middleware)
+    const userId = req.user?.id || req.user?._id;
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: 'Chưa đăng nhập'
+        message: 'Chưa đăng nhập hoặc token không hợp lệ'
       });
     }
 
     const appointment = await Appointment.findById(appointmentId)
       .populate('depositRequestId')
-      .populate('buyerId', 'name email phone')
-      .populate('sellerId', 'name email phone')
-      .populate('listingId', 'title brand model year price images');
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone');
 
     if (!appointment) {
       return res.status(404).json({
         success: false,
-        message: 'Không tìm thấy lịch hẹn'
+        message: 'Không tìm thấy giao dịch'
       });
     }
 
-    // Kiểm tra quyền xem (người mua, người bán, hoặc nhân viên)
-    const isBuyer = (appointment.buyerId as any)._id.toString() === userId;
-    const isSeller = (appointment.sellerId as any)._id.toString() === userId;
+    // Kiểm tra quyền xem: User chỉ xem được giao dịch của mình (buyer hoặc seller)
+    const buyerId = (appointment.buyerId as any)?._id?.toString() || (appointment.buyerId as any)?.toString();
+    const sellerId = (appointment.sellerId as any)?._id?.toString() || (appointment.sellerId as any)?.toString();
+    const userIdStr = userId.toString();
+    
+    const isBuyer = buyerId === userIdStr;
+    const isSeller = sellerId === userIdStr;
     const isStaff = req.user?.role === 'staff' || req.user?.role === 'admin';
 
+    // User chỉ xem được giao dịch của mình, admin/staff xem được tất cả
     if (!isBuyer && !isSeller && !isStaff) {
       return res.status(403).json({
         success: false,
-        message: 'Bạn không có quyền xem giao dịch này'
+        message: 'Bạn không có quyền xem giao dịch này. Chỉ có thể xem giao dịch của mình.'
       });
     }
 
-    // Lấy thông tin hợp đồng
+    // Lấy thông tin hợp đồng và listing
     const contract = await Contract.findOne({ appointmentId });
+    const depositRequest = appointment.depositRequestId as any;
+    const listing = depositRequest?.listingId
+      ? await Listing.findById(depositRequest.listingId)
+      : null;
 
     res.json({
       success: true,
       data: {
         appointment,
-        contract,
+        contract: contract || null,
         depositRequest: appointment.depositRequestId,
-        listing: (appointment as any).listingId
+        listing: listing || null
       }
     });
 
@@ -198,45 +212,41 @@ export const getTransactionDetails = async (req: Request, res: Response) => {
   }
 };
 
-// Lấy lịch sử giao dịch của user
+// [TRANSACTION_HISTORY_FEATURE] - User xem giao dịch của mình
+// userId được lấy từ JWT token qua middleware authenticate
+// Flow: Client gửi JWT token trong header Authorization → authenticate middleware decode token → set req.user.id → controller lấy userId từ req.user.id
 export const getUserTransactionHistory = async (req: Request, res: Response) => {
   try {
-    const userId = req.user?.id;
+    // Lấy userId từ JWT token (đã được set bởi authenticate middleware)
+    // JWT token chứa userId, middleware authenticate decode và set vào req.user.id
+    const userId = req.user?.id || req.user?._id;
+    
+    // Debug: Log để kiểm tra userId có được lấy đúng không
+    console.log('[Transaction History] User ID từ JWT token:', userId);
+    console.log('[Transaction History] Full req.user:', JSON.stringify(req.user, null, 2));
+    
     if (!userId) {
       return res.status(401).json({
         success: false,
-        message: 'Chưa đăng nhập'
+        message: 'Chưa đăng nhập hoặc token không hợp lệ'
       });
     }
+
     const { status, page = 1, limit = 10 } = req.query;
 
-    const filter: any = {
-      $or: [{ buyerId: userId }, { sellerId: userId }]
-    };
-
-    if (status) {
-      filter.status = status;
-    }
-
-    const appointments = await Appointment.find(filter)
-      .populate('depositRequestId', 'depositAmount status')
-      .populate('buyerId', 'name email')
-      .populate('sellerId', 'name email')
-      .populate('listingId', 'title brand model year price')
-      .sort({ createdAt: -1 })
-      .limit(Number(limit) * 1)
-      .skip((Number(page) - 1) * Number(limit));
-
-    const total = await Appointment.countDocuments(filter);
+    const result = await transactionHistoryService.getUserTransactionHistory(
+      userId,
+      {
+        status: status as string | undefined,
+        page: Number(page),
+        limit: Number(limit),
+      }
+    );
 
     res.json({
       success: true,
-      data: appointments,
-      pagination: {
-        current: Number(page),
-        pages: Math.ceil(total / Number(limit)),
-        total
-      }
+      data: result.transactions,
+      pagination: result.pagination
     });
 
   } catch (error) {
@@ -249,7 +259,7 @@ export const getUserTransactionHistory = async (req: Request, res: Response) => 
   }
 };
 
-// Lấy lịch sử giao dịch cho admin (tất cả giao dịch)
+// [TRANSACTION_HISTORY_FEATURE] - Admin xem tất cả giao dịch của các user
 export const getAdminTransactionHistory = async (req: Request, res: Response) => {
   try {
     // Kiểm tra quyền admin
@@ -261,67 +271,18 @@ export const getAdminTransactionHistory = async (req: Request, res: Response) =>
       });
     }
 
-    const { status, buyerId, sellerId, page = 1, limit = 20, startDate, endDate } = req.query;
+    const { status, page = 1, limit = 20 } = req.query;
 
-    const filter: any = {};
-
-    // Filter theo status
-    if (status) {
-      filter.status = status;
-    }
-
-    // Filter theo buyer
-    if (buyerId) {
-      filter.buyerId = buyerId;
-    }
-
-    // Filter theo seller
-    if (sellerId) {
-      filter.sellerId = sellerId;
-    }
-
-    // Filter theo thời gian
-    if (startDate || endDate) {
-      filter.createdAt = {};
-      if (startDate) {
-        filter.createdAt.$gte = new Date(startDate as string);
-      }
-      if (endDate) {
-        filter.createdAt.$lte = new Date(endDate as string);
-      }
-    }
-
-    const appointments = await Appointment.find(filter)
-      .populate('depositRequestId', 'depositAmount status')
-      .populate('buyerId', 'fullName email phone')
-      .populate('sellerId', 'fullName email phone')
-      .populate('listingId', 'title make model year priceListed')
-      .sort({ createdAt: -1 })
-      .limit(Number(limit) * 1)
-      .skip((Number(page) - 1) * Number(limit));
-
-    const total = await Appointment.countDocuments(filter);
-
-    // Lấy thông tin contract cho mỗi appointment
-    const appointmentsWithContract = await Promise.all(
-      appointments.map(async (appointment) => {
-        const contract = await Contract.findOne({ appointmentId: appointment._id });
-        return {
-          ...appointment.toObject(),
-          contract: contract || null
-        };
-      })
-    );
+    const result = await transactionHistoryService.getAdminTransactionHistory({
+      status: status as string | undefined,
+      page: Number(page),
+      limit: Number(limit),
+    });
 
     res.json({
       success: true,
-      data: appointmentsWithContract,
-      pagination: {
-        current: Number(page),
-        pages: Math.ceil(total / Number(limit)),
-        total,
-        limit: Number(limit)
-      }
+      data: result.transactions,
+      pagination: result.pagination
     });
 
   } catch (error) {
@@ -333,6 +294,42 @@ export const getAdminTransactionHistory = async (req: Request, res: Response) =>
     });
   }
 };
+
+// [TRANSACTION_HISTORY_FEATURE] - Lấy tất cả giao dịch trong hệ thống (không filter gì cả)
+export const getAllTransactions = async (req: Request, res: Response) => {
+  try {
+    // Kiểm tra quyền admin/staff
+    const isAdmin = req.user?.role === 'admin' || req.user?.role === 'staff';
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ admin/staff mới có quyền xem tất cả giao dịch'
+      });
+    }
+
+    const { page = 1, limit = 20 } = req.query;
+
+    const result = await transactionHistoryService.getAllTransactions({
+      page: Number(page),
+      limit: Number(limit),
+    });
+
+    res.json({
+      success: true,
+      data: result.transactions,
+      pagination: result.pagination
+    });
+
+  } catch (error) {
+    console.error('Error getting all transactions:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
 
 // Hủy giao dịch (chỉ trong trường hợp đặc biệt)
 export const cancelTransaction = async (req: Request, res: Response) => {
