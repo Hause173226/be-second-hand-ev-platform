@@ -178,7 +178,10 @@ export class EmailService {
     buyerId: string,
     sellerId: string,
     appointment: any,
-    reason: string
+    reason: string,
+    listingInfo?: any,
+    depositRequest?: any,
+    isTransactionCancelled: boolean = false
   ) {
     try {
       const [buyer, seller] = await Promise.all([
@@ -190,51 +193,167 @@ export class EmailService {
         throw new Error('Không tìm thấy thông tin người dùng');
       }
 
-      const emailContent = `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-          <h2 style="color: #dc3545;">Lịch hẹn đã bị hủy</h2>
-          
-          <p>Xin chào <strong>${(buyer as any).name || buyer.email}</strong>,</p>
-          
-          <p>Chúng tôi thông báo rằng lịch hẹn ký hợp đồng mua bán xe của bạn đã bị hủy do:</p>
-          
-          <div style="background-color: #f8d7da; padding: 15px; border-radius: 5px; margin: 15px 0; border-left: 4px solid #dc3545;">
-            <strong>Lý do:</strong> ${reason}
+      // Tạo thông tin sản phẩm
+      const make = listingInfo?.make || '';
+      const model = listingInfo?.model || '';
+      const year = listingInfo?.year || '';
+      const productName = make && model && year 
+        ? `${make} ${model} ${year}`.trim()
+        : listingInfo?.title || 'sản phẩm';
+
+      // Format ngày giờ lịch hẹn
+      const appointmentDate = new Date(appointment.scheduledDate);
+      const formattedDate = appointmentDate.toLocaleDateString('vi-VN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      const formattedTime = appointmentDate.toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      const depositAmount = depositRequest?.depositAmount || 0;
+      const formattedDepositAmount = depositAmount.toLocaleString('vi-VN');
+
+      // ========== EMAIL CHO BUYER ==========
+      const buyerSubject = isTransactionCancelled 
+        ? `Giao dịch đã bị hủy - ${productName}`
+        : `Lịch hẹn đã bị hủy - ${productName}`;
+
+      const buyerEmailContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h2 style="color: #721c24; margin-top: 0;">${isTransactionCancelled ? '❌ Giao dịch đã bị hủy' : '📅 Lịch hẹn đã bị hủy'}</h2>
+            <p style="font-size: 16px; margin-bottom: 0;">Chào ${buyer.fullName || buyer.email},</p>
           </div>
-          
-          <p><strong>Thông tin giao dịch:</strong></p>
-          <ul>
-            <li><strong>Thời gian dự kiến:</strong> ${new Date(appointment.scheduledDate).toLocaleDateString('vi-VN')}</li>
-            <li><strong>Số lần dời lịch:</strong> ${appointment.rescheduledCount}/${appointment.maxReschedules}</li>
-            <li><strong>Trạng thái:</strong> Đã hủy</li>
-          </ul>
-          
-          <p><strong>Tiền cọc đã được hoàn về ví của bạn.</strong></p>
-          
-          <p>Nếu bạn vẫn quan tâm đến giao dịch này, vui lòng liên hệ với người bán để thỏa thuận lại.</p>
-          
-          <p>Trân trọng,<br>
-          <strong>Đội ngũ hỗ trợ</strong></p>
+           
+          <div style="background-color: #ffffff; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px;">
+            <p style="font-size: 16px; line-height: 1.6;">
+              ${isTransactionCancelled 
+                ? `Rất tiếc, giao dịch mua bán xe <strong>${productName}</strong> với người bán <strong>${seller.fullName || seller.email}</strong> đã bị hủy.`
+                : `Lịch hẹn ký hợp đồng mua bán xe <strong>${productName}</strong> với người bán <strong>${seller.fullName || seller.email}</strong> đã bị hủy.`
+              }
+            </p>
+            
+            <div style="background-color: #e9ecef; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">📅 Thông tin lịch hẹn đã hủy:</h3>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Thời gian:</strong> ${formattedDate} lúc ${formattedTime}</li>
+                <li><strong>Địa điểm:</strong> ${appointment.location || 'Chưa xác định'}</li>
+                <li><strong>Sản phẩm:</strong> ${productName}</li>
+                <li><strong>Người bán:</strong> ${seller.fullName || seller.email}</li>
+                ${depositAmount > 0 ? `<li><strong>Tiền đặt cọc:</strong> ${formattedDepositAmount} VND</li>` : ''}
+              </ul>
+            </div>
+            
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #856404; margin-top: 0;">📝 Lý do hủy:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                ${reason || 'Không có lý do cụ thể'}
+              </p>
+            </div>
+            
+            ${isTransactionCancelled ? `
+            <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #0c5460; margin-top: 0;">💰 Thông tin hoàn tiền:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                <strong>Tiền đặt cọc của bạn đã được hoàn về ví:</strong><br>
+                - 100% tiền đặt cọc (${formattedDepositAmount} VND) đã được hoàn về ví của bạn<br>
+                Vui lòng kiểm tra số dư ví để xác nhận.
+              </p>
+            </div>
+            ` : `
+            <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #0c5460; margin-top: 0;">💡 Lưu ý:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                Nếu bạn vẫn quan tâm đến giao dịch này, vui lòng liên hệ với người bán để thỏa thuận lại lịch hẹn mới.
+              </p>
+            </div>
+            `}
+            
+            <div style="text-align: center; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
+              <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                Email này được gửi tự động từ hệ thống. Vui lòng không trả lời email này.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      // ========== EMAIL CHO SELLER ==========
+      const sellerSubject = isTransactionCancelled 
+        ? `Giao dịch đã bị hủy - ${productName}`
+        : `Lịch hẹn đã bị hủy - ${productName}`;
+
+      const sellerEmailContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h2 style="color: #721c24; margin-top: 0;">${isTransactionCancelled ? '❌ Giao dịch đã bị hủy' : '📅 Lịch hẹn đã bị hủy'}</h2>
+            <p style="font-size: 16px; margin-bottom: 0;">Chào ${seller.fullName || seller.email},</p>
+          </div>
+           
+          <div style="background-color: #ffffff; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px;">
+            <p style="font-size: 16px; line-height: 1.6;">
+              ${isTransactionCancelled 
+                ? `Rất tiếc, giao dịch bán xe <strong>${productName}</strong> với người mua <strong>${buyer.fullName || buyer.email}</strong> đã bị hủy.`
+                : `Lịch hẹn ký hợp đồng bán xe <strong>${productName}</strong> với người mua <strong>${buyer.fullName || buyer.email}</strong> đã bị hủy.`
+              }
+            </p>
+            
+            <div style="background-color: #e9ecef; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">📅 Thông tin lịch hẹn đã hủy:</h3>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Thời gian:</strong> ${formattedDate} lúc ${formattedTime}</li>
+                <li><strong>Địa điểm:</strong> ${appointment.location || 'Chưa xác định'}</li>
+                <li><strong>Sản phẩm:</strong> ${productName}</li>
+                <li><strong>Người mua:</strong> ${buyer.fullName || buyer.email}</li>
+                ${depositAmount > 0 ? `<li><strong>Tiền đặt cọc:</strong> ${formattedDepositAmount} VND</li>` : ''}
+              </ul>
+            </div>
+            
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #856404; margin-top: 0;">📝 Lý do hủy:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                ${reason || 'Không có lý do cụ thể'}
+              </p>
+            </div>
+            
+            ${isTransactionCancelled ? `
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #856404; margin-top: 0;">💡 Lưu ý:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                Xe của bạn đã được chuyển về trạng thái "Đang bán" và có thể tiếp tục nhận đặt cọc từ người mua khác.
+              </p>
+            </div>
+            ` : `
+            <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #0c5460; margin-top: 0;">💡 Lưu ý:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                Bạn có thể tạo lịch hẹn mới với người mua nếu cả hai bên đồng ý.
+              </p>
+            </div>
+            `}
+            
+            <div style="text-align: center; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
+              <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                Email này được gửi tự động từ hệ thống. Vui lòng không trả lời email này.
+              </p>
+            </div>
+          </div>
         </div>
       `;
 
       // Gửi email cho cả buyer và seller
-      await Promise.all([
-        transporter.sendMail({
-          from: process.env.EMAIL_USERNAME,
-          to: buyer.email,
-          subject: 'Lịch hẹn đã bị hủy - Tiền cọc đã hoàn',
-          html: emailContent
-        }),
-        transporter.sendMail({
-          from: process.env.EMAIL_USERNAME,
-          to: seller.email,
-          subject: 'Lịch hẹn đã bị hủy',
-          html: emailContent.replace((buyer as any).name || buyer.email, (seller as any).name || seller.email)
-        })
-      ]);
+      if (buyer.email && seller.email) {
+        await Promise.all([
+          this.sendEmail(buyer.email, buyerSubject, buyerEmailContent),
+          this.sendEmail(seller.email, sellerSubject, sellerEmailContent)
+        ]);
+      }
 
-      console.log('Email thông báo hủy lịch hẹn đã được gửi');
+      console.log(`Email thông báo hủy ${isTransactionCancelled ? 'giao dịch' : 'lịch hẹn'} đã được gửi cho buyer và seller`);
       return true;
 
     } catch (error) {
@@ -417,6 +536,108 @@ export class EmailService {
   }
 
   /**
+   * Gửi email thông báo cho buyer khi buyer xác nhận lịch hẹn
+   */
+  async sendAppointmentConfirmedToBuyerNotification(
+    buyerId: string,
+    sellerInfo: any,
+    appointment: any,
+    listingInfo?: any
+  ) {
+    try {
+      const buyer = await User.findById(buyerId);
+      if (!buyer || !buyer.email) {
+        console.log('Buyer không có email hoặc không tồn tại');
+        return;
+      }
+
+      // Tạo thông tin sản phẩm
+      const make = listingInfo?.make || '';
+      const model = listingInfo?.model || '';
+      const year = listingInfo?.year || '';
+      
+      const productName = make && model && year 
+        ? `${make} ${model} ${year}`.trim()
+        : listingInfo?.title || 'sản phẩm';
+
+      // Format ngày giờ
+      const appointmentDate = new Date(appointment.scheduledDate);
+      const formattedDate = appointmentDate.toLocaleDateString('vi-VN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      const formattedTime = appointmentDate.toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      const subject = `Bạn đã xác nhận lịch hẹn ký hợp đồng - ${productName}`;
+      
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8f9fa; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h2 style="color: #28a745; margin-top: 0;">✅ Lịch hẹn đã được xác nhận</h2>
+            <p style="font-size: 16px; margin-bottom: 0;">Chào ${buyer.fullName || buyer.email},</p>
+          </div>
+          
+          <div style="background-color: #ffffff; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px;">
+            <p style="font-size: 16px; line-height: 1.6;">
+              Bạn đã xác nhận lịch hẹn ký hợp đồng mua bán xe <strong>${productName}</strong> với người bán <strong>${sellerInfo.fullName || sellerInfo.email}</strong>.
+            </p>
+            
+            <div style="background-color: #e9ecef; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">📅 Thông tin lịch hẹn:</h3>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Thời gian:</strong> ${formattedDate} lúc ${formattedTime}</li>
+                <li><strong>Địa điểm:</strong> ${appointment.location}</li>
+                <li><strong>Sản phẩm:</strong> ${productName}</li>
+                <li><strong>Người bán:</strong> ${sellerInfo.fullName || sellerInfo.email}</li>
+              </ul>
+            </div>
+            
+            <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #0c5460; margin-top: 0;">👥 Thông tin quan trọng:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                <strong>Tới ngày hôm đó sẽ có nhân viên của chúng tôi đứng ra làm chứng</strong> để đảm bảo giao dịch diễn ra minh bạch và an toàn. 
+                Nhân viên sẽ hỗ trợ kiểm tra xe, xác nhận tình trạng và làm chứng cho việc ký kết hợp đồng.
+              </p>
+            </div>
+            
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #856404; margin-top: 0;">⚠️ Lưu ý:</h3>
+              <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+                <li>Vui lòng có mặt đúng giờ tại địa điểm đã hẹn</li>
+                <li>Mang theo đầy đủ giấy tờ tùy thân</li>
+                <li>Chuẩn bị tiền mặt hoặc phương thức thanh toán</li>
+                <li>Liên hệ hotline nếu có thay đổi: <strong>1900-xxxx</strong></li>
+              </ul>
+            </div>
+            
+            <p style="font-size: 16px; line-height: 1.6;">
+              Cảm ơn bạn đã tin tưởng và sử dụng dịch vụ của chúng tôi. Chúc bạn có một giao dịch thành công!
+            </p>
+            
+            <div style="text-align: center; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
+              <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                Email này được gửi tự động từ hệ thống. Vui lòng không trả lời email này.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      await this.sendEmail(buyer.email, subject, htmlContent);
+      console.log(`Email thông báo xác nhận lịch hẹn đã được gửi cho buyer: ${buyer.email}`);
+      
+    } catch (error) {
+      console.error('Lỗi gửi email thông báo xác nhận lịch hẹn cho buyer:', error);
+      throw error;
+    }
+  }
+
+  /**
    * Gửi email thông báo người mua đã reject lịch hẹn
    */
   async sendAppointmentRejectedByBuyerNotification(
@@ -514,6 +735,219 @@ export class EmailService {
       
     } catch (error) {
       console.error('Lỗi gửi email thông báo từ chối lịch hẹn:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gửi email thông báo cho buyer khi giao dịch bị hủy bởi staff
+   */
+  async sendTransactionCancelledToBuyerNotification(
+    buyerId: string,
+    sellerInfo: any,
+    appointment: any,
+    reason: string,
+    listingInfo?: any
+  ) {
+    try {
+      const buyer = await User.findById(buyerId);
+      if (!buyer || !buyer.email) {
+        console.log('Buyer không có email hoặc không tồn tại');
+        return;
+      }
+
+      // Tạo thông tin sản phẩm
+      const make = listingInfo?.make || '';
+      const model = listingInfo?.model || '';
+      const year = listingInfo?.year || '';
+      
+      const productName = make && model && year 
+        ? `${make} ${model} ${year}`.trim()
+        : listingInfo?.title || 'sản phẩm';
+
+      // Format ngày giờ lịch hẹn
+      const appointmentDate = new Date(appointment.scheduledDate);
+      const formattedDate = appointmentDate.toLocaleDateString('vi-VN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      const formattedTime = appointmentDate.toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      const subject = `Giao dịch đã bị hủy - ${productName}`;
+      
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h2 style="color: #721c24; margin-top: 0;">❌ Giao dịch đã bị hủy</h2>
+            <p style="font-size: 16px; margin-bottom: 0;">Chào ${buyer.fullName || buyer.email},</p>
+          </div>
+           
+          <div style="background-color: #ffffff; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px;">
+            <p style="font-size: 16px; line-height: 1.6;">
+              Rất tiếc, giao dịch mua bán xe <strong>${productName}</strong> với người bán <strong>${sellerInfo.fullName || sellerInfo.email}</strong> đã bị hủy bởi nhân viên hệ thống.
+            </p>
+            
+            <div style="background-color: #e9ecef; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">📅 Thông tin lịch hẹn đã hủy:</h3>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Thời gian:</strong> ${formattedDate} lúc ${formattedTime}</li>
+                <li><strong>Địa điểm:</strong> ${appointment.location}</li>
+                <li><strong>Sản phẩm:</strong> ${productName}</li>
+                <li><strong>Người bán:</strong> ${sellerInfo.fullName || sellerInfo.email}</li>
+              </ul>
+            </div>
+            
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #856404; margin-top: 0;">📝 Lý do hủy:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                ${reason || 'Không có lý do cụ thể'}
+              </p>
+            </div>
+            
+            <div style="background-color: #d1ecf1; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #0c5460; margin-top: 0;">💰 Thông tin hoàn tiền:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                <strong>Tiền đặt cọc của bạn đã được hoàn về ví:</strong><br>
+                - 80% tiền đặt cọc (8% giá xe) đã được hoàn về ví của bạn<br>
+                - 20% tiền đặt cọc (2% giá xe) là phí hủy giao dịch<br>
+                Vui lòng kiểm tra số dư ví để xác nhận.
+              </p>
+            </div>
+            
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">💡 Lưu ý:</h3>
+              <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+                <li>Bạn có thể tiếp tục tìm kiếm và đặt cọc các xe khác</li>
+                <li>Nếu có thắc mắc, vui lòng liên hệ hotline: <strong>1900-xxxx</strong></li>
+                <li>Cảm ơn bạn đã tin tưởng và sử dụng dịch vụ của chúng tôi</li>
+              </ul>
+            </div>
+            
+            <p style="font-size: 16px; line-height: 1.6;">
+              Chúng tôi rất tiếc vì sự bất tiện này. Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.
+            </p>
+            
+            <div style="text-align: center; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
+              <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                Email này được gửi tự động từ hệ thống. Vui lòng không trả lời email này.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      await this.sendEmail(buyer.email, subject, htmlContent);
+      console.log(`Email thông báo hủy giao dịch đã được gửi cho buyer: ${buyer.email}`);
+      
+    } catch (error) {
+      console.error('Lỗi gửi email thông báo hủy giao dịch cho buyer:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Gửi email thông báo cho seller khi giao dịch bị hủy bởi staff
+   */
+  async sendTransactionCancelledToSellerNotification(
+    sellerId: string,
+    buyerInfo: any,
+    appointment: any,
+    reason: string,
+    listingInfo?: any
+  ) {
+    try {
+      const seller = await User.findById(sellerId);
+      if (!seller || !seller.email) {
+        console.log('Seller không có email hoặc không tồn tại');
+        return;
+      }
+
+      // Tạo thông tin sản phẩm
+      const make = listingInfo?.make || '';
+      const model = listingInfo?.model || '';
+      const year = listingInfo?.year || '';
+      
+      const productName = make && model && year 
+        ? `${make} ${model} ${year}`.trim()
+        : listingInfo?.title || 'sản phẩm';
+
+      // Format ngày giờ lịch hẹn
+      const appointmentDate = new Date(appointment.scheduledDate);
+      const formattedDate = appointmentDate.toLocaleDateString('vi-VN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric'
+      });
+      const formattedTime = appointmentDate.toLocaleTimeString('vi-VN', {
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      const subject = `Giao dịch đã bị hủy - ${productName}`;
+      
+      const htmlContent = `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
+          <div style="background-color: #f8d7da; padding: 20px; border-radius: 8px; margin-bottom: 20px;">
+            <h2 style="color: #721c24; margin-top: 0;">❌ Giao dịch đã bị hủy</h2>
+            <p style="font-size: 16px; margin-bottom: 0;">Chào ${seller.fullName || seller.email},</p>
+          </div>
+          
+          <div style="background-color: #ffffff; padding: 20px; border: 1px solid #dee2e6; border-radius: 8px;">
+            <p style="font-size: 16px; line-height: 1.6;">
+              Rất tiếc, giao dịch bán xe <strong>${productName}</strong> cho người mua <strong>${buyerInfo.fullName || buyerInfo.email}</strong> đã bị hủy bởi nhân viên hệ thống.
+            </p>
+            
+            <div style="background-color: #e9ecef; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">📅 Thông tin lịch hẹn đã hủy:</h3>
+              <ul style="margin: 0; padding-left: 20px;">
+                <li><strong>Thời gian:</strong> ${formattedDate} lúc ${formattedTime}</li>
+                <li><strong>Địa điểm:</strong> ${appointment.location}</li>
+                <li><strong>Sản phẩm:</strong> ${productName}</li>
+                <li><strong>Người mua:</strong> ${buyerInfo.fullName || buyerInfo.email}</li>
+              </ul>
+            </div>
+            
+            <div style="background-color: #fff3cd; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #856404; margin-top: 0;">📝 Lý do hủy:</h3>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5;">
+                ${reason || 'Không có lý do cụ thể'}
+              </p>
+            </div>
+            
+            <div style="background-color: #f8f9fa; padding: 15px; border-radius: 6px; margin: 20px 0;">
+              <h3 style="color: #495057; margin-top: 0;">💡 Lưu ý:</h3>
+              <ul style="margin: 0; padding-left: 20px; font-size: 14px;">
+                <li>Xe của bạn vẫn có thể tiếp tục được đăng bán</li>
+                <li>Bạn có thể nhận được yêu cầu đặt cọc mới từ người mua khác</li>
+                <li>Nếu có thắc mắc, vui lòng liên hệ hotline: <strong>1900-xxxx</strong></li>
+                <li>Cảm ơn bạn đã tin tưởng và sử dụng dịch vụ của chúng tôi</li>
+              </ul>
+            </div>
+            
+            <p style="font-size: 16px; line-height: 1.6;">
+              Chúng tôi rất tiếc vì sự bất tiện này. Nếu bạn có bất kỳ câu hỏi nào, đừng ngần ngại liên hệ với chúng tôi.
+            </p>
+            
+            <div style="text-align: center; margin-top: 20px; padding: 15px; background-color: #f8f9fa; border-radius: 8px;">
+              <p style="margin: 0; font-size: 14px; color: #6c757d;">
+                Email này được gửi tự động từ hệ thống. Vui lòng không trả lời email này.
+              </p>
+            </div>
+          </div>
+        </div>
+      `;
+
+      await this.sendEmail(seller.email, subject, htmlContent);
+      console.log(`Email thông báo hủy giao dịch đã được gửi cho seller: ${seller.email}`);
+      
+    } catch (error) {
+      console.error('Lỗi gửi email thông báo hủy giao dịch cho seller:', error);
       throw error;
     }
   }
