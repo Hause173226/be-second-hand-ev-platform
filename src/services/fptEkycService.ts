@@ -28,21 +28,26 @@ function assertConfig() {
   }
 }
 
-async function readFileAsBlob(filePath: string): Promise<Blob> {
-  const abs = path.resolve(filePath);
-  const buf = await fs.promises.readFile(abs);
+async function readFileAsBlob(filePathOrBuffer: string | Buffer): Promise<Blob> {
+  let buf: Buffer;
+  if (Buffer.isBuffer(filePathOrBuffer)) {
+    buf = filePathOrBuffer;
+  } else {
+    const abs = path.resolve(filePathOrBuffer);
+    buf = await fs.promises.readFile(abs);
+  }
   const ab = buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.byteLength);
   return new Blob([ab as ArrayBuffer]);
 }
 
 export const fptEkycService = {
   // OCR CCCD/CMND (FPT Vision IDR VNM)
-  async ocrId(imagePath: string): Promise<any> {
+  async ocrId(imagePathOrBuffer: string | Buffer): Promise<any> {
     assertConfig();
     const { baseUrl, apiKey } = getEkycConfig();
 
     const form = new FormData();
-    form.append("image", await readFileAsBlob(imagePath), "id.jpg");
+    form.append("image", await readFileAsBlob(imagePathOrBuffer), "id.jpg");
 
     const url = `${baseUrl.replace(/\/$/, "")}/vision/idr/vnm`;
     const res = await fetch(url, {
@@ -60,13 +65,13 @@ export const fptEkycService = {
   },
 
   // FaceMatch (FPT DMP checkface) — cần 2 file
-  async checkFaceMatch(file1Path: string, file2Path: string): Promise<any> {
+  async checkFaceMatch(file1PathOrBuffer: string | Buffer, file2PathOrBuffer: string | Buffer): Promise<any> {
     assertConfig();
     const { baseUrl, apiKey } = getEkycConfig();
 
     const form = new FormData();
-    form.append("file[]", await readFileAsBlob(file1Path), "a.jpg");
-    form.append("file[]", await readFileAsBlob(file2Path), "b.jpg");
+    form.append("file[]", await readFileAsBlob(file1PathOrBuffer), "a.jpg");
+    form.append("file[]", await readFileAsBlob(file2PathOrBuffer), "b.jpg");
 
     const url = `${baseUrl.replace(/\/$/, "")}/dmp/checkface/v1`;
     const res = await fetch(url, {
