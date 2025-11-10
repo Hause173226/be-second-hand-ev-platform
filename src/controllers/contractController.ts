@@ -157,6 +157,15 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       });
     }
 
+    // Đảm bảo có depositRequest và listingId kèm theo
+    const depositRequest = appointment.depositRequestId as any;
+    if (!depositRequest || !depositRequest.listingId) {
+      return res.status(400).json({
+        success: false,
+        message: "Không tìm thấy depositRequest hoặc listingId cho lịch hẹn này",
+      });
+    }
+
     // Kiểm tra có file upload không
     const files = req.files as Express.Multer.File[];
     if (!files || files.length === 0) {
@@ -243,7 +252,6 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
 
     if (!contract) {
       // Tạo contract mới với thông tin cơ bản
-      const depositRequest = appointment.depositRequestId as any;
       const listing = await Listing.findById(depositRequest.listingId);
       const buyer = await User.findById(appointment.buyerId);
       const seller = await User.findById(appointment.sellerId);
