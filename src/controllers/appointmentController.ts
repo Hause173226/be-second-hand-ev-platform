@@ -200,20 +200,30 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
       });
     }
 
+    // ✅ Xử lý status sau khi confirm
+    // Logic mới: Chỉ cần bên còn lại (so với người tạo) confirm là đủ
+    const createdBy = (appointment as any).createdBy || 'SELLER'; // Default là SELLER (backward compatible)
+    
     // Xác nhận lịch hẹn
     if (isBuyer) {
       appointment.buyerConfirmed = true;
       appointment.buyerConfirmedAt = new Date();
+      // ✅ Nếu seller tạo lịch và buyer confirm → tự động set sellerConfirmed = true
+      if (createdBy === 'SELLER') {
+        appointment.sellerConfirmed = true;
+        appointment.sellerConfirmedAt = new Date();
+      }
     }
 
     if (isSeller) {
       appointment.sellerConfirmed = true;
       appointment.sellerConfirmedAt = new Date();
+      // ✅ Nếu buyer tạo lịch và seller confirm → tự động set buyerConfirmed = true
+      if (createdBy === 'BUYER') {
+        appointment.buyerConfirmed = true;
+        appointment.buyerConfirmedAt = new Date();
+      }
     }
-
-    // ✅ Xử lý status sau khi confirm
-    // Logic mới: Chỉ cần bên còn lại (so với người tạo) confirm là đủ
-    const createdBy = (appointment as any).createdBy || 'SELLER'; // Default là SELLER (backward compatible)
     
     if (appointment.buyerConfirmed && appointment.sellerConfirmed) {
       // Cả 2 đều đã confirm → chuyển sang CONFIRMED
