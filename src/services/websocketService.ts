@@ -435,9 +435,14 @@ export class WebSocketService {
             // Khi user submit bid mới
             socket.on('bid_auction', async (data: { auctionId: string; bid: number }) => {
                 const userId = socket.userId;
+                if (!userId) {
+                    socket.emit('auction_bid_result', { error: 'Chưa xác thực' });
+                    return;
+                }
                 const { auctionId, bid } = data;
                 try {
                     const Auction = (await import('../models/Auction')).default;
+                    const { Types } = await import('mongoose');
                     const auction = await Auction.findById(auctionId);
                     if (!auction) {
                         socket.emit('auction_bid_result', { error: 'Không tồn tại phiên' });
@@ -457,8 +462,8 @@ export class WebSocketService {
                         socket.emit('auction_bid_result', { error: `Giá phải lớn hơn hiện tại (${highestBid})` });
                         return;
                     }
-                    // Push bid mới
-                    auction.bids.push({ userId, price: bid, createdAt: now });
+                    // Push bid mới - convert userId to ObjectId
+                    auction.bids.push({ userId: new Types.ObjectId(userId), price: bid, createdAt: now });
                     await auction.save();
                     // Broadcast cho tất cả user đã join auction
                     this.io.to(`auction_${auctionId}`).emit('auction_bid_update', {
@@ -610,6 +615,11 @@ export class WebSocketService {
             senderInfo,
             timestamp: new Date()
         });
+    }
+
+    // Emit auction event (public method to access io)
+    public emitAuctionEvent(room: string, event: string, data: any) {
+        this.io.to(room).emit(event, data);
     }
 
     // Send online status update

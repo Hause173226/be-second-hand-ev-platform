@@ -1,4 +1,4 @@
-import express from "express";
+import express, { RequestHandler } from "express";
 import {
   getContractInfo,
   uploadContractPhotos,
@@ -34,7 +34,11 @@ const router = express.Router();
  *             schema:
  *               $ref: "#/components/schemas/Contract"
  */
-router.get("/:appointmentId", authenticate, getContractInfo);
+router.get(
+  "/:appointmentId",
+  authenticate,
+  getContractInfo as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -86,7 +90,7 @@ router.post(
   "/:appointmentId/upload-photos",
   authenticate,
   memoryUpload.array("photos", 10), // ✅ Tối đa 10 ảnh, lưu vào memory để có buffer
-  uploadContractPhotos
+  uploadContractPhotos as unknown as RequestHandler
 );
 
 /**
@@ -107,7 +111,11 @@ router.post(
  *       200:
  *         description: Hoàn thành giao dịch thành công
  */
-router.post("/:appointmentId/complete", authenticate, completeTransaction);
+router.post(
+  "/:appointmentId/complete",
+  authenticate,
+  completeTransaction as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -121,7 +129,7 @@ router.post("/:appointmentId/complete", authenticate, completeTransaction);
  *       200:
  *         description: Danh sách contract
  */
-router.get("/", authenticate, getStaffContracts);
+router.get("/", authenticate, getStaffContracts as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -193,7 +201,7 @@ router.post(
   "/:appointmentId/cancel",
   authenticate,
   requireRole(["staff", "admin"]),
-  cancelContractTransaction
+  cancelContractTransaction as unknown as RequestHandler
 );
 
 export default router;

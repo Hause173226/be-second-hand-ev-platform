@@ -9,6 +9,7 @@ import {
   approveListing,
   rejectListing,
   adminList, // ⬅️ controller mới (đã thêm trong adminListingController.ts)
+  adminListAll 
 } from "../controllers/adminListingController";
 
 const adminListingRoutes = express.Router();
@@ -19,6 +20,56 @@ const adminListingRoutes = express.Router();
  *   - name: Admin Listings
  *     description: API duyệt/từ chối/tra cứu listing dành cho Admin
  */
+/**
+ * @swagger
+ * /api/admin/listings/all:
+ *   get:
+ *     summary: Danh sách TẤT CẢ listing cho Admin (không lọc theo trạng thái)
+ *     tags: [Admin Listings]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: keyword
+ *         schema:
+ *           type: string
+ *         required: false
+ *         description: Tìm theo make/model/ghi chú/thành phố/quận (hỗ trợ bắt năm)
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           default: 1
+ *         required: false
+ *         description: Trang hiện tại
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           default: 20
+ *         required: false
+ *         description: Số bản ghi mỗi trang
+ *     responses:
+ *       200:
+ *         description: Danh sách listing + thông tin phân trang
+ *       401:
+ *         description: Unauthorized
+ *       403:
+ *         description: Admin only
+ */
+adminListingRoutes.get(
+  "/listings/all",
+  authenticate,
+  requireAdmin,
+  query("keyword").optional().isString().trim().isLength({ max: 200 }),
+  query("page").optional().isInt({ min: 1 }),
+  query("limit").optional().isInt({ min: 1, max: 100 }),
+  validate,
+  adminListAll
+);
 
 /**
  * @swagger
