@@ -431,9 +431,14 @@ export const completeTransaction = async (req: Request, res: Response) => {
     }
 
     // Kiểm tra appointment tồn tại
-    const appointment = await Appointment.findById(appointmentId).populate(
-      "depositRequestId"
-    );
+    const appointment = await Appointment.findById(appointmentId)
+      .populate("depositRequestId")
+      .populate({
+        path: "auctionId",
+        populate: {
+          path: "listingId"
+        }
+      });
 
     if (!appointment) {
       return res.status(404).json({
@@ -462,14 +467,35 @@ export const completeTransaction = async (req: Request, res: Response) => {
       });
     }
 
-    // Hoàn thành giao dịch
-    const depositRequest = appointment.depositRequestId as any;
+    // Xác định loại appointment và xử lý tương ứng
+    const isAuction = appointment.appointmentType === 'AUCTION' && appointment.auctionId;
+    let listingId;
 
-    // Chuyển tiền từ Escrow về hệ thống
-    await walletService.completeTransaction(depositRequest._id);
+    if (isAuction) {
+      // Appointment từ đấu giá - Không cần chuyển tiền từ escrow vì đã xử lý khi đấu giá
+      const auction = appointment.auctionId as any;
+      listingId = auction?.listingId?._id || auction?.listingId;
+      
+      // Với auction, tiền cọc đã bị khóa, không cần completeTransaction
+      console.log('✅ Completing auction transaction - no escrow transfer needed');
+    } else {
+      // Appointment từ đặt cọc thông thường
+      const depositRequest = appointment.depositRequestId as any;
+      if (!depositRequest || !depositRequest._id) {
+        return res.status(400).json({
+          success: false,
+          message: "Không tìm thấy thông tin deposit request",
+        });
+      }
+      
+      listingId = depositRequest.listingId;
+      
+      // Chuyển tiền từ Escrow về hệ thống
+      await walletService.completeTransaction(depositRequest._id);
+    }
 
     // Cập nhật trạng thái listing thành Sold
-    const listing = await Listing.findById(depositRequest.listingId);
+    const listing = await Listing.findById(listingId);
     if (listing && listing.status === "InTransaction") {
       listing.status = "Sold";
       await listing.save();
