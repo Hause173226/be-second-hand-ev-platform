@@ -748,17 +748,14 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
         filter.status = statusStr.trim();
       }
     } else {
-      // ✅ Default: chỉ hiển thị 3 trạng thái staff/admin cần xử lý
-      // CONFIRMED: Đang chờ staff xử lý (upload ảnh, complete hoặc cancel)
-      // COMPLETED: Đã hoàn thành giao dịch
-      // CANCELLED: Đã bị hủy bởi staff
+
       filter.status = { $in: ['CONFIRMED', 'COMPLETED', 'CANCELLED'] };
     }
 
-    // ✅ Search sẽ filter sau khi populate (vì buyerId/sellerId là ObjectId string, không thể search trực tiếp)
+  
     let searchTerm = search ? (search as string).trim() : null;
 
-    // Lấy tất cả appointments (không limit để có thể filter search)
+   
     const allAppointments = await Appointment.find(filter)
       .populate('depositRequestId', 'depositAmount status listingId')
       .populate('buyerId', 'fullName email phone')
@@ -768,6 +765,14 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
         populate: {
           path: 'listingId',
           select: 'title brand make model year priceListed licensePlate engineDisplacementCc vehicleType paintColor engineNumber chassisNumber otherFeatures ' // ✅ Thêm các trường đặc điểm xe
+        }
+      })
+      .populate({
+        path: 'auctionId',
+        select: 'startingPrice winningBid status',
+        populate: {
+          path: 'listingId',
+          select: 'title brand make model year priceListed licensePlate engineDisplacementCc vehicleType paintColor engineNumber chassisNumber otherFeatures'
         }
       })
       .sort({ scheduledDate: 1 }); // Sắp xếp theo ngày hẹn gần nhất
@@ -809,6 +814,27 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
     const formattedAppointments = filteredAppointments.map((appointment: any) => {
       const appointmentId = (appointment as any)._id?.toString() || '';
       const contract = contractMap.get(appointmentId);
+      
+      // Xác định nguồn dữ liệu: auction hoặc deposit
+      const isAuction = appointment.appointmentType === 'AUCTION' && appointment.auctionId;
+      let listing, depositAmount, depositStatus, vehiclePrice;
+      
+      if (isAuction) {
+        // Từ auction
+        const auction = appointment.auctionId as any;
+        listing = auction?.listingId;
+        depositAmount = 1000000; // Phí tham gia đấu giá
+        depositStatus = 'N/A';
+        vehiclePrice = auction?.winningBid?.price || auction?.startingPrice || 0;
+      } else {
+        // Từ deposit thông thường
+        const depositRequest = appointment.depositRequestId as any;
+        listing = depositRequest?.listingId;
+        depositAmount = depositRequest?.depositAmount || 0;
+        depositStatus = depositRequest?.status || 'N/A';
+        vehiclePrice = listing?.priceListed || 0;
+      }
+      
       return {
       id: appointment._id,
       appointmentId: appointment._id,
@@ -837,31 +863,31 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       
       // Thông tin xe
       vehicle: {
-        title: (appointment.depositRequestId as any)?.listingId?.title || 'N/A',
-        brand: (appointment.depositRequestId as any)?.listingId?.brand || 'N/A',
-        make: (appointment.depositRequestId as any)?.listingId?.make || 'N/A',
-        model: (appointment.depositRequestId as any)?.listingId?.model || 'N/A',
-        year: (appointment.depositRequestId as any)?.listingId?.year || 'N/A',
-        price: (appointment.depositRequestId as any)?.listingId?.priceListed || 0,
+        title: listing?.title || 'N/A',
+        brand: listing?.brand || 'N/A',
+        make: listing?.make || 'N/A',
+        model: listing?.model || 'N/A',
+        year: listing?.year || 'N/A',
+        price: vehiclePrice,
         // ✅ Đặc điểm xe (theo form hợp đồng)
-        licensePlate: (appointment.depositRequestId as any)?.listingId?.licensePlate || 'N/A', // Biển số
-        engineDisplacementCc: (appointment.depositRequestId as any)?.listingId?.engineDisplacementCc || 0, // Dung tích xi lanh
-        vehicleType: (appointment.depositRequestId as any)?.listingId?.vehicleType || 'N/A', // Loại xe
-        paintColor: (appointment.depositRequestId as any)?.listingId?.paintColor || 'N/A', // Màu sơn
-        engineNumber: (appointment.depositRequestId as any)?.listingId?.engineNumber || 'N/A', // Số máy
-        chassisNumber: (appointment.depositRequestId as any)?.listingId?.chassisNumber || 'N/A', // Số khung
-        otherFeatures: (appointment.depositRequestId as any)?.listingId?.otherFeatures || 'N/A' // Các đặc điểm khác
+        licensePlate: listing?.licensePlate || 'N/A', // Biển số
+        engineDisplacementCc: listing?.engineDisplacementCc || 0, // Dung tích xi lanh
+        vehicleType: listing?.vehicleType || 'N/A', // Loại xe
+        paintColor: listing?.paintColor || 'N/A', // Màu sơn
+        engineNumber: listing?.engineNumber || 'N/A', // Số máy
+        chassisNumber: listing?.chassisNumber || 'N/A', // Số khung
+        otherFeatures: listing?.otherFeatures || 'N/A' // Các đặc điểm khác
       },
       
       // Thông tin giao dịch
       transaction: {
-        depositAmount: (appointment.depositRequestId as any)?.depositAmount || 0,
-        depositStatus: (appointment.depositRequestId as any)?.status || 'N/A',
-        vehiclePrice: (appointment.depositRequestId as any)?.listingId?.priceListed || 0, // ✅ Sửa price thành priceListed
-        remainingAmount: ((appointment.depositRequestId as any)?.listingId?.priceListed || 0) - ((appointment.depositRequestId as any)?.depositAmount || 0), // ✅ Sửa price thành priceListed
-        depositPercentage: (appointment.depositRequestId as any)?.listingId?.priceListed 
-          ? (((appointment.depositRequestId as any)?.depositAmount || 0) / (appointment.depositRequestId as any)?.listingId?.priceListed * 100).toFixed(2)
-          : '0.00' // ✅ Sửa price thành priceListed
+        depositAmount: depositAmount,
+        depositStatus: depositStatus,
+        vehiclePrice: vehiclePrice,
+        remainingAmount: vehiclePrice - depositAmount,
+        depositPercentage: vehiclePrice 
+          ? (depositAmount / vehiclePrice * 100).toFixed(2)
+          : '0.00'
       },
       
       // Thông tin xác nhận

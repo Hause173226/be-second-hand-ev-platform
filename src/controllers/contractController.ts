@@ -18,6 +18,12 @@ export const getContractInfo = async (req: Request, res: Response) => {
     // Kiểm tra appointment tồn tại
     const appointment = await Appointment.findById(appointmentId)
       .populate("depositRequestId")
+      .populate({
+        path: "auctionId",
+        populate: {
+          path: "listingId"
+        }
+      })
       .populate("buyerId", "fullName email phone")
       .populate("sellerId", "fullName email phone");
 
@@ -40,26 +46,49 @@ export const getContractInfo = async (req: Request, res: Response) => {
       });
     }
 
-    // Kiểm tra depositRequestId và listingId tồn tại
-    const depositRequest = appointment.depositRequestId as any;
-    if (!depositRequest || !depositRequest.listingId) {
-      return res.status(400).json({
-        success: false,
-        message: "Không tìm thấy thông tin depositRequest hoặc listingId",
-      });
+    // Xác định loại appointment và lấy listing
+    let listing;
+    let depositAmount = 0;
+    let finalPrice = 0; // Giá xe thực tế
+    
+    if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
+      // Appointment từ đấu giá
+      const auction = appointment.auctionId as any;
+      if (!auction || !auction.listingId) {
+        return res.status(400).json({
+          success: false,
+          message: "Không tìm thấy thông tin auction hoặc listingId",
+        });
+      }
+      listing = auction.listingId;
+      depositAmount = 1000000; // Phí tham gia đấu giá cố định
+      finalPrice = auction.winningBid?.price || auction.startingPrice; // Giá thắng đấu giá
+    } else {
+      // Appointment từ đặt cọc thông thường
+      const depositRequest = appointment.depositRequestId as any;
+      if (!depositRequest || !depositRequest.listingId) {
+        return res.status(400).json({
+          success: false,
+          message: "Không tìm thấy thông tin depositRequest hoặc listingId",
+        });
+      }
+      listing = await Listing.findById(depositRequest.listingId);
+      depositAmount = depositRequest.depositAmount;
+      finalPrice = listing?.priceListed || 0; // Giá niêm yết
     }
 
-    // Lấy thông tin chi tiết
-    const listing = await Listing.findById(depositRequest.listingId);
-    const buyerProfile = await User.findById((appointment.buyerId as any)._id);
-    const sellerProfile = await User.findById((appointment.sellerId as any)._id);
-
+    // Kiểm tra listing tồn tại
     if (!listing) {
       return res.status(400).json({
         success: false,
         message: "Không tìm thấy thông tin xe",
       });
     }
+
+    // Lấy thông tin chi tiết
+    // Lấy thông tin chi tiết
+    const buyerProfile = await User.findById((appointment.buyerId as any)._id);
+    const sellerProfile = await User.findById((appointment.sellerId as any)._id);
 
     res.json({
       success: true,
@@ -106,9 +135,11 @@ export const getContractInfo = async (req: Request, res: Response) => {
 
         // Thông tin giao dịch
         transaction: {
-          depositAmount: (appointment.depositRequestId as any).depositAmount,
+          depositAmount: depositAmount,
+          finalPrice: finalPrice,
           appointmentDate: appointment.scheduledDate,
           location: appointment.location,
+          appointmentType: appointment.appointmentType,
         },
       },
     });
@@ -139,9 +170,14 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
     }
 
     // Kiểm tra appointment tồn tại và đã được xác nhận
-    const appointment = await Appointment.findById(appointmentId).populate(
-      "depositRequestId"
-    );
+    const appointment = await Appointment.findById(appointmentId)
+      .populate("depositRequestId")
+      .populate({
+        path: "auctionId",
+        populate: {
+          path: "listingId"
+        }
+      });
 
     if (!appointment) {
       return res.status(404).json({
@@ -157,13 +193,31 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       });
     }
 
-    // Đảm bảo có depositRequest và listingId kèm theo
-    const depositRequest = appointment.depositRequestId as any;
-    if (!depositRequest || !depositRequest.listingId) {
-      return res.status(400).json({
-        success: false,
-        message: "Không tìm thấy depositRequest hoặc listingId cho lịch hẹn này",
-      });
+    // Xác định loại appointment và lấy listingId
+    let listingId;
+    let depositRequestId = null;
+    
+    if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
+      // Appointment từ đấu giá
+      const auction = appointment.auctionId as any;
+      if (!auction || !auction.listingId) {
+        return res.status(400).json({
+          success: false,
+          message: "Không tìm thấy thông tin auction hoặc listingId",
+        });
+      }
+      listingId = auction.listingId._id || auction.listingId;
+    } else {
+      // Appointment từ đặt cọc thông thường
+      const depositRequest = appointment.depositRequestId as any;
+      if (!depositRequest || !depositRequest.listingId) {
+        return res.status(400).json({
+          success: false,
+          message: "Không tìm thấy depositRequest hoặc listingId cho lịch hẹn này",
+        });
+      }
+      listingId = depositRequest.listingId;
+      depositRequestId = depositRequest._id;
     }
 
     // Kiểm tra có file upload không
@@ -252,7 +306,7 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
 
     if (!contract) {
       // Tạo contract mới với thông tin cơ bản
-      const listing = await Listing.findById(depositRequest.listingId);
+      const listing = await Listing.findById(listingId);
       const buyer = await User.findById(appointment.buyerId);
       const seller = await User.findById(appointment.sellerId);
 
@@ -263,12 +317,22 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
         });
       }
 
+      // Lấy depositAmount tùy theo loại appointment
+      let depositAmount = 0;
+      if (appointment.appointmentType === 'AUCTION') {
+        depositAmount = 1000000; // Phí tham gia đấu giá
+      } else if (depositRequestId) {
+        const depositReq = await DepositRequest.findById(depositRequestId);
+        depositAmount = depositReq?.depositAmount || 0;
+      }
+
       contract = new Contract({
         appointmentId,
-        depositRequestId: depositRequest._id,
+        depositRequestId: depositRequestId,
+        auctionId: appointment.appointmentType === 'AUCTION' ? appointment.auctionId : undefined,
         buyerId: appointment.buyerId,
         sellerId: appointment.sellerId,
-        listingId: depositRequest.listingId,
+        listingId: listingId,
         contractNumber: `CT-${Date.now()}`,
         contractDate: new Date(),
 
@@ -304,7 +368,7 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
 
         // Thông tin giao dịch
         purchasePrice: listing.priceListed || 0,
-        depositAmount: depositRequest.depositAmount,
+        depositAmount: depositAmount,
         paymentMethod: "Escrow",
 
         status: "SIGNED",

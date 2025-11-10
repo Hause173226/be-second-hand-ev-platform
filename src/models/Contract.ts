@@ -2,7 +2,8 @@ import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IContract extends Document {
   appointmentId: string;
-  depositRequestId: string;
+  depositRequestId?: string;
+  auctionId?: string;
   buyerId: string;
   sellerId: string;
   listingId: string;
@@ -79,8 +80,13 @@ const ContractSchema = new Schema({
   },
   depositRequestId: {
     type: String,
-    required: true,
+    required: false,
     ref: 'DepositRequest'
+  },
+  auctionId: {
+    type: String,
+    required: false,
+    ref: 'Auction'
   },
   buyerId: {
     type: String,
