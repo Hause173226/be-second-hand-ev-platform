@@ -120,12 +120,40 @@ export const getChatMessages = async (req: Request, res: Response, next: NextFun
     try {
         const { chatId } = req.params;
         const { page = 1, limit = 50 } = req.query;
+        const userId = (req as any).user.userId;
 
-        // Sử dụng chatService  
+        // Lấy thông tin chat trước
+        const chat = await Chat.findById(chatId)
+            .populate('buyerId', 'fullName avatar phone email')
+            .populate('sellerId', 'fullName avatar phone email')
+            .populate('listingId', 'make model year photos priceListed status')
+            .lean();
+
+        if (!chat) {
+            res.status(404).json({ error: "Không tìm thấy chat" });
+            return;
+        }
+
+        // Xác định otherUser (người còn lại trong cuộc chat)
+        const isBuyer = chat.buyerId._id.toString() === userId;
+        const otherUser = isBuyer ? chat.sellerId : chat.buyerId;
+
+        // Lấy messages
         const skip = (Number(page) - 1) * Number(limit);
         const messages = await chatService.getMessages(chatId, Number(limit), skip);
 
-        res.json({ messages });
+        res.json({ 
+            messages,
+            chat: {
+                _id: chat._id,
+                buyerId: chat.buyerId,
+                sellerId: chat.sellerId,
+                listingId: chat.listingId,
+                otherUser,
+                createdAt: chat.createdAt,
+                updatedAt: chat.updatedAt
+            }
+        });
     } catch (error) {
         console.error("Lỗi trong getChatMessages:", error);
         res.status(500).json({ error: error instanceof Error ? error.message : "Lỗi máy chủ nội bộ" });
@@ -164,6 +192,61 @@ export const sendMessage = async (req: Request, res: Response, next: NextFunctio
             attachments: metadata?.files?.map((f: any) => f.url) || []
         });
 
+        // Emit WebSocket event để notify real-time
+        try {
+            const wsService = WebSocketService.getInstance();
+            const senderInfo = {
+                fullName: (message.senderId as any).fullName,
+                avatar: (message.senderId as any).avatar || '/default-avatar.png'
+            };
+
+            // Broadcast message to chat room
+            wsService.broadcastMessage(chatId, {
+                _id: message._id,
+                chatId: message.chatId,
+                content: message.content,
+                messageType: message.messageType,
+                metadata: message.metadata,
+                senderId: {
+                    _id: (message.senderId as any)._id,
+                    fullName: senderInfo.fullName,
+                    avatar: senderInfo.avatar
+                },
+                isRead: message.isRead,
+                createdAt: message.createdAt,
+                timestamp: message.createdAt,
+            });
+
+            // Send enhanced notification
+            wsService.sendEnhancedMessageNotification(chatId, senderId, message.content, senderInfo);
+
+            // Broadcast chat list update to both users
+            const buyerIdStr = chat.buyerId.toString();
+            const sellerIdStr = chat.sellerId.toString();
+            
+            wsService.sendToUser(buyerIdStr, 'chat_list_update', {
+                chatId,
+                lastMessage: {
+                    content: message.content,
+                    senderId,
+                    timestamp: new Date()
+                },
+                updatedAt: new Date()
+            });
+            
+            wsService.sendToUser(sellerIdStr, 'chat_list_update', {
+                chatId,
+                lastMessage: {
+                    content: message.content,
+                    senderId,
+                    timestamp: new Date()
+                },
+                updatedAt: new Date()
+            });
+        } catch (wsError) {
+            console.error("Lỗi gửi WebSocket notification:", wsError);
+        }
+
         res.status(201).json(message);
     } catch (error) {
         console.error("Lỗi trong sendMessage:", error);
@@ -177,8 +260,47 @@ export const markMessagesAsRead = async (req: Request, res: Response, next: Next
         const { chatId } = req.params;
         const userId = (req as any).user.userId;
 
+        // Lấy thông tin chat trước
+        const chat = await Chat.findById(chatId);
+        if (!chat) {
+            res.status(404).json({ error: "Không tìm thấy chat" });
+            return;
+        }
+
         // Sử dụng chatService
         await chatService.markMessagesAsRead(chatId, userId);
+
+        // Emit WebSocket event để update real-time
+        try {
+            const wsService = WebSocketService.getInstance();
+            
+            // Notify người gửi (người kia) rằng tin nhắn đã được đọc
+            const otherUserId = chat.buyerId.toString() === userId 
+                ? chat.sellerId.toString() 
+                : chat.buyerId.toString();
+            
+            wsService.sendToUser(otherUserId, 'messages_read', {
+                chatId,
+                readBy: userId,
+                timestamp: new Date()
+            });
+
+            // Broadcast to chat room
+            wsService.broadcastToChatRoom(chatId, 'messages_read', {
+                chatId,
+                readBy: userId,
+                timestamp: new Date()
+            });
+
+            // Update chat list for the user who read the messages
+            wsService.sendToUser(userId, 'chat_list_update', {
+                chatId,
+                unreadCount: 0,
+                updatedAt: new Date()
+            });
+        } catch (wsError) {
+            console.error("Lỗi gửi WebSocket notification:", wsError);
+        }
 
         res.json({ message: "Đã đánh dấu tin nhắn là đã đọc" });
     } catch (error) {

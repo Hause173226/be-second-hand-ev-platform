@@ -530,12 +530,23 @@ export const searchListings: RequestHandler = async (req, res, next) => {
       city,
       district,
       condition,
+      status,
       sortBy = "newest",
       page = "1",
       limit = "12",
     } = req.query;
 
-    const filter: any = { status: "Published" };
+    const filter: any = {};
+    
+    // Filter by status
+    if (status) {
+      // Nếu user truyền status cụ thể, dùng status đó
+      filter.status = status;
+    } else {
+      // Nếu không truyền status, chỉ hiển thị các sản phẩm đã duyệt
+      // (loại trừ Draft và PendingReview)
+      filter.status = { $in: ["Published", "InTransaction", "Sold"] };
+    }
 
     // Text search với keyword - thông minh hơn với make, model, year
     if (keyword) {
@@ -828,17 +839,14 @@ export const getListingById: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    const listing = await Listing.findOne({
-      _id: id,
-      status: "Published",
-    })
+    const listing = await Listing.findById(id)
       .populate("sellerId", "fullName phone email avatar createdAt")
       .lean();
 
     if (!listing) {
       res
         .status(404)
-        .json({ message: "Sản phẩm không tồn tại hoặc chưa được duyệt" });
+        .json({ message: "Sản phẩm không tồn tại" });
       return;
     }
 

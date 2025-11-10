@@ -496,9 +496,10 @@ export const completeTransaction = async (req: Request, res: Response) => {
 
     // Cập nhật trạng thái listing thành Sold
     const listing = await Listing.findById(listingId);
-    if (listing && listing.status === "InTransaction") {
+    if (listing) {
       listing.status = "Sold";
       await listing.save();
+      console.log(`✅ Updated listing ${listingId} status to Sold`);
     }
 
     // Cập nhật trạng thái contract
