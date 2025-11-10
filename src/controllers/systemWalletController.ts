@@ -102,3 +102,117 @@ export const getSystemWalletTransactions = async (
     return;
   }
 };
+
+// [SYSTEM_WALLET_API] - Admin xem chi tiết một giao dịch ví hệ thống
+export const getSystemWalletTransactionDetail = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const isAdmin = req.user?.role === "admin" || req.user?.role === "staff";
+    if (!isAdmin) {
+      res.status(403).json({
+        success: false,
+        message: "Chỉ admin/staff mới có quyền xem chi tiết giao dịch",
+      });
+      return;
+    }
+
+    const { id } = req.params;
+    if (!id) {
+      res.status(400).json({
+        success: false,
+        message: "Thiếu ID giao dịch",
+      });
+      return;
+    }
+
+    const transactionDetail = await SystemWalletService.getTransactionDetail(id);
+
+    res.json({
+      success: true,
+      data: transactionDetail,
+    });
+    return;
+  } catch (error) {
+    console.error("Error getting system wallet transaction detail:", error);
+    if (error instanceof Error && error.message === "Giao dịch không tồn tại") {
+      res.status(404).json({
+        success: false,
+        message: error.message,
+      });
+      return;
+    }
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return;
+  }
+};
+
+// [SYSTEM_WALLET_API] - Admin xem dữ liệu chart giao dịch ví hệ thống
+export const getSystemWalletChartData = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const isAdmin = req.user?.role === "admin" || req.user?.role === "staff";
+    if (!isAdmin) {
+      res.status(403).json({
+        success: false,
+        message: "Chỉ admin/staff mới có quyền xem dữ liệu chart",
+      });
+      return;
+    }
+
+    const { period, startDate, endDate } = req.query;
+
+    // Parse dates nếu có
+    let parsedStartDate: Date | undefined;
+    let parsedEndDate: Date | undefined;
+
+    if (startDate) {
+      parsedStartDate = new Date(startDate as string);
+      if (isNaN(parsedStartDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "startDate không hợp lệ",
+        });
+        return;
+      }
+    }
+
+    if (endDate) {
+      parsedEndDate = new Date(endDate as string);
+      if (isNaN(parsedEndDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "endDate không hợp lệ",
+        });
+        return;
+      }
+    }
+
+    const chartData = await SystemWalletService.getTransactionChartData({
+      period: (period as "day" | "month" | "year") || "day",
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
+    });
+
+    res.json({
+      success: true,
+      data: chartData,
+    });
+    return;
+  } catch (error) {
+    console.error("Error getting system wallet chart data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return;
+  }
+};
