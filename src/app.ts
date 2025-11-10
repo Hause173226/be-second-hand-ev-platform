@@ -24,6 +24,7 @@ import auctionRoutes from "./routes/auctionRoutes";
 import auctionDepositRoutes from "./routes/auctionDepositRoutes";
 import membershipRoutes from "./routes/membershipRoutes";
 import ekycRoutes from "./routes/ekycRoutes";
+import systemWalletRoutes from "./routes/systemWalletRoutes";
 
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./swagger";
@@ -74,6 +75,7 @@ app.use("/api/auctions", auctionRoutes);
 app.use("/api/memberships", membershipRoutes);
 app.use("/api/auctions", auctionDepositRoutes);
 app.use("/api/ekyc", ekycRoutes);
+app.use("/api/system-wallet", systemWalletRoutes);
 
 // 📘 Swagger Docs
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
