@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { RequestHandler } from "express";
 import {
   confirmTransaction,
   getPendingTransactions,
@@ -6,10 +6,10 @@ import {
   getUserTransactionHistory,
   getAdminTransactionHistory,
   getAllTransactions,
-  cancelTransaction
-} from '../controllers/transactionController';
-import { authenticate } from '../middlewares/authenticate';
-import { requireRole } from '../middlewares/role';
+  cancelTransaction,
+} from "../controllers/transactionController";
+import { authenticate } from "../middlewares/authenticate";
+import { requireRole } from "../middlewares/role";
 
 const router = express.Router();
 
@@ -66,7 +66,12 @@ const router = express.Router();
  *       500:
  *         description: Lỗi server
  */
-router.post('/confirm', authenticate, requireRole(['staff', 'admin']), confirmTransaction);
+router.post(
+  "/confirm",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  confirmTransaction as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -112,7 +117,12 @@ router.post('/confirm', authenticate, requireRole(['staff', 'admin']), confirmTr
  *       500:
  *         description: Lỗi server
  */
-router.get('/pending', authenticate, requireRole(['staff', 'admin']), getPendingTransactions);
+router.get(
+  "/pending",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  getPendingTransactions as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -161,7 +171,11 @@ router.get('/pending', authenticate, requireRole(['staff', 'admin']), getPending
  *       500:
  *         description: Lỗi server
  */
-router.get('/user/history', authenticate, getUserTransactionHistory);
+router.get(
+  "/user/history",
+  authenticate,
+  getUserTransactionHistory as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -213,7 +227,12 @@ router.get('/user/history', authenticate, getUserTransactionHistory);
  *       500:
  *         description: Lỗi server
  */
-router.get('/admin/history', authenticate, requireRole(['admin', 'staff']), getAdminTransactionHistory);
+router.get(
+  "/admin/history",
+  authenticate,
+  requireRole(["admin", "staff"]),
+  getAdminTransactionHistory as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -259,7 +278,12 @@ router.get('/admin/history', authenticate, requireRole(['admin', 'staff']), getA
  *       500:
  *         description: Lỗi server
  */
-router.get('/all', authenticate, requireRole(['admin', 'staff']), getAllTransactions);
+router.get(
+  "/all",
+  authenticate,
+  requireRole(["admin", "staff"]),
+  getAllTransactions as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -297,7 +321,11 @@ router.get('/all', authenticate, requireRole(['admin', 'staff']), getAllTransact
  *       500:
  *         description: Lỗi server
  */
-router.get('/:appointmentId', authenticate, getTransactionDetails);
+router.get(
+  "/:appointmentId",
+  authenticate,
+  getTransactionDetails as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -347,6 +375,11 @@ router.get('/:appointmentId', authenticate, getTransactionDetails);
  *       500:
  *         description: Lỗi server
  */
-router.put('/:appointmentId/cancel', authenticate, requireRole(['staff', 'admin']), cancelTransaction);
+router.put(
+  "/:appointmentId/cancel",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  cancelTransaction as unknown as RequestHandler
+);
 
 export default router;

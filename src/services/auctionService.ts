@@ -49,7 +49,10 @@ export async function scheduleAuctionClose(auction: any) {
 }
 
 // Đóng phiên + refund + tạo “deposit request ảo” cho winner + emit socket
-export async function autoCloseAuction(auctionId: AnyId, ws?: WebSocketService) {
+export async function autoCloseAuction(
+  auctionId: AnyId,
+  ws?: WebSocketService
+) {
   const id = typeof auctionId === "string" ? auctionId : auctionId.toString();
   const svc = ws ?? WebSocketService.getInstance();
 
@@ -76,7 +79,10 @@ export async function autoCloseAuction(auctionId: AnyId, ws?: WebSocketService) 
 
   // Refund cọc cho người thua
   try {
-    await auctionDepositService.refundNonWinners(id, auction.winnerId?.toString());
+    await auctionDepositService.refundNonWinners(
+      id,
+      auction.winnerId?.toString()
+    );
   } catch (error) {
     console.error("[auctionService] Error refunding non-winners:", error);
   }
@@ -86,7 +92,8 @@ export async function autoCloseAuction(auctionId: AnyId, ws?: WebSocketService) 
     try {
       const listing: any = auction.listingId;
       if (listing) {
-        const depositAmountForWinner = auctionDepositService.getParticipationFee(auction);
+        const depositAmountForWinner =
+          auctionDepositService.getParticipationFee(auction);
 
         const depositRequest = await DepositRequest.create({
           listingId: listing._id.toString(),
@@ -105,17 +112,22 @@ export async function autoCloseAuction(auctionId: AnyId, ws?: WebSocketService) 
           status: "LOCKED",
         });
 
-        (depositRequest as any).escrowAccountId = (escrowAccount as any)._id.toString();
+        (depositRequest as any).escrowAccountId = (
+          escrowAccount as any
+        )._id.toString();
         await depositRequest.save();
       }
     } catch (error) {
-      console.error("[auctionService] Error creating virtual deposit request:", error);
+      console.error(
+        "[auctionService] Error creating virtual deposit request:",
+        error
+      );
     }
   }
 
   // Emit realtime đến room của phiên
   try {
-    svc.io.to(`auction_${id}`).emit("auction_closed", {
+    svc.emitAuctionEvent(`auction_${id}`, "auction_closed", {
       auctionId: id,
       winner: auction.winnerId,
       winningBid,
@@ -135,7 +147,10 @@ export async function bootstrapAuctions() {
   const now = new Date();
 
   // 1) Đóng ngay các phiên active nhưng đã quá hạn
-  const overdue = await Auction.find({ status: "active", endAt: { $lte: now } }).lean();
+  const overdue = await Auction.find({
+    status: "active",
+    endAt: { $lte: now },
+  }).lean();
   for (const a of overdue) {
     try {
       await autoCloseAuction(a._id.toString(), ws);
@@ -165,9 +180,14 @@ export function startAuctionSweepCron() {
     try {
       const ws = WebSocketService.getInstance();
       const now = new Date();
-      const overdue = await Auction.find({ status: "active", endAt: { $lte: now } }).lean();
+      const overdue = await Auction.find({
+        status: "active",
+        endAt: { $lte: now },
+      }).lean();
       if (overdue.length) {
-        console.log(`[auctionService] cron: closing ${overdue.length} overdue auctions`);
+        console.log(
+          `[auctionService] cron: closing ${overdue.length} overdue auctions`
+        );
       }
       for (const a of overdue) {
         await autoCloseAuction(a._id.toString(), ws);
@@ -207,7 +227,8 @@ export const auctionService = {
       listingId,
       status: { $in: ["active"] },
     });
-    if (existingForListing) throw new Error("Sản phẩm này đã có phiên đấu giá đang hoạt động");
+    if (existingForListing)
+      throw new Error("Sản phẩm này đã có phiên đấu giá đang hoạt động");
 
     // Seller có phiên active/upcoming nào khác?
     const now = new Date();
@@ -217,7 +238,10 @@ export const auctionService = {
     const existingActiveAuction = await Auction.findOne({
       listingId: { $in: sellerListingIds },
       status: "active",
-      $or: [{ startAt: { $lte: now }, endAt: { $gte: now } }, { startAt: { $gt: now } }],
+      $or: [
+        { startAt: { $lte: now }, endAt: { $gte: now } },
+        { startAt: { $gt: now } },
+      ],
     });
     if (existingActiveAuction) {
       throw new Error(
@@ -226,7 +250,8 @@ export const auctionService = {
     }
 
     if (!startAt || !endAt) throw new Error("Thiếu thời gian phiên");
-    if (new Date(endAt) <= new Date(startAt)) throw new Error("endAt phải sau startAt");
+    if (new Date(endAt) <= new Date(startAt))
+      throw new Error("endAt phải sau startAt");
     if (Date.now() - Date.parse(String(startAt)) > 3600000)
       throw new Error("startAt đã quá xa hiện tại");
 
@@ -244,7 +269,15 @@ export const auctionService = {
     return auction;
   },
 
-  async placeBid({ auctionId, price, userId }: { auctionId: string; price: number; userId: AnyId }) {
+  async placeBid({
+    auctionId,
+    price,
+    userId,
+  }: {
+    auctionId: string;
+    price: number;
+    userId: AnyId;
+  }) {
     const auction = await Auction.findById(auctionId).populate("listingId");
     if (!auction) throw new Error("Phiên đấu giá không tồn tại");
     if (auction.status !== "active") throw new Error("Phiên đã đóng");
@@ -255,13 +288,20 @@ export const auctionService = {
     }
 
     const now = new Date();
-    if (now < auction.startAt || now > auction.endAt) throw new Error("Ngoài thời gian đấu giá");
+    if (now < auction.startAt || now > auction.endAt)
+      throw new Error("Ngoài thời gian đấu giá");
 
-    const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
+    const hasDeposited = await auctionDepositService.hasDeposited(
+      auctionId,
+      userId.toString()
+    );
     if (!hasDeposited) {
-      const participationFee = auctionDepositService.getParticipationFee(auction);
+      const participationFee =
+        auctionDepositService.getParticipationFee(auction);
       throw new Error(
-        `Bạn cần đặt cọc ${participationFee.toLocaleString("vi-VN")} VNĐ để tham gia đấu giá`
+        `Bạn cần đặt cọc ${participationFee.toLocaleString(
+          "vi-VN"
+        )} VNĐ để tham gia đấu giá`
       );
     }
 
@@ -272,7 +312,9 @@ export const auctionService = {
 
     if (price <= currentHighestBid) {
       throw new Error(
-        `Giá đặt phải cao hơn giá hiện tại ${currentHighestBid.toLocaleString("vi-VN")} VNĐ`
+        `Giá đặt phải cao hơn giá hiện tại ${currentHighestBid.toLocaleString(
+          "vi-VN"
+        )} VNĐ`
       );
     }
 
@@ -283,7 +325,10 @@ export const auctionService = {
 
   async getAuctionById(auctionId: string) {
     const auction = await Auction.findById(auctionId)
-      .populate("listingId", "make model year priceListed photos batteryCapacity range sellerId")
+      .populate(
+        "listingId",
+        "make model year priceListed photos batteryCapacity range sellerId"
+      )
       .populate("bids.userId", "fullName avatar");
 
     if (!auction) throw new Error("Không tìm thấy phiên đấu giá");
@@ -297,7 +342,9 @@ export const auctionService = {
     let seller = null;
     if (listing && listing.sellerId) {
       const { User } = await import("../models/User");
-      seller = await User.findById(listing.sellerId).select("fullName email phone avatar");
+      seller = await User.findById(listing.sellerId).select(
+        "fullName email phone avatar"
+      );
     }
 
     const auctionData = auction.toObject();
@@ -339,7 +386,11 @@ export const auctionService = {
   async getOngoingAuctions(page = 1, limit = 10) {
     const now = new Date();
     const skip = (page - 1) * limit;
-    const query = { status: "active", startAt: { $lte: now }, endAt: { $gte: now } };
+    const query = {
+      status: "active",
+      startAt: { $lte: now },
+      endAt: { $gte: now },
+    };
 
     const auctions = await Auction.find(query)
       .populate("listingId", "make model year priceListed photos status")
@@ -349,7 +400,10 @@ export const auctionService = {
       .limit(limit);
     const total = await Auction.countDocuments(query);
 
-    return { auctions, pagination: { current: page, pages: Math.ceil(total / limit), total } };
+    return {
+      auctions,
+      pagination: { current: page, pages: Math.ceil(total / limit), total },
+    };
   },
 
   async getUpcomingAuctions(page = 1, limit = 10) {
@@ -364,14 +418,21 @@ export const auctionService = {
       .limit(limit);
     const total = await Auction.countDocuments(query);
 
-    return { auctions, pagination: { current: page, pages: Math.ceil(total / limit), total } };
+    return {
+      auctions,
+      pagination: { current: page, pages: Math.ceil(total / limit), total },
+    };
   },
 
   async getEndedAuctions(page = 1, limit = 10) {
     const now = new Date();
     const skip = (page - 1) * limit;
     const query = {
-      $or: [{ status: "ended" }, { status: "cancelled" }, { status: "active", endAt: { $lt: now } }],
+      $or: [
+        { status: "ended" },
+        { status: "cancelled" },
+        { status: "active", endAt: { $lt: now } },
+      ],
     };
 
     const auctions = await Auction.find(query)
@@ -383,7 +444,10 @@ export const auctionService = {
       .limit(limit);
     const total = await Auction.countDocuments(query);
 
-    return { auctions, pagination: { current: page, pages: Math.ceil(total / limit), total } };
+    return {
+      auctions,
+      pagination: { current: page, pages: Math.ceil(total / limit), total },
+    };
   },
 
   async getAllAuctions(filters: any = {}, page = 1, limit = 10) {
@@ -422,13 +486,19 @@ export const auctionService = {
       .limit(limit);
     const total = await Auction.countDocuments(query);
 
-    return { auctions, pagination: { current: page, pages: Math.ceil(total / limit), total } };
+    return {
+      auctions,
+      pagination: { current: page, pages: Math.ceil(total / limit), total },
+    };
   },
 
   async getWonAuctionsPendingAppointment(userId: string, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
 
-    const wonAuctions = await Auction.find({ winnerId: userId, status: "ended" })
+    const wonAuctions = await Auction.find({
+      winnerId: userId,
+      status: "ended",
+    })
       .populate(
         "listingId",
         "make model year priceListed photos batteryCapacity range sellerId"
@@ -442,15 +512,24 @@ export const auctionService = {
           auctionId: auction._id,
           appointmentType: "AUCTION",
         }).select("_id status scheduledDate createdAt");
-        return { ...auction, hasAppointment: !!appointment, appointment: appointment || null };
+        return {
+          ...auction,
+          hasAppointment: !!appointment,
+          appointment: appointment || null,
+        };
       })
     );
 
-    const pendingAuctions = auctionsWithAppointmentStatus.filter((a) => !a.hasAppointment);
+    const pendingAuctions = auctionsWithAppointmentStatus.filter(
+      (a) => !a.hasAppointment
+    );
     const total = pendingAuctions.length;
     const paginatedAuctions = pendingAuctions.slice(skip, skip + limit);
 
-    return { auctions: paginatedAuctions, pagination: { current: page, pages: Math.ceil(total / limit), total } };
+    return {
+      auctions: paginatedAuctions,
+      pagination: { current: page, pages: Math.ceil(total / limit), total },
+    };
   },
 
   scheduleAuctionClose,
