@@ -1,13 +1,13 @@
-import { Router } from 'express';
-import { authenticate } from '../middlewares/authenticate';
+import { Router, RequestHandler } from "express";
+import { authenticate } from "../middlewares/authenticate";
 import {
   createAuctionDeposit,
   cancelAuctionDeposit,
   getAuctionDeposits,
   checkDepositStatus,
   deductWinnerDeposit,
-  getParticipationFee
-} from '../controllers/auctionDepositController';
+  getParticipationFee,
+} from "../controllers/auctionDepositController";
 
 const router = Router();
 
@@ -21,7 +21,7 @@ const router = Router();
  *       200:
  *         description: Thông tin phí cọc
  */
-router.get('/deposit/fee', getParticipationFee);
+router.get("/deposit/fee", getParticipationFee as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -46,7 +46,11 @@ router.get('/deposit/fee', getParticipationFee);
  *       401:
  *         description: Chưa đăng nhập
  */
-router.post('/:auctionId/deposit', authenticate, createAuctionDeposit);
+router.post(
+  "/:auctionId/deposit",
+  authenticate,
+  createAuctionDeposit as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -71,7 +75,11 @@ router.post('/:auctionId/deposit', authenticate, createAuctionDeposit);
  *       401:
  *         description: Chưa đăng nhập
  */
-router.delete('/:auctionId/deposit', authenticate, cancelAuctionDeposit);
+router.delete(
+  "/:auctionId/deposit",
+  authenticate,
+  cancelAuctionDeposit as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -92,7 +100,10 @@ router.delete('/:auctionId/deposit', authenticate, cancelAuctionDeposit);
  *       400:
  *         description: Lỗi trong quá trình lấy dữ liệu
  */
-router.get('/:auctionId/deposits', getAuctionDeposits);
+router.get(
+  "/:auctionId/deposits",
+  getAuctionDeposits as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -115,7 +126,11 @@ router.get('/:auctionId/deposits', getAuctionDeposits);
  *       401:
  *         description: Chưa đăng nhập
  */
-router.get('/:auctionId/deposit/status', authenticate, checkDepositStatus);
+router.get(
+  "/:auctionId/deposit/status",
+  authenticate,
+  checkDepositStatus as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -150,6 +165,10 @@ router.get('/:auctionId/deposit/status', authenticate, checkDepositStatus);
  *       400:
  *         description: Lỗi trong quá trình chiết khấu
  */
-router.post('/:auctionId/deposit/deduct', authenticate, deductWinnerDeposit);
+router.post(
+  "/:auctionId/deposit/deduct",
+  authenticate,
+  deductWinnerDeposit as unknown as RequestHandler
+);
 
 export default router;
