@@ -24,6 +24,7 @@ export interface IUser {
   roles: string[];
   role?: "user" | "staff" | "admin";
   status: "ACTIVE" | "SUSPENDED" | "DELETED";
+  isActive?: boolean;
   lastLoginAt?: Date;
 
   // Profile

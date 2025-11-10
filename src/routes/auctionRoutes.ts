@@ -1,15 +1,15 @@
-import express from "express";
+import express, { RequestHandler } from "express";
 import { authenticate } from "../middlewares/authenticate";
-import { 
-    createAuction, 
-    placeBid, 
-    getAuctionById, 
-    endAuction,
-    getOngoingAuctions,
-    getUpcomingAuctions,
-    getEndedAuctions,
-    getAllAuctions,
-    getWonAuctionsPendingAppointment
+import {
+  createAuction,
+  placeBid,
+  getAuctionById,
+  endAuction,
+  getOngoingAuctions,
+  getUpcomingAuctions,
+  getEndedAuctions,
+  getAllAuctions,
+  getWonAuctionsPendingAppointment,
 } from "../controllers/auctionController";
 
 const router = express.Router();
@@ -214,7 +214,11 @@ router.get("/all", getAllAuctions);
  *                   type: object
  *       401: { description: Chưa đăng nhập }
  */
-router.get("/won/pending-appointment", authenticate, getWonAuctionsPendingAppointment);
+router.get(
+  "/won/pending-appointment",
+  authenticate,
+  getWonAuctionsPendingAppointment as unknown as RequestHandler
+);
 
 /**
  * @swagger
@@ -231,6 +235,6 @@ router.get("/won/pending-appointment", authenticate, getWonAuctionsPendingAppoin
  *       200: { description: Chi tiết phiên }
  *       404: { description: Không tồn tại }
  */
-router.get("/:auctionId", getAuctionById);
+router.get("/:auctionId", getAuctionById as unknown as RequestHandler);
 
 export default router;

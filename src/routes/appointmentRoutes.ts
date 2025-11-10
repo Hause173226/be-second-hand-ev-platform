@@ -1,5 +1,5 @@
 // src/routes/appointmentRoutes.ts
-import express from "express";
+import express, { RequestHandler } from "express";
 import {
     createAppointment,
     getUserAppointments,
@@ -86,7 +86,7 @@ const router = express.Router();
  *       500:
  *         description: Lỗi server
  */
-router.post('/', authenticate, createAppointment);
+router.post('/', authenticate, createAppointment as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -144,7 +144,7 @@ router.post('/', authenticate, createAppointment);
  *       500:
  *         description: Lỗi server
  */
-router.post('/:appointmentId/confirm', authenticate, confirmAppointment);
+router.post('/:appointmentId/confirm', authenticate, confirmAppointment as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -216,7 +216,7 @@ router.post('/:appointmentId/confirm', authenticate, confirmAppointment);
  *       500:
  *         description: Lỗi server
  */
-router.post('/:appointmentId/reject', authenticate, rejectAppointment);
+router.post('/:appointmentId/reject', authenticate, rejectAppointment as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -291,7 +291,7 @@ router.post('/:appointmentId/reject', authenticate, rejectAppointment);
  *       500:
  *         description: Lỗi server
  */
-router.put('/:appointmentId/reschedule', authenticate, rescheduleAppointment);
+router.put('/:appointmentId/reschedule', authenticate, rescheduleAppointment as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -355,7 +355,7 @@ router.put('/:appointmentId/reschedule', authenticate, rescheduleAppointment);
  *       500:
  *         description: Lỗi server
  */
-router.put('/:appointmentId/cancel', authenticate, cancelAppointment);
+router.put('/:appointmentId/cancel', authenticate, cancelAppointment as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -462,7 +462,7 @@ router.put('/:appointmentId/cancel', authenticate, cancelAppointment);
  *       500:
  *         description: Lỗi server
  */
-router.get('/user', authenticate, getUserAppointments);
+router.get('/user', authenticate, getUserAppointments as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -523,7 +523,7 @@ router.get('/user', authenticate, getUserAppointments);
  *       500:
  *         description: Lỗi server
  */
-router.get('/staff', authenticate, getStaffAppointments);
+router.get('/staff', authenticate, getStaffAppointments as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -622,7 +622,7 @@ router.get('/staff', authenticate, getStaffAppointments);
  *       500:
  *         description: Lỗi server
  */
-router.get('/:appointmentId', authenticate, getAppointmentDetails);
+router.get('/:appointmentId', authenticate, getAppointmentDetails as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -674,7 +674,7 @@ router.get('/:appointmentId', authenticate, getAppointmentDetails);
  *       401:
  *         description: Chưa đăng nhập
  */
-router.post('/auction/:auctionId', authenticate, createAppointmentFromAuction);
+router.post('/auction/:auctionId', authenticate, createAppointmentFromAuction as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -795,6 +795,6 @@ router.post('/auction/:auctionId', authenticate, createAppointmentFromAuction);
  *       500:
  *         description: Lỗi server
  */
-router.get('/auction/list', authenticate, getAuctionAppointments);
+router.get('/auction/list', authenticate, getAuctionAppointments as unknown as RequestHandler);
 
 export default router;

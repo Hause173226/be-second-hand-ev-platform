@@ -286,7 +286,7 @@ export const markMessagesAsRead = async (req: Request, res: Response, next: Next
             });
 
             // Broadcast to chat room
-            wsService.broadcastToChatRoom(chatId, 'messages_read', {
+            wsService.sendToChat(chatId, 'messages_read', {
                 chatId,
                 readBy: userId,
                 timestamp: new Date()
