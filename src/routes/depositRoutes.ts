@@ -1,4 +1,4 @@
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import {
   createDepositRequest,
   sellerConfirmDeposit,
@@ -60,7 +60,7 @@ const router = express.Router();
  *                       type: number
  */
 // Tạo yêu cầu đặt cọc
-router.post('/', authenticate, createDepositRequest);
+router.post('/', authenticate, createDepositRequest as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -90,7 +90,7 @@ router.post('/', authenticate, createDepositRequest);
  *       200:
  *         description: Xác nhận/ từ chối thành công
  */
-router.post('/:depositRequestId/confirm', authenticate, sellerConfirmDeposit);
+router.post('/:depositRequestId/confirm', authenticate, sellerConfirmDeposit as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -104,7 +104,7 @@ router.post('/:depositRequestId/confirm', authenticate, sellerConfirmDeposit);
  *       200:
  *         description: Danh sách yêu cầu đặt cọc
  */
-router.get('/buyer', authenticate, getBuyerDepositRequests);
+router.get('/buyer', authenticate, getBuyerDepositRequests as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -118,7 +118,7 @@ router.get('/buyer', authenticate, getBuyerDepositRequests);
  *       200:
  *         description: Danh sách yêu cầu đặt cọc
  */
-router.get('/seller', authenticate, getSellerDepositRequests);
+router.get('/seller', authenticate, getSellerDepositRequests as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -138,7 +138,7 @@ router.get('/seller', authenticate, getSellerDepositRequests);
  *       200:
  *         description: Hủy đặt cọc thành công
  */
-router.delete('/:depositRequestId', authenticate, cancelDepositRequest);
+router.delete('/:depositRequestId', authenticate, cancelDepositRequest as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -166,6 +166,6 @@ router.delete('/:depositRequestId', authenticate, cancelDepositRequest);
  *       200:
  *         description: Hủy giao dịch thành công, tiền đã hoàn về ví
  */
-router.post('/:depositRequestId/cancel-transaction', authenticate, cancelTransactionInEscrow);
+router.post('/:depositRequestId/cancel-transaction', authenticate, cancelTransactionInEscrow as unknown as RequestHandler);
 
 export default router;

@@ -1,5 +1,5 @@
 // src/routes/notificationDepositRoutes.ts
-import express from 'express';
+import express, { RequestHandler } from 'express';
 import { authenticate } from '../middlewares/authenticate';
 import {
     getAllNotifications,
@@ -49,7 +49,7 @@ const router = express.Router();
  *       401:
  *         description: Unauthorized
  */
-router.get('/', authenticate, getAllNotifications);
+router.get('/', authenticate, getAllNotifications as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -65,7 +65,7 @@ router.get('/', authenticate, getAllNotifications);
  *       401:
  *         description: Unauthorized
  */
-router.get('/unread-count', authenticate, getUnreadCount);
+router.get('/unread-count', authenticate, getUnreadCount as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -81,7 +81,7 @@ router.get('/unread-count', authenticate, getUnreadCount);
  *       401:
  *         description: Unauthorized
  */
-router.patch('/read-all', authenticate, markAllAsRead);
+router.patch('/read-all', authenticate, markAllAsRead as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -106,7 +106,7 @@ router.patch('/read-all', authenticate, markAllAsRead);
  *       404:
  *         description: Notification not found
  */
-router.patch('/:notificationId/read', authenticate, markAsRead);
+router.patch('/:notificationId/read', authenticate, markAsRead as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -131,7 +131,7 @@ router.patch('/:notificationId/read', authenticate, markAsRead);
  *       404:
  *         description: Notification not found
  */
-router.delete('/:notificationId', authenticate, deleteNotification);
+router.delete('/:notificationId', authenticate, deleteNotification as unknown as RequestHandler);
 
 export default router;
 

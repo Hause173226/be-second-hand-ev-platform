@@ -82,8 +82,8 @@ async function autoCloseAuction(auctionId, ws) {
         }
     }
     
-    ws.io.to(`auction_${auctionId}`).emit('auction_closed', {
-        auctionId,
+    ws.emitAuctionEvent(`auction_${auctionId.toString()}`, 'auction_closed', {
+        auctionId: auctionId.toString(),
         winner: auction.winnerId,
         winningBid
     });
@@ -151,7 +151,7 @@ export const auctionService = {
         if (now < auction.startAt || now > auction.endAt) throw new Error("Ngoài thời gian đấu giá");
         
         // BẮT BUỘC phải đặt cọc trước khi bid (PHÍ CỐ ĐỊNH 1 TRIỆU)
-        const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
+        const hasDeposited = await auctionDepositService.hasDeposited(auctionId.toString(), userId.toString());
         if (!hasDeposited) {
             const participationFee = auctionDepositService.getParticipationFee(auction);
             throw new Error(`Bạn cần đặt cọc ${participationFee.toLocaleString('vi-VN')} VNĐ để tham gia đấu giá`);
