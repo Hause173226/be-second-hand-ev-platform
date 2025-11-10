@@ -169,3 +169,100 @@ export const rejectListing: RequestHandler = async (req, res, next) => {
     next(err);
   }
 };
+/**
+ * NEW: Admin get ALL listings (mọi trạng thái) + keyword + phân trang
+ * GET /api/admin/listings/all?keyword=&page=&limit=
+ */
+export const adminListAll: RequestHandler = async (req, res, next) => {
+  try {
+    const {
+      keyword = "",
+      page = "1",
+      limit = "20",
+    } = req.query as {
+      keyword?: string;
+      page?: string;
+      limit?: string;
+    };
+
+    const pageNum = Math.max(parseInt(String(page), 10) || 1, 1);
+    const limitNum = Math.min(Math.max(parseInt(String(limit), 10) || 20, 1), 100);
+    const skip = (pageNum - 1) * limitNum;
+
+    const filter: any = {}; // KHÔNG lọc theo status
+
+    // Tìm kiếm nhanh theo hãng/model/notes/thành phố/quận + bắt năm nếu có
+    const kw = String(keyword || "").trim();
+    if (kw) {
+      const words = kw.split(/\s+/).filter(Boolean);
+      const yearMatch = kw.match(/\b(19|20)\d{2}\b/);
+      const yearFromKeyword = yearMatch ? parseInt(yearMatch[0], 10) : null;
+
+      const or: any[] = [
+        { make: { $regex: kw, $options: "i" } },
+        { model: { $regex: kw, $options: "i" } },
+        { notes: { $regex: kw, $options: "i" } },
+        { "location.city": { $regex: kw, $options: "i" } },
+        { "location.district": { $regex: kw, $options: "i" } },
+      ];
+
+      if (words.length >= 2) {
+        const possibleMake = words[0];
+        const possibleModel = words
+          .slice(1)
+          .join(" ")
+          .replace(/\b(19|20)\d{2}\b/, "")
+          .trim();
+        if (possibleModel) {
+          or.push({
+            $and: [
+              { make: { $regex: possibleMake, $options: "i" } },
+              { model: { $regex: possibleModel, $options: "i" } },
+            ],
+          });
+        }
+      }
+
+      if (yearFromKeyword) {
+        const kwNoYear = kw.replace(/\b(19|20)\d{2}\b/, "").trim();
+        or.push({
+          $and: [
+            { year: yearFromKeyword },
+            {
+              $or: [
+                { make: { $regex: kwNoYear, $options: "i" } },
+                { model: { $regex: kwNoYear, $options: "i" } },
+              ],
+            },
+          ],
+        });
+      }
+
+      filter.$or = or;
+    }
+
+    const [list, totalCount] = await Promise.all([
+      Listing.find(filter)
+        .populate("sellerId", "fullName phone email avatar")
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limitNum)
+        .lean(),
+      Listing.countDocuments(filter),
+    ]);
+
+    res.json({
+      listings: list,
+      pagination: {
+        currentPage: pageNum,
+        totalPages: Math.ceil(totalCount / limitNum),
+        totalCount,
+        hasNextPage: pageNum * limitNum < totalCount,
+        hasPrevPage: pageNum > 1,
+        limit: limitNum,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+};
