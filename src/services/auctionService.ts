@@ -53,11 +53,12 @@ async function autoCloseAuction(auctionId, ws) {
             const listing = auction.listingId as any;
             if (listing) {
                 // Tạo DepositRequest với status IN_ESCROW sẵn
+                const depositAmountForWinner = auctionDepositService.getParticipationFee(auction);
                 const depositRequest = await DepositRequest.create({
                     listingId: listing._id.toString(),
                     buyerId: auction.winnerId.toString(),
                     sellerId: listing.sellerId.toString(),
-                    depositAmount: auctionDepositService.getParticipationFee(), // 1 triệu VND
+                    depositAmount: depositAmountForWinner,
                     status: 'IN_ESCROW', // Đã có tiền cọc từ đấu giá
                     sellerConfirmedAt: new Date() // Tự động xác nhận vì đấu giá
                 });
@@ -67,7 +68,7 @@ async function autoCloseAuction(auctionId, ws) {
                     buyerId: auction.winnerId.toString(),
                     sellerId: listing.sellerId.toString(),
                     listingId: listing._id.toString(),
-                    amount: auctionDepositService.getParticipationFee(),
+                    amount: depositAmountForWinner,
                     status: 'LOCKED'
                 });
 
@@ -152,7 +153,7 @@ export const auctionService = {
         // BẮT BUỘC phải đặt cọc trước khi bid (PHÍ CỐ ĐỊNH 1 TRIỆU)
         const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
         if (!hasDeposited) {
-            const participationFee = auctionDepositService.getParticipationFee();
+            const participationFee = auctionDepositService.getParticipationFee(auction);
             throw new Error(`Bạn cần đặt cọc ${participationFee.toLocaleString('vi-VN')} VNĐ để tham gia đấu giá`);
         }
         

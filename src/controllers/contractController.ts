@@ -40,14 +40,19 @@ export const getContractInfo = async (req: Request, res: Response) => {
       });
     }
 
+    // Kiểm tra depositRequestId và listingId tồn tại
+    const depositRequest = appointment.depositRequestId as any;
+    if (!depositRequest || !depositRequest.listingId) {
+      return res.status(400).json({
+        success: false,
+        message: "Không tìm thấy thông tin depositRequest hoặc listingId",
+      });
+    }
+
     // Lấy thông tin chi tiết
-    const listing = await Listing.findById(
-      (appointment.depositRequestId as any).listingId
-    );
+    const listing = await Listing.findById(depositRequest.listingId);
     const buyerProfile = await User.findById((appointment.buyerId as any)._id);
-    const sellerProfile = await User.findById(
-      (appointment.sellerId as any)._id
-    );
+    const sellerProfile = await User.findById((appointment.sellerId as any)._id);
 
     if (!listing) {
       return res.status(400).json({

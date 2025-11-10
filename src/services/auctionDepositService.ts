@@ -3,9 +3,6 @@ import Auction from '../models/Auction';
 import walletService from './walletService';
 import { Types } from 'mongoose';
 
-// PHÍ CỌC THAM GIA ĐẤU GIÁ CỐ ĐỊNH
-const AUCTION_PARTICIPATION_FEE = 1000000; // 1 triệu VNĐ
-
 export const auctionDepositService = {
   /**
    * Đặt cọc để tham gia đấu giá
@@ -49,24 +46,28 @@ export const auctionDepositService = {
       throw new Error('Bạn đã đặt cọc cho phiên đấu giá này rồi');
     }
 
-    // Kiểm tra số dư ví (PHÍ CỐ ĐỊNH 1 TRIỆU)
+    // Tính phí tham gia: 10% của startingPrice (nếu có), fallback 1,000,000
+    const startingPrice = (auction && auction.startingPrice) || (listing && listing.priceListed) || 0;
+    const participationFee = startingPrice > 0 ? Math.ceil(startingPrice * 0.1) : 1000000;
+
+    // Kiểm tra số dư ví theo phí tính được
     const wallet = await walletService.getWallet(userId);
-    if (wallet.balance < AUCTION_PARTICIPATION_FEE) {
-      throw new Error(`Số dư không đủ. Cần ${AUCTION_PARTICIPATION_FEE.toLocaleString('vi-VN')} VNĐ để đặt cọc tham gia đấu giá`);
+    if (wallet.balance < participationFee) {
+      throw new Error(`Số dư không đủ. Cần ${participationFee.toLocaleString('vi-VN')} VNĐ để đặt cọc tham gia đấu giá`);
     }
 
-    // Freeze tiền từ ví (PHÍ CỐ ĐỊNH 1 TRIỆU)
+    // Freeze tiền từ ví theo phí tính được
     await walletService.freezeAmount(
       userId,
-      AUCTION_PARTICIPATION_FEE,
+      participationFee,
       `Đặt cọc tham gia đấu giá #${auctionId}`
     );
 
-    // Tạo record deposit với PHÍ CỐ ĐỊNH
+    // Tạo record deposit với số tiền động
     const deposit = await AuctionDeposit.create({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      depositAmount: AUCTION_PARTICIPATION_FEE,
+      depositAmount: participationFee,
       status: 'FROZEN',
       frozenAt: new Date()
     });
@@ -212,10 +213,24 @@ export const auctionDepositService = {
   },
 
   /**
-   * Lấy phí cọc tham gia đấu giá (cố định)
+   * Lấy phí cọc tham gia đấu giá.
+   * Nếu truyền vào auction object hoặc một số (startingPrice) sẽ trả về 10% của startingPrice.
+   * Nếu không có thông tin startingPrice sẽ fallback về 1,000,000 VNĐ để tương thích.
    */
-  getParticipationFee(): number {
-    return AUCTION_PARTICIPATION_FEE;
+  getParticipationFee(auctionOrStartingPrice?: any): number {
+    let startingPrice = 0;
+    if (!auctionOrStartingPrice) {
+      startingPrice = 0;
+    } else if (typeof auctionOrStartingPrice === 'number') {
+      startingPrice = auctionOrStartingPrice;
+    } else if (auctionOrStartingPrice.startingPrice != null) {
+      startingPrice = auctionOrStartingPrice.startingPrice;
+    } else if (auctionOrStartingPrice.priceListed != null) {
+      startingPrice = auctionOrStartingPrice.priceListed;
+    }
+
+    if (startingPrice > 0) return Math.ceil(startingPrice * 0.1);
+    return 1000000;
   }
 };
 
