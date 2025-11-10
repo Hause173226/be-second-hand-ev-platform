@@ -34,8 +34,8 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
       });
     }
 
-    // Lấy phí cọc cố định (1 triệu VNĐ)
-    const participationFee = auctionDepositService.getParticipationFee();
+  // Lấy phí cọc tính theo startingPrice của phiên đấu giá (10%)
+  const participationFee = auctionDepositService.getParticipationFee(auction);
 
     // Kiểm tra số dư ví
     const wallet = await walletService.getWallet(userId);
@@ -210,13 +210,25 @@ export const deductWinnerDeposit = async (req: Request, res: Response) => {
  */
 export const getParticipationFee = async (req: Request, res: Response) => {
   try {
-    const fee = auctionDepositService.getParticipationFee();
-    
+    const { auctionId } = req.query;
+
+    let fee: number;
+    if (auctionId) {
+      const auction = await Auction.findById(auctionId as string);
+      if (!auction) {
+        return res.status(404).json({ success: false, message: 'Không tìm thấy auction' });
+      }
+      fee = auctionDepositService.getParticipationFee(auction);
+    } else {
+      // Không có auctionId -> trả về giá trị mặc định (fallback)
+      fee = auctionDepositService.getParticipationFee();
+    }
+
     res.json({
       success: true,
       data: {
         participationFee: fee,
-        description: 'Phí cọc bắt buộc để tham gia đấu giá'
+        description: 'Phí cọc bắt buộc để tham gia đấu giá (10% starting price nếu có auctionId)'
       }
     });
 

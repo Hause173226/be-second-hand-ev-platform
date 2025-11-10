@@ -122,9 +122,13 @@ class TransactionHistoryService {
         });
 
         // Calculate amounts
-        const depositAmount = depositRequest?.depositAmount || 0;
-        const totalAmount =
-          (listing as any)?.priceListed || (listing as any)?.price || 0;
+        const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
+          ? depositRequest.depositAmount
+          : (listing as any)?.priceListed && (listing as any)?.priceListed > 0
+            ? Math.ceil((listing as any).priceListed * 0.1)
+            : 0;
+        const totalAmount = (listing as any)?.priceListed || (listing as any)?.price || 0;
+        const remaining = totalAmount - depositAmount;
 
         return {
           id: (appointment._id as any).toString(),
@@ -174,6 +178,7 @@ class TransactionHistoryService {
           amount: {
             deposit: depositAmount,
             total: totalAmount,
+            remaining: remaining,
           },
           appointmentId: (appointment._id as any).toString(),
         } as TransactionHistoryItem;
@@ -239,9 +244,13 @@ class TransactionHistoryService {
           appointmentId: appointment._id,
         });
 
-        const depositAmount = depositRequest?.depositAmount || 0;
-        const totalAmount =
-          (listing as any)?.priceListed || (listing as any)?.price || 0;
+        const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
+          ? depositRequest.depositAmount
+          : (listing as any)?.priceListed && (listing as any)?.priceListed > 0
+            ? Math.ceil((listing as any).priceListed * 0.1)
+            : 0;
+        const totalAmount = (listing as any)?.priceListed || (listing as any)?.price || 0;
+        const remaining = totalAmount - depositAmount;
 
         return {
           id: (appointment._id as any).toString(),
@@ -291,6 +300,7 @@ class TransactionHistoryService {
           amount: {
             deposit: depositAmount,
             total: totalAmount,
+            remaining: remaining,
           },
           appointmentId: (appointment._id as any).toString(),
         } as TransactionHistoryItem;
@@ -352,9 +362,13 @@ class TransactionHistoryService {
           appointmentId: appointment._id,
         });
 
-        const depositAmount = depositRequest?.depositAmount || 0;
-        const totalAmount =
-          (listing as any)?.priceListed || (listing as any)?.price || 0;
+        const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
+          ? depositRequest.depositAmount
+          : (listing as any)?.priceListed && (listing as any)?.priceListed > 0
+            ? Math.ceil((listing as any).priceListed * 0.1)
+            : 0;
+        const totalAmount = (listing as any)?.priceListed || (listing as any)?.price || 0;
+        const remaining = totalAmount - depositAmount;
 
         return {
           id: (appointment._id as any).toString(),
@@ -404,6 +418,7 @@ class TransactionHistoryService {
           amount: {
             deposit: depositAmount,
             total: totalAmount,
+            remaining: remaining,
           },
           appointmentId: (appointment._id as any).toString(),
         } as TransactionHistoryItem;
