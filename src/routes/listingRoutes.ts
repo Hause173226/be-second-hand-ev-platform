@@ -536,6 +536,12 @@ listingRoutes.post(
  *           enum: [New, LikeNew, Used, Worn]
  *         description: Tình trạng xe
  *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [Published, InTransaction, Sold, Draft, PendingReview]
+ *         description: Trạng thái sản phẩm (không truyền = hiển thị tất cả)
+ *       - in: query
  *         name: sortBy
  *         schema:
  *           type: string

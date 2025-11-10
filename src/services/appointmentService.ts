@@ -71,6 +71,14 @@ export class AppointmentService {
     await appointment.populate("buyerId", "fullName email phone");
     await appointment.populate("sellerId", "fullName email phone");
 
+    // Cập nhật listing status thành InTransaction (đã có khách hẹn xem xe)
+    const listing = await Listing.findById(depositRequest.listingId);
+    if (listing && listing.status === 'Published') {
+      listing.status = 'InTransaction';
+      await listing.save();
+      console.log(`✅ Updated listing ${listing._id} status to InTransaction`);
+    }
+
     // Gửi email thông báo
     try {
       // await emailService.sendAppointmentCreated(buyerId, sellerId, appointment as any);
@@ -155,6 +163,14 @@ export class AppointmentService {
     await appointment.populate("buyerId", "fullName email phone");
     await appointment.populate("sellerId", "fullName email phone");
     await appointment.populate("auctionId");
+
+    // Cập nhật listing status thành InTransaction (đã có khách hẹn xem xe)
+    const listingToUpdate = await Listing.findById(listing._id);
+    if (listingToUpdate && listingToUpdate.status === 'Published') {
+      listingToUpdate.status = 'InTransaction';
+      await listingToUpdate.save();
+      console.log(`✅ Updated listing ${listingToUpdate._id} status to InTransaction (from auction)`);
+    }
 
     // Gửi email thông báo
     try {
@@ -394,7 +410,11 @@ export class AppointmentService {
     const appointment = await Appointment.findById(appointmentId)
       .populate("buyerId", "fullName email phone")
       .populate("sellerId", "fullName email phone")
-      .populate("listingId", "make model year priceListed");
+      .populate("depositRequestId")
+      .populate({
+        path: "auctionId",
+        populate: { path: "listingId" }
+      });
 
     if (!appointment) {
       throw new Error("Không tìm thấy lịch hẹn");
@@ -411,11 +431,28 @@ export class AppointmentService {
     // Cập nhật trạng thái
     appointment.status = "CANCELLED";
     appointment.cancelledAt = new Date();
-    // appointment.cancelledBy = userId; // Không có trong interface
-    // appointment.cancelReason = reason; // Không có trong interface
     appointment.notes = reason; // Lưu lý do vào notes
 
     await appointment.save();
+
+    // Cập nhật listing status về Published (để có thể bán lại)
+    let listingId;
+    if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
+      const auction = appointment.auctionId as any;
+      listingId = auction?.listingId?._id || auction?.listingId;
+    } else if (appointment.depositRequestId) {
+      const depositRequest = appointment.depositRequestId as any;
+      listingId = depositRequest?.listingId;
+    }
+
+    if (listingId) {
+      const listing = await Listing.findById(listingId);
+      if (listing && listing.status === 'InTransaction') {
+        listing.status = 'Published';
+        await listing.save();
+        console.log(`✅ Reverted listing ${listing._id} status to Published (appointment cancelled)`);
+      }
+    }
 
     // Hoàn tiền cọc nếu có (logic này phụ thuộc vào business rule)
     // Ví dụ: nếu seller hủy thì hoàn 100%, buyer hủy thì hoàn 50%
