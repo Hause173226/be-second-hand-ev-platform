@@ -196,10 +196,10 @@ const walletService = {
 
   // Refund from escrow with cancellation fee - hoàn tiền với phí hủy (80% tiền đặt cọc về buyer, 20% về system)
   refundFromEscrowWithCancellationFee: async (depositRequestId: string) => {
-    const DepositRequest = (await import('../models/DepositRequest')).default;
-    const EscrowAccount = (await import('../models/EscrowAccount')).default;
-    const SystemWalletService = (await import('./systemWalletService')).default;
-    
+    const DepositRequest = (await import("../models/DepositRequest")).default;
+    const EscrowAccount = (await import("../models/EscrowAccount")).default;
+    const SystemWalletService = (await import("./systemWalletService")).default;
+
     const depositRequest = await DepositRequest.findById(depositRequestId);
     if (!depositRequest) {
       throw new Error("Không tìm thấy yêu cầu đặt cọc");
@@ -209,6 +209,11 @@ const walletService = {
     const escrow = await EscrowAccount.findOne({ depositRequestId });
 
     if (escrow && escrow.status === "ACTIVE") {
+      // Tìm appointmentId từ depositRequestId
+      const Appointment = (await import("../models/Appointment")).default;
+      const appointment = await Appointment.findOne({ depositRequestId });
+      const appointmentId = appointment?._id?.toString();
+
       const totalAmount = depositRequest.depositAmount; // Tiền đặt cọc (10% giá xe)
       const refundToBuyer = Math.round(totalAmount * 0.8); // 80% tiền đặt cọc = 8% giá xe về buyer
       const feeToSystem = totalAmount - refundToBuyer; // 20% tiền đặt cọc = 2% giá xe về system
@@ -223,7 +228,10 @@ const walletService = {
       // Chuyển 20% tiền đặt cọc (2% giá xe) phí hủy vào ví hệ thống
       await SystemWalletService.deposit(
         feeToSystem,
-        `Phí hủy giao dịch từ deposit ${depositRequestId} (20% tiền đặt cọc)`
+        `Phí hủy giao dịch từ deposit ${depositRequestId} (20% tiền đặt cọc)`,
+        "CANCELLED",
+        depositRequestId,
+        appointmentId
       );
 
       // Cập nhật escrow
@@ -231,8 +239,12 @@ const walletService = {
       escrow.refundedAt = new Date();
       await escrow.save();
 
-      console.log(`✅ Refunded ${refundToBuyer} VND (80% tiền đặt cọc = 8% giá xe) to buyer ${depositRequest.buyerId}`);
-      console.log(`💰 Cancellation fee ${feeToSystem} VND (20% tiền đặt cọc = 2% giá xe) to system wallet`);
+      console.log(
+        `✅ Refunded ${refundToBuyer} VND (80% tiền đặt cọc = 8% giá xe) to buyer ${depositRequest.buyerId}`
+      );
+      console.log(
+        `💰 Cancellation fee ${feeToSystem} VND (20% tiền đặt cọc = 2% giá xe) to system wallet`
+      );
     }
 
     return escrow;
@@ -257,16 +269,25 @@ const walletService = {
     }
 
     if (escrow.status === "ACTIVE") {
+      // Tìm appointmentId từ depositRequestId
+      const Appointment = (await import("../models/Appointment")).default;
+      const appointment = await Appointment.findOne({ depositRequestId });
+      const appointmentId = appointment?._id?.toString();
+
       // Cập nhật totalSpent cho buyer (tiền đã dùng để mua hàng - giao dịch hoàn thành)
       const wallet = await walletService.getWallet(depositRequest.buyerId);
-      wallet.totalSpent = (wallet.totalSpent || 0) + depositRequest.depositAmount; // ✅ Tăng totalSpent khi giao dịch hoàn thành
+      wallet.totalSpent =
+        (wallet.totalSpent || 0) + depositRequest.depositAmount; // ✅ Tăng totalSpent khi giao dịch hoàn thành
       wallet.lastTransactionAt = new Date();
       await wallet.save();
 
-      // Chuyển tiền từ escrow vào ví hệ thống
+      // Chuyển tiền từ escrow vào ví hệ thống (100% tiền đặt cọc)
       await SystemWalletService.deposit(
         depositRequest.depositAmount,
-        `Nhận tiền từ giao dịch đặt cọc ${depositRequestId}`
+        `Nhận tiền từ giao dịch đặt cọc ${depositRequestId} (100% tiền đặt cọc)`,
+        "COMPLETED",
+        depositRequestId,
+        appointmentId
       );
 
       // Cập nhật escrow
@@ -274,8 +295,12 @@ const walletService = {
       escrow.releasedAt = new Date();
       await escrow.save();
 
-      console.log(`✅ Released ${depositRequest.depositAmount} VND from escrow to system wallet`);
-      console.log(`💰 Updated totalSpent for buyer ${depositRequest.buyerId}: +${depositRequest.depositAmount} VND`);
+      console.log(
+        `✅ Released ${depositRequest.depositAmount} VND from escrow to system wallet`
+      );
+      console.log(
+        `💰 Updated totalSpent for buyer ${depositRequest.buyerId}: +${depositRequest.depositAmount} VND`
+      );
     }
 
     return escrow;
