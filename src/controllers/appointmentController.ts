@@ -814,7 +814,7 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       return id ? id.toString() : '';
     }).filter(id => id);
     const contracts = await Contract.find({ appointmentId: { $in: appointmentIds } })
-      .select('appointmentId contractPhotos status _id');
+      .select('appointmentId contractPhotos status _id staffId staffName');
     const contractMap = new Map<string, any>();
     contracts.forEach((contract: any) => {
       contractMap.set(contract.appointmentId.toString(), contract);
@@ -911,6 +911,12 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       contractPhotos: contract?.contractPhotos || [],
       contractStatus: contract?.status || null,
       contractId: contract?._id || null,
+      
+      // ✅ Thông tin staff xử lý giao dịch
+      staff: contract?.staffId ? {
+        id: contract.staffId,
+        name: contract.staffName || 'N/A'
+      } : null,
       
       createdAt: appointment.createdAt,
       updatedAt: appointment.updatedAt

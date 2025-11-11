@@ -505,12 +505,28 @@ export const completeTransaction = async (req: Request, res: Response) => {
     // Cập nhật trạng thái contract
     contract.status = "COMPLETED";
     contract.completedAt = new Date();
+    // Lưu thông tin staff xử lý giao dịch
+    contract.staffId = staffId!;
+    contract.staffName = req.user?.name || req.user?.email;
     await contract.save();
 
     // Cập nhật trạng thái appointment
     appointment.status = "COMPLETED";
     appointment.completedAt = new Date();
     await appointment.save();
+
+    // Cập nhật DepositRequest status từ IN_ESCROW sang COMPLETED (chỉ cho trường hợp deposit thông thường, không phải auction)
+    if (!isAuction && appointment.depositRequestId) {
+      const depositRequestId = (appointment.depositRequestId as any)?._id || appointment.depositRequestId;
+      if (depositRequestId) {
+        const depositRequestDoc = await DepositRequest.findById(depositRequestId);
+        if (depositRequestDoc && depositRequestDoc.status === "IN_ESCROW") {
+          depositRequestDoc.status = "COMPLETED";
+          await depositRequestDoc.save();
+          console.log(`✅ Updated deposit request ${depositRequestId} status from IN_ESCROW to COMPLETED`);
+        }
+      }
+    }
 
     // Gửi thông báo cho buyer và seller
     try {
@@ -688,6 +704,9 @@ export const cancelContractTransaction = async (
     const contract = await Contract.findOne({ appointmentId });
     if (contract) {
       contract.status = "CANCELLED";
+      // Lưu thông tin staff xử lý hủy giao dịch
+      contract.staffId = staffId!;
+      contract.staffName = req.user?.name || req.user?.email;
       await contract.save();
     }
 
