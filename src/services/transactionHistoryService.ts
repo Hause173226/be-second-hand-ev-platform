@@ -32,6 +32,10 @@ export interface TransactionHistoryItem {
     }>;
     signedAt?: Date;
     completedAt?: Date;
+    staff?: {
+      id: string;
+      name: string;
+    };
   };
   depositRequest: {
     id: string;
@@ -116,10 +120,10 @@ class TransactionHistoryService {
           ? await Listing.findById(depositRequest.listingId)
           : null;
 
-        // Get contract
+        // Get contract (bao gồm thông tin staff)
         const contract = await Contract.findOne({
           appointmentId: appointment._id,
-        });
+        }).select('status contractNumber contractPhotos signedAt completedAt staffId staffName');
 
         // Calculate amounts
         const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
@@ -156,6 +160,10 @@ class TransactionHistoryService {
                 })),
                 signedAt: contract.signedAt,
                 completedAt: contract.completedAt,
+                staff: contract.staffId ? {
+                  id: contract.staffId.toString(),
+                  name: contract.staffName || 'N/A'
+                } : undefined,
               }
             : undefined,
           depositRequest: {
@@ -396,6 +404,10 @@ class TransactionHistoryService {
                 })),
                 signedAt: contract.signedAt,
                 completedAt: contract.completedAt,
+                staff: contract.staffId ? {
+                  id: contract.staffId.toString(),
+                  name: contract.staffName || 'N/A'
+                } : undefined,
               }
             : undefined,
           depositRequest: {
