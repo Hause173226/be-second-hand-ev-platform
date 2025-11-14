@@ -25,8 +25,14 @@ export const auctionDepositService = {
     }
 
     // Kiểm tra trạng thái auction
-    if (auction.status !== 'active') {
+    // Cho phép đặt cọc khi: approved (chưa bắt đầu) hoặc active (đang diễn ra)
+    if (!['approved', 'active'].includes(auction.status)) {
       throw new Error('Phiên đấu giá đã kết thúc hoặc bị hủy');
+    }
+
+    // Kiểm tra approvalStatus - phải được duyệt
+    if (auction.approvalStatus !== 'approved') {
+      throw new Error('Phiên đấu giá chưa được phê duyệt');
     }
 
     // Kiểm tra thời gian
@@ -35,11 +41,16 @@ export const auctionDepositService = {
       throw new Error('Phiên đấu giá đã hết hạn');
     }
 
+    // Kiểm tra đã quá thời gian bắt đầu chưa (optional: có thể cho phép đặt cọc sau khi bắt đầu)
+    if (now > auction.startAt) {
+      throw new Error('Phiên đấu giá đã bắt đầu, không thể đặt cọc');
+    }
+
     // Kiểm tra user đã đặt cọc chưa
     const existingDeposit = await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      status: 'FROZEN'
+      status: 'FROZEN' // Chỉ kiểm tra FROZEN (đã đăng ký, chưa refund)
     });
 
     if (existingDeposit) {

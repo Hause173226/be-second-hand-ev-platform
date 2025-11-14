@@ -180,6 +180,8 @@ export function startAuctionSweepCron() {
     try {
       const ws = WebSocketService.getInstance();
       const now = new Date();
+      
+      // 1. Đóng các phiên đã hết hạn
       const overdue = await Auction.find({
         status: "active",
         endAt: { $lte: now },
@@ -191,6 +193,157 @@ export function startAuctionSweepCron() {
       }
       for (const a of overdue) {
         await autoCloseAuction(a._id.toString(), ws);
+      }
+
+      // 2. Hủy các phiên pending đã quá thời gian startAt
+      const pendingExpired = await Auction.find({
+        approvalStatus: 'pending',
+        status: 'pending',
+        startAt: { $lte: now }
+      }).populate('listingId', 'make model year sellerId');
+
+      if (pendingExpired.length) {
+        console.log(
+          `[auctionService] cron: cancelling ${pendingExpired.length} expired pending auctions`
+        );
+      }
+
+      for (const auction of pendingExpired) {
+        const listing: any = auction.listingId;
+        const sellerId = listing?.sellerId?.toString();
+        const cancellationReason = `Phiên đấu giá bị hủy do đã quá thời gian bắt đầu mà chưa được staff phê duyệt`;
+
+        auction.status = 'cancelled';
+        auction.approvalStatus = 'rejected';
+        auction.cancellationReason = cancellationReason;
+        await auction.save();
+
+        // Gửi thông báo cho người bán
+        if (sellerId) {
+          const NotificationMessage = (await import('../models/NotificationMessage')).default;
+          await NotificationMessage.create({
+            userId: sellerId,
+            type: 'system',
+            title: 'Phiên đấu giá bị hủy',
+            message: cancellationReason,
+            relatedId: auction._id.toString(),
+            actionUrl: `/listings/${listing._id}`,
+            actionText: 'Xem sản phẩm',
+            metadata: {
+              auctionId: auction._id.toString(),
+              reason: 'auto_cancel_pending_expired',
+              startAt: auction.startAt,
+              notificationType: 'auction_cancelled'
+            }
+          });
+
+          ws.sendToUser(sellerId, 'auction_cancelled', {
+            auctionId: auction._id.toString(),
+            title: 'Phiên đấu giá bị hủy',
+            message: cancellationReason,
+            reason: cancellationReason
+          });
+        }
+
+        console.log(`[auctionService] Cancelled pending auction ${auction._id} - expired without approval`);
+      }
+
+      // 3. Kiểm tra các phiên approved sắp bắt đầu (trong vòng 5 phút)
+      const fiveMinutesLater = new Date(now.getTime() + 5 * 60 * 1000);
+      const upcomingAuctions = await Auction.find({
+        approvalStatus: 'approved',
+        status: 'approved',
+        startAt: { $gte: now, $lte: fiveMinutesLater }
+      }).populate('listingId', 'make model year sellerId');
+
+      for (const auction of upcomingAuctions) {
+        // Đếm số người đã đặt cọc (đã đăng ký tham gia)
+        const depositCount = await AuctionDeposit.countDocuments({
+          auctionId: auction._id,
+          status: 'FROZEN' // Chỉ đếm deposit đang freeze
+        });
+
+        // Nếu không đủ người tham gia tối thiểu
+        if (depositCount < auction.minParticipants) {
+          const listing: any = auction.listingId;
+          const sellerId = listing?.sellerId?.toString();
+          const cancellationReason = `Phiên đấu giá bị hủy do không đủ số lượng người tham gia tối thiểu (${depositCount}/${auction.minParticipants} người)`;
+
+          // Hủy phiên đấu giá
+          auction.status = 'cancelled';
+          auction.cancellationReason = cancellationReason;
+          await auction.save();
+
+          // Hoàn tiền cọc cho tất cả người đã đặt cọc
+          try {
+            await auctionDepositService.refundNonWinners(auction._id.toString());
+          } catch (refundError) {
+            console.error('[auctionService] Error refunding deposits:', refundError);
+          }
+
+          // Gửi thông báo cho người bán
+          if (sellerId) {
+            const NotificationMessage = (await import('../models/NotificationMessage')).default;
+            await NotificationMessage.create({
+              userId: sellerId,
+              type: 'system',
+              title: 'Phiên đấu giá bị hủy',
+              message: cancellationReason,
+              relatedId: auction._id.toString(),
+              actionUrl: `/listings/${listing._id}`,
+              actionText: 'Xem sản phẩm',
+              metadata: {
+                auctionId: auction._id.toString(),
+                reason: cancellationReason,
+                depositCount,
+                minParticipants: auction.minParticipants,
+                notificationType: 'auction_cancelled'
+              }
+            });
+
+            // Emit WebSocket
+            ws.sendToUser(sellerId, 'auction_cancelled', {
+              auctionId: auction._id.toString(),
+              title: 'Phiên đấu giá bị hủy',
+              message: cancellationReason,
+              reason: cancellationReason
+            });
+          }
+
+          // Gửi thông báo cho người đã đặt cọc
+          const deposits = await AuctionDeposit.find({
+            auctionId: auction._id
+          }).select('userId');
+
+          for (const deposit of deposits) {
+            const NotificationMessage = (await import('../models/NotificationMessage')).default;
+            await NotificationMessage.create({
+              userId: deposit.userId,
+              type: 'system',
+              title: 'Phiên đấu giá bị hủy',
+              message: `Phiên đấu giá cho xe ${listing.make} ${listing.model} ${listing.year} đã bị hủy do không đủ người tham gia. Tiền cọc đã được hoàn lại.`,
+              relatedId: auction._id.toString(),
+              actionUrl: `/auctions`,
+              actionText: 'Xem phiên khác',
+              metadata: {
+                auctionId: auction._id.toString(),
+                refunded: true,
+                notificationType: 'auction_cancelled'
+              }
+            });
+
+            ws.sendToUser(deposit.userId.toString(), 'auction_cancelled', {
+              auctionId: auction._id.toString(),
+              title: 'Phiên đấu giá bị hủy',
+              message: 'Tiền cọc đã được hoàn lại'
+            });
+          }
+
+          console.log(`[auctionService] Cancelled auction ${auction._id} - not enough participants`);
+        } else {
+          // Đủ người, activate auction
+          console.log(`[auctionService] Auction ${auction._id} ready to start with ${depositCount} participants`);
+        }
       }
     } catch (e) {
       console.error("[auctionService] cron sweep error:", e);
@@ -259,13 +412,17 @@ export const auctionService = {
       listingId,
       startAt,
       endAt,
-      status: "active",
+      status: "pending", // Chờ staff duyệt
+      approvalStatus: "pending",
       startingPrice,
       depositAmount: depositAmount || 0,
       bids: [],
+      minParticipants: 1, // Mặc định tối thiểu 1 người
+      maxParticipants: 100, // Mặc định tối đa 100 người
     });
 
-    await scheduleAuctionClose(auction);
+    // Không schedule close ngay, chờ staff approve
+    // await scheduleAuctionClose(auction);
     return auction;
   },
 
@@ -323,7 +480,7 @@ export const auctionService = {
     return auction;
   },
 
-  async getAuctionById(auctionId: string) {
+  async getAuctionById(auctionId: string, userId?: string) {
     const auction = await Auction.findById(auctionId)
       .populate(
         "listingId",
@@ -333,12 +490,23 @@ export const auctionService = {
 
     if (!auction) throw new Error("Không tìm thấy phiên đấu giá");
 
+    // Kiểm tra quyền truy cập
+    const listing: any = auction.listingId;
+    const isOwner = userId && listing?.sellerId?.toString() === userId.toString();
+    const isApproved = auction.approvalStatus === "approved";
+
+    // Chỉ cho phép xem nếu:
+    // 1. Phiên đã được approved (public)
+    // 2. Hoặc user là chủ sở hữu (seller)
+    if (!isApproved && !isOwner) {
+      throw new Error("Phiên đấu giá chưa được phê duyệt hoặc bạn không có quyền xem");
+    }
+
     const deposits = await AuctionDeposit.find({
       auctionId,
       status: { $in: ["FROZEN", "DEDUCTED"] },
     }).populate("userId", "fullName email phone avatar");
 
-    const listing: any = auction.listingId;
     let seller = null;
     if (listing && listing.sellerId) {
       const { User } = await import("../models/User");
@@ -382,12 +550,13 @@ export const auctionService = {
     return Auction.findById(auctionId);
   },
 
-  // ===== LIST APIs (giữ nguyên, chỉ dùng thời gian để lọc hợp lý) =====
+  // ===== LIST APIs (chỉ trả về phiên đã được approve) =====
   async getOngoingAuctions(page = 1, limit = 10) {
     const now = new Date();
     const skip = (page - 1) * limit;
     const query = {
       status: "active",
+      approvalStatus: "approved",
       startAt: { $lte: now },
       endAt: { $gte: now },
     };
@@ -409,7 +578,11 @@ export const auctionService = {
   async getUpcomingAuctions(page = 1, limit = 10) {
     const now = new Date();
     const skip = (page - 1) * limit;
-    const query = { status: "active", startAt: { $gt: now } };
+    const query = { 
+      status: "approved",
+      approvalStatus: "approved",
+      startAt: { $gt: now } 
+    };
 
     const auctions = await Auction.find(query)
       .populate("listingId", "make model year priceListed photos status")
@@ -428,6 +601,7 @@ export const auctionService = {
     const now = new Date();
     const skip = (page - 1) * limit;
     const query = {
+      approvalStatus: "approved",
       $or: [
         { status: "ended" },
         { status: "cancelled" },
@@ -453,7 +627,9 @@ export const auctionService = {
   async getAllAuctions(filters: any = {}, page = 1, limit = 10) {
     const skip = (page - 1) * limit;
     const now = new Date();
-    const query: any = {};
+    const query: any = {
+      approvalStatus: "approved" // Chỉ lấy phiên đã được duyệt
+    };
 
     if (filters.status) {
       switch (filters.status) {
@@ -463,7 +639,7 @@ export const auctionService = {
           query.endAt = { $gte: now };
           break;
         case "upcoming":
-          query.status = "active";
+          query.status = "approved";
           query.startAt = { $gt: now };
           break;
         case "ended":
@@ -498,6 +674,7 @@ export const auctionService = {
     const wonAuctions = await Auction.find({
       winnerId: userId,
       status: "ended",
+      approvalStatus: "approved", // Chỉ lấy phiên đã được duyệt
     })
       .populate(
         "listingId",
@@ -506,8 +683,19 @@ export const auctionService = {
       .sort({ endAt: -1 })
       .lean();
 
+    // Lọc bỏ các phiên mà winner là chính seller (dữ liệu không hợp lệ)
+    const validWonAuctions = wonAuctions.filter((auction: any) => {
+      const listing = auction.listingId;
+      if (!listing || !listing.sellerId) return false;
+      
+      // Winner không được là seller
+      const sellerId = listing.sellerId.toString();
+      const winnerId = userId.toString();
+      return sellerId !== winnerId;
+    });
+
     const auctionsWithAppointmentStatus = await Promise.all(
-      wonAuctions.map(async (auction: any) => {
+      validWonAuctions.map(async (auction: any) => {
         const appointment = await Appointment.findOne({
           auctionId: auction._id,
           appointmentType: "AUCTION",
@@ -529,6 +717,115 @@ export const auctionService = {
     return {
       auctions: paginatedAuctions,
       pagination: { current: page, pages: Math.ceil(total / limit), total },
+    };
+  },
+
+  async getUserAuctions(userId: string, filter?: string, page = 1, limit = 10) {
+    const skip = (page - 1) * limit;
+    const now = new Date();
+    const query: any = {};
+
+    // Tìm tất cả listings của user
+    const userListings = await Listing.find({ sellerId: userId }).select("_id");
+    const userListingIds = userListings.map((l) => l._id);
+
+    if (userListingIds.length === 0) {
+      return {
+        auctions: [],
+        pagination: { current: page, pages: 0, total: 0, limit },
+      };
+    }
+
+    query.listingId = { $in: userListingIds };
+
+    // Filter theo trạng thái
+    switch (filter) {
+      case "pending":
+        // Đang chờ duyệt
+        query.approvalStatus = "pending";
+        query.status = "pending";
+        break;
+
+      case "approved":
+        // Đã được duyệt nhưng chưa bắt đầu
+        query.approvalStatus = "approved";
+        query.status = "approved";
+        query.startAt = { $gt: now };
+        break;
+
+      case "upcoming":
+        // Sắp diễn ra (đã duyệt, trong vòng 24h)
+        const next24Hours = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+        query.approvalStatus = "approved";
+        query.status = "approved";
+        query.startAt = { $gte: now, $lte: next24Hours };
+        break;
+
+      case "ongoing":
+        // Đang diễn ra
+        query.status = "active";
+        query.startAt = { $lte: now };
+        query.endAt = { $gte: now };
+        break;
+
+      case "ended":
+        // Đã kết thúc
+        query.$or = [
+          { status: "ended" },
+          { status: "cancelled" },
+          { status: "active", endAt: { $lt: now } },
+        ];
+        break;
+
+      case "rejected":
+        // Bị từ chối
+        query.approvalStatus = "rejected";
+        query.status = "cancelled";
+        break;
+
+      default:
+        // Không filter, lấy tất cả
+        break;
+    }
+
+    const auctions = await Auction.find(query)
+      .populate("listingId", "make model year priceListed photos batteryCapacity range sellerId status")
+      .populate("winnerId", "fullName avatar email")
+      .populate("bids.userId", "fullName avatar")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limit)
+      .lean();
+
+    const total = await Auction.countDocuments(query);
+
+    // Thêm thông tin số người đã đặt cọc cho mỗi auction
+    const auctionsWithDetails = await Promise.all(
+      auctions.map(async (auction: any) => {
+        const depositCount = await AuctionDeposit.countDocuments({
+          auctionId: auction._id,
+          status: "FROZEN", // Chỉ đếm deposit đang freeze (đã đăng ký)
+        });
+
+        return {
+          ...auction,
+          depositCount,
+          currentBidCount: auction.bids?.length || 0,
+          highestBid: auction.bids?.length > 0 
+            ? Math.max(...auction.bids.map((b: any) => b.price))
+            : auction.startingPrice,
+        };
+      })
+    );
+
+    return {
+      auctions: auctionsWithDetails,
+      pagination: { 
+        current: page, 
+        pages: Math.ceil(total / limit), 
+        total,
+        limit 
+      },
     };
   },
 

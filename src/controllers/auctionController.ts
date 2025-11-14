@@ -10,7 +10,7 @@ export const createAuction = async (req: Request, res: Response) => {
             startAt, 
             endAt, 
             startingPrice, 
-            depositAmount: depositAmount || 0, // Mặc định 0 nếu không yêu cầu cọc
+            depositAmount: depositAmount || 0, 
             sellerId 
         });
         res.status(201).json(auction);
@@ -34,7 +34,8 @@ export const placeBid = async (req: Request, res: Response) => {
 export const getAuctionById = async (req: Request, res: Response) => {
     try {
         const { auctionId } = req.params;
-        const auction = await auctionService.getAuctionById(auctionId);
+        const userId = (req as any).user?._id; // Optional, có thể undefined nếu chưa đăng nhập
+        const auction = await auctionService.getAuctionById(auctionId, userId);
         if (!auction) return res.status(404).json({ message: "Không tìm thấy phiên" });
         res.json(auction);
     } catch (err) {
@@ -127,6 +128,37 @@ export const getWonAuctionsPendingAppointment = async (req: Request, res: Respon
         res.json({
             success: true,
             message: "Lấy danh sách phiên đấu giá đã thắng thành công",
+            data: result.auctions,
+            pagination: result.pagination
+        });
+    } catch (err) {
+        res.status(400).json({ 
+            success: false,
+            message: err instanceof Error ? err.message : err 
+        });
+    }
+};
+
+// Lấy danh sách phiên đấu giá của user với filter
+export const getUserAuctions = async (req: Request, res: Response) => {
+    try {
+        const userId = (req as any).user?._id;
+        if (!userId) {
+            return res.status(401).json({ 
+                success: false,
+                message: "Chưa đăng nhập" 
+            });
+        }
+
+        const page = parseInt(req.query.page as string) || 1;
+        const limit = parseInt(req.query.limit as string) || 10;
+        const filter = req.query.filter as string;
+        
+        const result = await auctionService.getUserAuctions(userId, filter, page, limit);
+        
+        res.json({
+            success: true,
+            message: "Lấy danh sách phiên đấu giá thành công",
             data: result.auctions,
             pagination: result.pagination
         });
