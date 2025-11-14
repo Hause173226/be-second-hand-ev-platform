@@ -10,7 +10,9 @@ import {
   getEndedAuctions,
   getAllAuctions,
   getWonAuctionsPendingAppointment,
+  getUserAuctions,
 } from "../controllers/auctionController";
+import adminAuctionRoutes from "./adminAuctionRoutes";
 
 const router = express.Router();
 
@@ -18,8 +20,11 @@ const router = express.Router();
  * @swagger
  * tags:
  *   - name: Auction
- *     description: Quản lý phiên đấu giá sản phẩm
+ *     description: Auction management APIs
  */
+
+// Admin/Staff routes - must be before /:auctionId route
+router.use("/admin", adminAuctionRoutes);
 
 /**
  * @swagger
@@ -218,6 +223,138 @@ router.get(
   "/won/pending-appointment",
   authenticate,
   getWonAuctionsPendingAppointment as unknown as RequestHandler
+);
+
+/**
+ * @swagger
+ * /api/auctions/my-auctions:
+ *   get:
+ *     summary: Lấy danh sách phiên đấu giá của user với filter
+ *     description: |
+ *       User xem tất cả phiên đấu giá của mình với các trạng thái:
+ *       - **pending**: Đang chờ staff duyệt
+ *       - **approved**: Đã được duyệt, chưa bắt đầu
+ *       - **upcoming**: Sắp diễn ra (trong 24h)
+ *       - **ongoing**: Đang diễn ra
+ *       - **ended**: Đã kết thúc (ended/cancelled)
+ *       - **rejected**: Bị từ chối bởi staff
+ *       - Không truyền filter: Lấy tất cả
+ *     tags: [Auction]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: filter
+ *         schema: 
+ *           type: string
+ *           enum: [pending, approved, upcoming, ongoing, ended, rejected]
+ *         description: Filter theo trạng thái
+ *         example: pending
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, default: 1 }
+ *         description: Trang hiện tại
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, default: 10 }
+ *         description: Số lượng mỗi trang
+ *     responses:
+ *       200:
+ *         description: Lấy danh sách thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Lấy danh sách phiên đấu giá thành công"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                       listingId:
+ *                         type: object
+ *                         properties:
+ *                           make:
+ *                             type: string
+ *                             example: "Tesla"
+ *                           model:
+ *                             type: string
+ *                             example: "Model 3"
+ *                           year:
+ *                             type: number
+ *                             example: 2022
+ *                       startAt:
+ *                         type: string
+ *                         format: date-time
+ *                       endAt:
+ *                         type: string
+ *                         format: date-time
+ *                       startingPrice:
+ *                         type: number
+ *                       depositAmount:
+ *                         type: number
+ *                       status:
+ *                         type: string
+ *                         enum: [pending, approved, active, ended, cancelled]
+ *                       approvalStatus:
+ *                         type: string
+ *                         enum: [pending, approved, rejected]
+ *                       minParticipants:
+ *                         type: number
+ *                       maxParticipants:
+ *                         type: number
+ *                       depositCount:
+ *                         type: number
+ *                         description: Số người đã đặt cọc
+ *                       currentBidCount:
+ *                         type: number
+ *                         description: Số lượt bid hiện tại
+ *                       highestBid:
+ *                         type: number
+ *                         description: Giá cao nhất
+ *                       winnerId:
+ *                         type: object
+ *                       rejectionReason:
+ *                         type: string
+ *                       cancellationReason:
+ *                         type: string
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     current:
+ *                       type: number
+ *                     pages:
+ *                       type: number
+ *                     total:
+ *                       type: number
+ *                     limit:
+ *                       type: number
+ *       401: 
+ *         description: Chưa đăng nhập
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Chưa đăng nhập"
+ */
+router.get(
+  "/my-auctions",
+  authenticate,
+  getUserAuctions as unknown as RequestHandler
 );
 
 /**

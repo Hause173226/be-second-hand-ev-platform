@@ -5,6 +5,7 @@ import { WebSocketService } from "./services/websocketService";
 import "dotenv/config";
 import { seedMembershipPackages } from "./services/membershipSeedService";
 import { startMembershipCron } from "./jobs/membershipCron";
+import { bootstrapAuctions, startAuctionSweepCron } from "./services/auctionService";
 
 const PORT = process.env.PORT || 5000;
 
@@ -26,8 +27,17 @@ connectDB()
       console.error("❌ Error starting membership cron:", error);
     }
 
-    // Initialize WebSocket service
+    // Initialize WebSocket service TRƯỚC
     const wsService = new WebSocketService(server);
+
+    // Bootstrap auctions và start auction sweep cron SAU khi WebSocket đã ready
+    try {
+      await bootstrapAuctions();
+      startAuctionSweepCron();
+      console.log("✅ Auction service initialized");
+    } catch (error) {
+      console.error("❌ Error starting auction service:", error);
+    }
 
     server.listen(PORT, () => {
       console.log(`Server running on port ${PORT}`);
