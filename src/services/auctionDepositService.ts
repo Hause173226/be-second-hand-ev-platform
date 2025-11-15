@@ -6,81 +6,93 @@ import { Types } from 'mongoose';
 export const auctionDepositService = {
   /**
    * Đặt cọc để tham gia đấu giá
-   * - Phí cọc cố định: 1,000,000 VNĐ
+   * - Phí cọc: 10% startingPrice (hoặc priceListed) – fallback 1,000,000 VNĐ
    * - Kiểm tra số dư ví
    * - Freeze tiền cọc từ ví người dùng
    * - Tạo record AuctionDeposit
    */
   async createAuctionDeposit(auctionId: string, userId: string) {
-    // Kiểm tra auction có tồn tại không
+    // 1. Kiểm tra auction tồn tại
     const auction = await Auction.findById(auctionId).populate('listingId');
     if (!auction) {
       throw new Error('Không tìm thấy phiên đấu giá');
     }
 
-    // Kiểm tra user có phải là seller của sản phẩm không
     const listing = auction.listingId as any;
-    if (listing.sellerId.toString() === userId.toString()) {
+
+    // 2. Không cho seller tự đặt cọc vào sản phẩm mình
+    if (listing && listing.sellerId && listing.sellerId.toString() === userId.toString()) {
       throw new Error('Bạn không thể đặt cọc cho sản phẩm của chính mình');
     }
 
-    // Kiểm tra trạng thái auction
-    // Cho phép đặt cọc khi: approved (chưa bắt đầu) hoặc active (đang diễn ra)
-    if (!['approved', 'active'].includes(auction.status)) {
+    // 3. Kiểm tra trạng thái phiên
+    //   – Cho phép khi: approved / active / running
+    //   – Không cho khi: cancelled / ended / closed ...
+    const allowedStatuses = ['approved', 'active', 'running'];
+    if (!allowedStatuses.includes(String(auction.status))) {
       throw new Error('Phiên đấu giá đã kết thúc hoặc bị hủy');
     }
 
-    // Kiểm tra approvalStatus - phải được duyệt
+    // 4. Kiểm tra approvalStatus - phải được duyệt
     if (auction.approvalStatus !== 'approved') {
       throw new Error('Phiên đấu giá chưa được phê duyệt');
     }
 
-    // Kiểm tra thời gian
+    // 5. Kiểm tra thời gian: chỉ chặn khi đã quá endAt
     const now = new Date();
     if (now > auction.endAt) {
       throw new Error('Phiên đấu giá đã hết hạn');
     }
 
-    // Kiểm tra đã quá thời gian bắt đầu chưa (optional: có thể cho phép đặt cọc sau khi bắt đầu)
-    if (now > auction.startAt) {
-      throw new Error('Phiên đấu giá đã bắt đầu, không thể đặt cọc');
-    }
+    // 👉 BỎ điều kiện chặn sau khi bắt đầu
+    // // Nếu bạn muốn vẫn chặn, thì giữ lại:
+    // if (now > auction.startAt) {
+    //   throw new Error('Phiên đấu giá đã bắt đầu, không thể đặt cọc');
+    // }
 
-    // Kiểm tra user đã đặt cọc chưa
+    // 6. Kiểm tra user đã có cọc FROZEN chưa
     const existingDeposit = await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      status: 'FROZEN' // Chỉ kiểm tra FROZEN (đã đăng ký, chưa refund)
+      status: 'FROZEN',
     });
 
     if (existingDeposit) {
       throw new Error('Bạn đã đặt cọc cho phiên đấu giá này rồi');
     }
 
-    // Tính phí tham gia: 10% của startingPrice (nếu có), fallback 1,000,000
-    const startingPrice = (auction && auction.startingPrice) || (listing && listing.priceListed) || 0;
-    const participationFee = startingPrice > 0 ? Math.ceil(startingPrice * 0.1) : 1000000;
+    // 7. Tính phí tham gia: dùng helper cho thống nhất
+    const startingPrice =
+      (auction && (auction as any).startingPrice) ||
+      (listing && listing.priceListed) ||
+      0;
+    const participationFee =
+      startingPrice > 0 ? Math.ceil(startingPrice * 0.1) : 1_000_000;
 
-    // Kiểm tra số dư ví theo phí tính được
+    // 8. Kiểm tra số dư ví
     const wallet = await walletService.getWallet(userId);
     if (wallet.balance < participationFee) {
-      throw new Error(`Số dư không đủ. Cần ${participationFee.toLocaleString('vi-VN')} VNĐ để đặt cọc tham gia đấu giá`);
+      throw new Error(
+        `Số dư không đủ. Cần ${participationFee.toLocaleString(
+          'vi-VN'
+        )} VNĐ để đặt cọc tham gia đấu giá`
+      );
     }
 
-    // Freeze tiền từ ví theo phí tính được
+    // 9. Freeze tiền trong ví
     await walletService.freezeAmount(
       userId,
       participationFee,
       `Đặt cọc tham gia đấu giá #${auctionId}`
     );
 
-    // Tạo record deposit với số tiền động
+    // 10. Tạo record deposit
     const deposit = await AuctionDeposit.create({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
       depositAmount: participationFee,
       status: 'FROZEN',
-      frozenAt: new Date()
+      frozenAt: new Date(),
     });
 
     return deposit;
@@ -93,7 +105,7 @@ export const auctionDepositService = {
   async refundNonWinners(auctionId: string, winnerId?: string) {
     const deposits = await AuctionDeposit.find({
       auctionId: new Types.ObjectId(auctionId),
-      status: 'FROZEN'
+      status: 'FROZEN',
     });
 
     const refundPromises = deposits.map(async (deposit) => {
@@ -118,7 +130,7 @@ export const auctionDepositService = {
     });
 
     const results = await Promise.all(refundPromises);
-    return results.filter(r => r !== null);
+    return results.filter((r) => r !== null);
   },
 
   /**
@@ -129,7 +141,7 @@ export const auctionDepositService = {
     const deposit = await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(winnerId),
-      status: 'FROZEN'
+      status: 'FROZEN',
     });
 
     if (!deposit) {
@@ -168,7 +180,7 @@ export const auctionDepositService = {
     const deposit = await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      status: 'FROZEN'
+      status: 'FROZEN',
     });
 
     if (!deposit) {
@@ -195,7 +207,7 @@ export const auctionDepositService = {
    */
   async getAuctionDeposits(auctionId: string) {
     return await AuctionDeposit.find({
-      auctionId: new Types.ObjectId(auctionId)
+      auctionId: new Types.ObjectId(auctionId),
     })
       .populate('userId', 'fullName email avatar')
       .sort({ createdAt: -1 });
@@ -208,7 +220,7 @@ export const auctionDepositService = {
     const deposit = await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      status: 'FROZEN'
+      status: 'FROZEN',
     });
     return !!deposit;
   },
@@ -219,14 +231,12 @@ export const auctionDepositService = {
   async getUserDeposit(auctionId: string, userId: string) {
     return await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
-      userId: new Types.ObjectId(userId)
+      userId: new Types.ObjectId(userId),
     });
   },
 
   /**
    * Lấy phí cọc tham gia đấu giá.
-   * Nếu truyền vào auction object hoặc một số (startingPrice) sẽ trả về 10% của startingPrice.
-   * Nếu không có thông tin startingPrice sẽ fallback về 1,000,000 VNĐ để tương thích.
    */
   getParticipationFee(auctionOrStartingPrice?: any): number {
     let startingPrice = 0;
@@ -241,8 +251,8 @@ export const auctionDepositService = {
     }
 
     if (startingPrice > 0) return Math.ceil(startingPrice * 0.1);
-    return 1000000;
-  }
+    return 1_000_000;
+  },
 };
 
 export default auctionDepositService;
