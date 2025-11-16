@@ -23,12 +23,18 @@ export const authenticate: RequestHandler = (req, res, next) => {
     const decoded = jwt.verify(token, JWT_SECRET) as JWTPayload;
 
     // Chuẩn hoá key để các middleware khác dùng: req.user._id / role / isActive
+    const userId = decoded._id ?? decoded.userId;
+    
+    // Loại bỏ các field đã set để tránh duplicate
+    const { _id, userId: decodedUserId, role, isActive, ...rest } = decoded;
+    
     (req as any).user = {
-      _id: decoded._id ?? decoded.userId,
-      id: decoded._id ?? decoded.userId, // Thêm id để tương thích
+      _id: userId,
+      id: userId, // Thêm id để tương thích
       role: decoded.role,
       isActive: decoded.isActive,
-      ...decoded,
+      email: decoded.email, // Giữ email nếu có
+      ...rest, // Chỉ spread các field khác (iat, exp, etc.)
     };
 
     next();

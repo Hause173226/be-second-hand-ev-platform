@@ -4,15 +4,19 @@ import { User } from "../models/User";
 
 export class ChatService {
   // Tạo hoặc lấy conversation giữa 2 user
-  async getOrCreateConversation(userId1: string, userId2: string, listingId?: string) {
+  async getOrCreateConversation(
+    userId1: string,
+    userId2: string,
+    listingId?: string
+  ) {
     // Tìm chat đã tồn tại
     let chat = await Chat.findOne({
       $or: [
         { buyerId: userId1, sellerId: userId2 },
-        { buyerId: userId2, sellerId: userId1 }
+        { buyerId: userId2, sellerId: userId1 },
       ],
       ...(listingId && { listingId }),
-      isActive: true
+      isActive: true,
     });
 
     if (!chat) {
@@ -21,7 +25,7 @@ export class ChatService {
         sellerId: userId2,
         listingId,
         isActive: true,
-        chatType: listingId ? "listing" : "direct"
+        chatType: listingId ? "listing" : "direct",
       });
     }
 
@@ -49,8 +53,8 @@ export class ChatService {
       content: data.content,
       messageType: data.messageType || "text",
       metadata: {
-        files: data.attachments?.map(url => ({ url })) || []
-      }
+        files: data.attachments?.map((url) => ({ url })) || [],
+      },
     });
 
     // Cập nhật chat với tin nhắn mới nhất
@@ -58,8 +62,8 @@ export class ChatService {
       lastMessage: {
         content: message.content,
         senderId: message.senderId,
-        timestamp: message.createdAt
-      }
+        timestamp: message.createdAt,
+      },
     });
 
     // Populate thông tin
@@ -70,49 +74,46 @@ export class ChatService {
 
   // Lấy lịch sử tin nhắn trong conversation
   async getMessages(chatId: string, limit: number = 50, skip: number = 0) {
-    console.log('🔍 getMessages called with:', { chatId, limit, skip });
-    
+    console.log("🔍 getMessages called with:", { chatId, limit, skip });
+
     const messages = await Message.find({ chatId })
       .populate("senderId", "fullName avatar")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limit);
 
-    console.log('📨 Found messages:', messages.length);
-    
+    console.log("📨 Found messages:", messages.length);
+
     return messages.reverse();
   }
 
   // Lấy danh sách conversation của user
   async getUserConversations(userId: string) {
-    console.log('🔍 getUserConversations for userId:', userId);
-    
+    // console.log('🔍 getUserConversations for userId:', userId);
+
     const conversations = await Chat.find({
-      $or: [
-        { buyerId: userId },
-        { sellerId: userId }
-      ],
-      isActive: true
+      $or: [{ buyerId: userId }, { sellerId: userId }],
+      isActive: true,
     })
       .populate("buyerId", "fullName avatar email phone")
       .populate("sellerId", "fullName avatar email phone")
       .populate("listingId", "make model year photos priceListed")
       .populate({
         path: "lastMessage.senderId",
-        select: "fullName avatar"
+        select: "fullName avatar",
       })
       .sort({ updatedAt: -1 });
 
-    console.log('📋 Found conversations:', conversations.length);
+    // console.log("📋 Found conversations:", conversations.length);
 
     // Format dữ liệu để trả về
     const formattedConversations = conversations.map((conv: any) => {
-      console.log('Chat:', {
-        _id: conv._id,
-        buyerId: conv.buyerId?._id,
-        sellerId: conv.sellerId?._id,
-        hasLastMessage: !!conv.lastMessage
-      });
+      // console.log("Chat:", {
+      //   _id: conv._id,
+      //   buyerId: conv.buyerId?._id,
+      //   sellerId: conv.sellerId?._id,
+      //   hasLastMessage: !!conv.lastMessage,
+      // });
 
       // Xác định người dùng còn lại (không phải current user)
       const isBuyer = conv.buyerId?._id?.toString() === userId;
@@ -125,7 +126,7 @@ export class ChatService {
         lastMessage: conv.lastMessage,
         lastMessageAt: conv.updatedAt,
         chatType: conv.chatType,
-        unreadCount: 0 // TODO: Implement unread count logic
+        unreadCount: 0, // TODO: Implement unread count logic
       };
     });
 
@@ -139,18 +140,18 @@ export class ChatService {
       {
         chatId,
         senderId: { $ne: userId },
-        isRead: false
+        isRead: false,
       },
       {
         $set: {
-          isRead: true
-        }
+          isRead: true,
+        },
       }
     );
 
     // Reset unread count trong chat
     await Chat.findByIdAndUpdate(chatId, {
-      $set: { [`unreadCount.${userId}`]: 0 }
+      $set: { [`unreadCount.${userId}`]: 0 },
     });
 
     return { success: true };
@@ -160,7 +161,7 @@ export class ChatService {
   async deleteMessage(messageId: string, userId: string) {
     const message = await Message.findOne({
       _id: messageId,
-      senderId: userId
+      senderId: userId,
     });
 
     if (!message) {
@@ -181,7 +182,7 @@ export class ChatService {
     const messages = await Message.find({
       chatId,
       content: { $regex: keyword, $options: "i" },
-      "metadata.isDeleted": { $ne: true }
+      "metadata.isDeleted": { $ne: true },
     })
       .populate("senderId", "fullName avatar")
       .sort({ createdAt: -1 })
@@ -193,11 +194,8 @@ export class ChatService {
   // Lấy số lượng tin nhắn chưa đọc
   async getUnreadCount(userId: string) {
     const chats = await Chat.find({
-      $or: [
-        { buyerId: userId },
-        { sellerId: userId }
-      ],
-      isActive: true
+      $or: [{ buyerId: userId }, { sellerId: userId }],
+      isActive: true,
     });
 
     // Đếm số message chưa đọc trong mỗi chat
@@ -206,7 +204,7 @@ export class ChatService {
       const unreadCount = await Message.countDocuments({
         chatId: chat._id,
         senderId: { $ne: userId },
-        isRead: false
+        isRead: false,
       });
       totalUnread += unreadCount;
     }
@@ -218,10 +216,7 @@ export class ChatService {
   async archiveConversation(chatId: string, userId: string) {
     const chat = await Chat.findOne({
       _id: chatId,
-      $or: [
-        { buyerId: userId },
-        { sellerId: userId }
-      ]
+      $or: [{ buyerId: userId }, { sellerId: userId }],
     });
 
     if (!chat) {

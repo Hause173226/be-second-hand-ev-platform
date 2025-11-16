@@ -4,7 +4,7 @@ import { User } from "../models/User";
 export async function requireProfile(req: Request, res: Response, next: NextFunction) {
   try {
     // userId được gắn bởi authenticateJWT
-    const uid = (req as any).user?.userId;
+    const uid = (req as any).user?._id || (req as any).user?.id;
     if (!uid) {
       return res.status(401).json({ message: "Unauthorized" });
     }

@@ -11,7 +11,7 @@ export const checkListingLimit = async (
   next: NextFunction
 ): Promise<void> => {
   try {
-    const userId = req.user?.userId;
+    const userId = (req as any).user?._id || (req as any).user?.id;
 
     if (!userId) {
       res.status(401).json({

@@ -2,9 +2,11 @@
 import SystemWallet from "../models/SystemWallet";
 import SystemWalletTransaction from "../models/SystemWalletTransaction";
 import Appointment from "../models/Appointment";
+import Contract from "../models/Contract";
 import DepositRequest from "../models/DepositRequest";
 import Listing from "../models/Listing";
 import { User } from "../models/User";
+import EscrowAccount from "../models/EscrowAccount";
 
 export class SystemWalletService {
   private static instance: SystemWalletService;
@@ -135,6 +137,110 @@ export class SystemWalletService {
   }
 
   /**
+   * Migrate dữ liệu cũ từ Contract vào SystemWalletTransaction
+   * Tự động migrate các contracts chưa có transaction tương ứng
+   */
+  private async migrateOldTransactions(): Promise<void> {
+    try {
+      // 1. Tìm các contracts đã COMPLETED
+      const completedContracts = await Contract.find({
+        status: "COMPLETED",
+        completedAt: { $exists: true },
+        depositRequestId: { $exists: true },
+      })
+        .sort({ completedAt: 1 })
+        .lean();
+
+      let completedCount = 0;
+      for (const contract of completedContracts) {
+        if (!contract.depositRequestId) continue;
+
+        // Kiểm tra xem đã có transaction này chưa (tránh duplicate)
+        const existingTx = await SystemWalletTransaction.findOne({
+          appointmentId: contract.appointmentId,
+          type: "COMPLETED",
+        });
+
+        if (existingTx) continue;
+
+        // Tạo transaction COMPLETED (100% tiền đặt cọc)
+        await SystemWalletTransaction.create({
+          type: "COMPLETED",
+          amount: contract.depositAmount,
+          depositRequestId: contract.depositRequestId.toString(),
+          appointmentId: contract.appointmentId,
+          description: `Nhận tiền từ giao dịch đặt cọc ${contract.depositRequestId} (100% tiền đặt cọc) - Migrated from Contract`,
+          balanceAfter: 0, // Sẽ tính lại sau
+          createdAt: contract.completedAt || contract.updatedAt,
+          updatedAt: contract.completedAt || contract.updatedAt,
+        });
+
+        completedCount++;
+      }
+
+      // 2. Tìm các contracts đã CANCELLED
+      const cancelledContracts = await Contract.find({
+        status: "CANCELLED",
+        depositRequestId: { $exists: true },
+      })
+        .sort({ updatedAt: 1 })
+        .lean();
+
+      let cancelledCount = 0;
+      for (const contract of cancelledContracts) {
+        if (!contract.depositRequestId) continue;
+
+        // Kiểm tra xem đã có transaction này chưa (tránh duplicate)
+        const existingTx = await SystemWalletTransaction.findOne({
+          appointmentId: contract.appointmentId,
+          type: "CANCELLED",
+        });
+
+        if (existingTx) continue;
+
+        // Tính phí hủy (20% tiền đặt cọc)
+        const feeAmount = Math.round(contract.depositAmount * 0.2);
+
+        // Tạo transaction CANCELLED
+        await SystemWalletTransaction.create({
+          type: "CANCELLED",
+          amount: feeAmount,
+          depositRequestId: contract.depositRequestId.toString(),
+          appointmentId: contract.appointmentId,
+          description: `Phí hủy giao dịch từ deposit ${contract.depositRequestId} (20% tiền đặt cọc) - Migrated from Contract`,
+          balanceAfter: 0, // Sẽ tính lại sau
+          createdAt: contract.updatedAt,
+          updatedAt: contract.updatedAt,
+        });
+
+        cancelledCount++;
+      }
+
+      // 3. Tính lại balanceAfter cho tất cả transactions (theo thứ tự thời gian) nếu có transaction mới được migrate
+      if (completedCount > 0 || cancelledCount > 0) {
+        console.log("   💰 Đang tính lại balanceAfter...");
+        const allTransactions = await SystemWalletTransaction.find().sort({
+          createdAt: 1,
+        });
+        let currentBalance = 0;
+
+        for (const tx of allTransactions) {
+          currentBalance += tx.amount;
+          tx.balanceAfter = currentBalance;
+          await tx.save();
+        }
+
+        console.log(
+          `   ✅ Đã cập nhật balanceAfter cho ${allTransactions.length} transactions`
+        );
+      }
+    } catch (error) {
+      console.error("❌ Error migrating old transactions:", error);
+      // Không throw error để không ảnh hưởng đến flow chính
+    }
+  }
+
+  /**
    * Lấy lịch sử giao dịch của ví hệ thống
    * @param filters Bộ lọc: type, page, limit
    */
@@ -146,6 +252,9 @@ export class SystemWalletService {
     } = {}
   ) {
     try {
+      // Tự động migrate dữ liệu cũ nếu chưa có
+      await this.migrateOldTransactions();
+
       const { type, page = 1, limit = 20 } = filters;
 
       const query: any = {};
@@ -160,12 +269,6 @@ export class SystemWalletService {
         .lean();
 
       const total = await SystemWalletTransaction.countDocuments(query);
-
-      // Debug logging
-      console.log(`[SystemWallet] Query:`, JSON.stringify(query));
-      console.log(
-        `[SystemWallet] Found ${transactions.length} transactions, total: ${total}`
-      );
 
       return {
         transactions: transactions.map((tx) => ({
@@ -393,6 +496,9 @@ export class SystemWalletService {
     } = {}
   ) {
     try {
+      // Tự động migrate dữ liệu cũ nếu chưa có
+      await this.migrateOldTransactions();
+
       const { period = "day", startDate, endDate } = filters;
 
       // Tạo query filter theo thời gian

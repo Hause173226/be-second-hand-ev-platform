@@ -5,7 +5,7 @@ export interface IDepositRequest extends Document {
   buyerId: string;
   sellerId: string;
   depositAmount: number;
-  status: 'PENDING_SELLER_CONFIRMATION' | 'SELLER_CONFIRMED' | 'SELLER_CANCELLED' | 'IN_ESCROW' | 'COMPLETED' | 'CANCELLED';
+  status: 'PENDING_PAYMENT' | 'PENDING_SELLER_CONFIRMATION' | 'SELLER_CONFIRMED' | 'SELLER_CANCELLED' | 'IN_ESCROW' | 'COMPLETED' | 'CANCELLED';
   escrowAccountId?: string;
   sellerConfirmedAt?: Date;
   sellerCancelledAt?: Date;
@@ -37,7 +37,7 @@ const DepositRequestSchema = new Schema({
   },
   status: {
     type: String,
-    enum: ['PENDING_SELLER_CONFIRMATION', 'SELLER_CONFIRMED', 'SELLER_CANCELLED', 'IN_ESCROW', 'COMPLETED', 'CANCELLED'],
+    enum: ['PENDING_PAYMENT', 'PENDING_SELLER_CONFIRMATION', 'SELLER_CONFIRMED', 'SELLER_CANCELLED', 'IN_ESCROW', 'COMPLETED', 'CANCELLED'],
     default: 'PENDING_SELLER_CONFIRMATION'
   },
   escrowAccountId: {
