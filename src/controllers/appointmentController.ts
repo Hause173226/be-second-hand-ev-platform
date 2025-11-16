@@ -89,6 +89,11 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
       appointmentDate.setDate(appointmentDate.getDate() + 7);
     }
 
+    // Người tạo tự động được xác nhận
+    const buyerConfirmed = isBuyer;
+    const sellerConfirmed = isSeller;
+    const now = new Date();
+
         const appointment = new Appointment({
       depositRequestId,
       appointmentType: 'NORMAL_DEPOSIT',
@@ -99,7 +104,11 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
       status: 'PENDING',
       type: 'CONTRACT_SIGNING',
       location: location || 'Văn phòng công ty',
-      notes: notes || 'Ký kết hợp đồng mua bán xe'
+      notes: notes || 'Ký kết hợp đồng mua bán xe',
+      buyerConfirmed: buyerConfirmed, // ✅ Người tạo tự động xác nhận
+      sellerConfirmed: sellerConfirmed,
+      buyerConfirmedAt: buyerConfirmed ? now : undefined,
+      sellerConfirmedAt: sellerConfirmed ? now : undefined
         });
 
         await appointment.save();
@@ -545,6 +554,7 @@ export const cancelAppointment = async (req: Request, res: Response): Promise<an
     // ✅ Nếu tiền đã vào escrow -> hoàn tiền và hủy giao dịch (dù buyer hay seller hủy)
     const isBuyer = appointment.buyerId.toString() === userId;
     let isTransactionCancelled = false;
+    let refundAmount = 0;
     
     if (depositRequest.status === 'IN_ESCROW') {
       // Hoàn tiền từ escrow về ví buyer (100%)
@@ -561,7 +571,85 @@ export const cancelAppointment = async (req: Request, res: Response): Promise<an
       depositRequest.status = 'CANCELLED';
       await depositRequest.save();
       isTransactionCancelled = true;
+      refundAmount = depositRequest.depositAmount;
     }
+    
+    // ✅ Nếu là AUCTION appointment -> Xử lý hoàn tiền cọc đấu giá (50%)
+    if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
+      try {
+        const AuctionDeposit = (await import('../models/AuctionDeposit')).default;
+        const auctionDepositService = (await import('../services/auctionDepositService')).default;
+        
+        // Tìm deposit của winner trong auction
+        const auctionDeposit = await AuctionDeposit.findOne({
+          auctionId: appointment.auctionId,
+          userId: appointment.buyerId,
+          status: 'FROZEN'
+        });
+
+        if (auctionDeposit) {
+          const fullDepositAmount = auctionDeposit.depositAmount;
+          const refundPercentage = 0.5; // 50%
+          const refundAmountAuction = Math.floor(fullDepositAmount * refundPercentage);
+          const penaltyAmount = fullDepositAmount - refundAmountAuction; // 50% penalty
+
+          // Hoàn 50% tiền cọc về ví winner
+          const winnerWallet = await walletService.getWallet(appointment.buyerId.toString());
+          
+          // Giảm frozenAmount
+          if (winnerWallet.frozenAmount >= fullDepositAmount) {
+            winnerWallet.frozenAmount -= fullDepositAmount;
+          } else {
+            winnerWallet.frozenAmount = 0;
+          }
+          
+          // Cộng 50% vào balance
+          winnerWallet.balance += refundAmountAuction;
+          winnerWallet.lastTransactionAt = new Date();
+          await winnerWallet.save();
+
+          // Cập nhật deposit status
+          auctionDeposit.status = 'REFUNDED';
+          auctionDeposit.refundedAt = new Date();
+          await auctionDeposit.save();
+
+          // 50% còn lại vào system wallet
+          const SystemWallet = (await import('../models/SystemWallet')).default;
+          let systemWallet = await SystemWallet.findOne();
+          if (!systemWallet) {
+            systemWallet = await SystemWallet.create({
+              balance: penaltyAmount,
+              totalEarned: penaltyAmount,
+              totalTransactions: 1,
+              lastTransactionAt: new Date()
+            });
+          } else {
+            systemWallet.balance += penaltyAmount;
+            systemWallet.totalEarned += penaltyAmount;
+            systemWallet.totalTransactions += 1;
+            systemWallet.lastTransactionAt = new Date();
+            await systemWallet.save();
+          }
+
+          // Cập nhật listing về Published
+          const auction = await (await import('../models/Auction')).default.findById(appointment.auctionId).populate('listingId');
+          if (auction) {
+            const listing = auction.listingId as any;
+            if (listing) {
+              await Listing.findByIdAndUpdate(listing._id, { status: 'Published' });
+            }
+          }
+
+          isTransactionCancelled = true;
+          refundAmount = refundAmountAuction;
+
+          console.log(`[cancelAppointment] Auction deposit refund: 50% (${refundAmountAuction.toLocaleString('vi-VN')}₫) returned, 50% (${penaltyAmount.toLocaleString('vi-VN')}₫) penalty to system`);
+        }
+      } catch (auctionError) {
+        console.error('[cancelAppointment] Error processing auction deposit refund:', auctionError);
+      }
+    }
+    
     // ✅ Nếu tiền chưa vào escrow (status = 'SELLER_CONFIRMED' hoặc khác) -> chỉ hủy appointment
     // → isTransactionCancelled = false → appointment_cancelled
 
@@ -597,14 +685,18 @@ export const cancelAppointment = async (req: Request, res: Response): Promise<an
     res.json({
       success: true,
       message: isTransactionCancelled
-        ? 'Đã hủy giao dịch thành công, tiền đã hoàn về ví của bạn'
+        ? (appointment.appointmentType === 'AUCTION' 
+            ? `Đã hủy lịch hẹn thành công. Hoàn lại 50% tiền cọc (${refundAmount.toLocaleString('vi-VN')}₫), 50% còn lại bị phạt`
+            : 'Đã hủy giao dịch thành công, tiền đã hoàn về ví của bạn')
         : 'Hủy lịch hẹn thành công',
       appointment: {
         id: appointment._id,
         status: appointment.status,
         cancelledAt: appointment.cancelledAt
       },
-      refunded: isTransactionCancelled
+      refunded: isTransactionCancelled,
+      refundAmount: refundAmount,
+      isAuction: appointment.appointmentType === 'AUCTION'
     });
 
     } catch (error) {

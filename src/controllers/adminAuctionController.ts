@@ -96,7 +96,15 @@ export const getAllAuctionsForAdmin = async (req: Request, res: Response) => {
                 });
 
                 // Lấy danh sách người đã đặt cọc (nếu đã approved)
-                let participants = [];
+                let participants: {
+                    userId: any;
+                    fullName?: string;
+                    email?: string;
+                    phone?: string;
+                    avatar?: string;
+                    depositStatus?: string;
+                    depositedAt?: Date | string | undefined;
+                }[] = [];
                 if (auction.approvalStatus === "approved") {
                     const deposits = await AuctionDeposit.find({
                         auctionId: auction._id,
@@ -313,6 +321,115 @@ export const updateSystemParticipantsConfig = async (req: Request, res: Response
         });
     } catch (err) {
         console.error("Lỗi update system config:", err);
+        res.status(500).json({ 
+            success: false,
+            message: err instanceof Error ? err.message : "Lỗi server" 
+        });
+    }
+};
+
+/**
+ * Staff bắt đầu phiên đấu giá thủ công
+ * POST /api/auctions/admin/:auctionId/start
+ */
+export const startAuctionManually = async (req: Request, res: Response) => {
+    try {
+        const staffRole = (req as any).user?.role;
+
+        // Kiểm tra quyền staff/admin
+        if (staffRole !== 'staff' && staffRole !== 'admin') {
+            return res.status(403).json({ 
+                success: false,
+                message: "Chỉ staff/admin mới có quyền bắt đầu phiên đấu giá" 
+            });
+        }
+
+        const { auctionId } = req.params;
+        const staffId = (req as any).user?._id;
+
+        // Lấy auction
+        const auction = await Auction.findById(auctionId)
+            .populate('listingId', 'make model year sellerId');
+
+        if (!auction) {
+            return res.status(404).json({
+                success: false,
+                message: "Không tìm thấy phiên đấu giá"
+            });
+        }
+
+        // Kiểm tra approvalStatus
+        if (auction.approvalStatus !== 'approved') {
+            return res.status(400).json({
+                success: false,
+                message: "Phiên đấu giá chưa được phê duyệt"
+            });
+        }
+
+        // Kiểm tra status hiện tại
+        if (auction.status === 'active') {
+            return res.status(400).json({
+                success: false,
+                message: "Phiên đấu giá đã đang diễn ra"
+            });
+        }
+
+        if (auction.status !== 'approved') {
+            return res.status(400).json({
+                success: false,
+                message: `Không thể bắt đầu phiên đấu giá có trạng thái: ${auction.status}`
+            });
+        }
+
+        // Đếm số người đã đặt cọc
+        const depositCount = await AuctionDeposit.countDocuments({
+            auctionId: auction._id,
+            status: 'FROZEN'
+        });
+
+        // Kiểm tra đủ số lượng người tham gia
+        if (depositCount < auction.minParticipants) {
+            return res.status(400).json({
+                success: false,
+                message: `Không đủ số lượng người tham gia. Hiện có ${depositCount}/${auction.minParticipants} người`
+            });
+        }
+
+        // Kiểm tra thời gian
+        const now = new Date();
+        if (now > auction.endAt) {
+            return res.status(400).json({
+                success: false,
+                message: "Phiên đấu giá đã quá thời gian kết thúc"
+            });
+        }
+
+        // Cập nhật status thành active
+        auction.status = 'active';
+        auction.startAt = now; // Cập nhật thời gian bắt đầu thực tế
+        await auction.save();
+
+        // Gửi thông báo cho participants và seller
+        try {
+            const { sendAuctionStartNotifications } = await import('../services/auctionService');
+            await sendAuctionStartNotifications(auction);
+        } catch (notifError) {
+            console.error('Lỗi gửi thông báo bắt đầu đấu giá:', notifError);
+        }
+
+        res.json({
+            success: true,
+            message: "Phiên đấu giá đã được bắt đầu thành công",
+            data: {
+                _id: auction._id,
+                status: auction.status,
+                startAt: auction.startAt,
+                endAt: auction.endAt,
+                participantCount: depositCount
+            }
+        });
+    } catch (err) {
+        console.error("Lỗi start auction manually:", err);
         res.status(500).json({ 
             success: false,
             message: err instanceof Error ? err.message : "Lỗi server" 

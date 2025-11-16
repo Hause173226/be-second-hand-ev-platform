@@ -8,7 +8,8 @@ import { cleanupExpiredPendingAuctions } from "../controllers/auctionCleanupCont
 import { 
   getAllAuctionsForAdmin, 
   getAuctionDetailForAdmin,
-  updateSystemParticipantsConfig
+  updateSystemParticipantsConfig,
+  startAuctionManually
 } from "../controllers/adminAuctionController";
 
 const router = express.Router();
@@ -239,6 +240,77 @@ router.post("/:auctionId/approve", authenticate, approveAuction as unknown as Re
  *         description: Không tìm thấy phiên đấu giá
  */
 router.post("/:auctionId/reject", authenticate, rejectAuction as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/auctions/admin/{auctionId}/start:
+ *   post:
+ *     summary: "[STAFF] Bắt đầu phiên đấu giá thủ công"
+ *     description: |
+ *       Staff/Admin bắt đầu phiên đấu giá ngay lập tức khi đủ người tham gia.
+ *       Yêu cầu:
+ *       - Phiên đã được approve
+ *       - Đủ số lượng người tham gia tối thiểu
+ *       - Chưa quá thời gian kết thúc
+ *       
+ *       Khi start:
+ *       - Cập nhật status thành 'active'
+ *       - Cập nhật startAt thành thời gian hiện tại
+ *       - Gửi thông báo cho tất cả participants
+ *       - Broadcast WebSocket event
+ *     tags: [Admin Auction]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: auctionId
+ *         required: true
+ *         schema: 
+ *           type: string
+ *         description: ID của phiên đấu giá cần bắt đầu
+ *     responses:
+ *       200:
+ *         description: Bắt đầu phiên đấu giá thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Phiên đấu giá đã được bắt đầu thành công"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       example: active
+ *                     startAt:
+ *                       type: string
+ *                       format: date-time
+ *                     endAt:
+ *                       type: string
+ *                       format: date-time
+ *                     participantCount:
+ *                       type: number
+ *       400:
+ *         description: |
+ *           Lỗi validation:
+ *           - Chưa được phê duyệt
+ *           - Đã đang diễn ra
+ *           - Không đủ người tham gia
+ *           - Đã quá thời gian
+ *       403:
+ *         description: Không có quyền (chỉ staff/admin)
+ *       404:
+ *         description: Không tìm thấy phiên đấu giá
+ */
+router.post("/:auctionId/start", authenticate, startAuctionManually as unknown as RequestHandler);
 
 /**
  * @swagger
