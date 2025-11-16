@@ -5,6 +5,7 @@ import DepositRequest from "../models/DepositRequest";
 import EscrowAccount from "../models/EscrowAccount";
 import AuctionDeposit from "../models/AuctionDeposit";
 import Appointment from "../models/Appointment";
+import NotificationMessage from "../models/NotificationMessage";
 import { WebSocketService } from "./websocketService";
 import auctionDepositService from "./auctionDepositService";
 import cron from "node-cron";
@@ -16,6 +17,265 @@ type AnyId = string | { toString(): string };
 // (sẽ được hydrate lại ở bootstrapAuctions khi server khởi động)
 // =======================================================
 export const auctionTimeouts = new Map<string, NodeJS.Timeout>();
+
+// =======================================================
+// Notification Helper Functions
+// =======================================================
+
+/**
+ * Gửi thông báo khi phiên đấu giá bắt đầu
+ * @param auction Auction document đã populate listingId
+ */
+export async function sendAuctionStartNotifications(auction: any) {
+  try {
+    const auctionId = auction._id.toString();
+    const listing = auction.listingId as any;
+    
+    if (!listing) {
+      console.error('[sendAuctionStartNotifications] Listing not found');
+      return;
+    }
+
+    const sellerId = listing.sellerId?.toString();
+    const vehicleInfo = `${listing.make} ${listing.model} ${listing.year}`;
+
+    // Lấy danh sách người đã đặt cọc (participants)
+    const deposits = await AuctionDeposit.find({
+      auctionId: auction._id,
+      status: 'FROZEN'
+    }).select('userId');
+
+    const participantIds = deposits.map(d => d.userId.toString());
+
+    // Tạo notifications cho participants
+    const participantNotifications = participantIds.map(userId => ({
+      userId,
+      type: 'system',
+      title: 'Phiên đấu giá đã bắt đầu!',
+      message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu. Hãy đặt giá ngay để giành chiến thắng!`,
+      relatedId: auctionId,
+      actionUrl: `/auctions/${auctionId}`,
+      actionText: 'Tham gia đấu giá',
+      metadata: {
+        auctionId,
+        listingId: listing._id.toString(),
+        vehicleInfo,
+        startAt: auction.startAt,
+        endAt: auction.endAt,
+        startingPrice: auction.startingPrice,
+        notificationType: 'auction_started'
+      }
+    }));
+
+    // Tạo notification cho seller
+    if (sellerId && !participantIds.includes(sellerId)) {
+      participantNotifications.push({
+        userId: sellerId,
+        type: 'system',
+        title: 'Phiên đấu giá của bạn đã bắt đầu',
+        message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu với ${participantIds.length} người tham gia`,
+        relatedId: auctionId,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem phiên đấu giá',
+        metadata: {
+          auctionId,
+          listingId: listing._id.toString(),
+          vehicleInfo,
+          participantCount: participantIds.length,
+          startAt: auction.startAt,
+          endAt: auction.endAt,
+          notificationType: 'auction_started_seller'
+        }
+      });
+    }
+
+    // Lưu tất cả notifications
+    if (participantNotifications.length > 0) {
+      await NotificationMessage.insertMany(participantNotifications);
+      console.log(`✅ Đã gửi thông báo bắt đầu đấu giá đến ${participantNotifications.length} người`);
+    }
+
+    // Emit WebSocket events
+    const wsService = WebSocketService.getInstance();
+    
+    // Gửi cho từng participant
+    participantIds.forEach(userId => {
+      wsService.sendToUser(userId, 'auction_started', {
+        auctionId,
+        title: 'Phiên đấu giá đã bắt đầu',
+        message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu`,
+        startAt: auction.startAt,
+        endAt: auction.endAt
+      });
+    });
+
+    // Gửi cho seller
+    if (sellerId) {
+      wsService.sendToUser(sellerId, 'auction_started', {
+        auctionId,
+        title: 'Phiên đấu giá của bạn đã bắt đầu',
+        message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu`,
+        participantCount: participantIds.length,
+        startAt: auction.startAt,
+        endAt: auction.endAt
+      });
+    }
+  } catch (error) {
+    console.error('[sendAuctionStartNotifications] Error:', error);
+  }
+}
+
+/**
+ * Gửi thông báo khi phiên đấu giá kết thúc
+ * @param auction Auction document đã populate listingId
+ * @param winnerId ID của người thắng (nếu có)
+ * @param winningBid Bid thắng (nếu có)
+ */
+export async function sendAuctionEndNotifications(
+  auction: any,
+  winnerId?: string,
+  winningBid?: any
+) {
+  try {
+    const auctionId = auction._id.toString();
+    const listing = auction.listingId as any;
+    
+    if (!listing) {
+      console.error('[sendAuctionEndNotifications] Listing not found');
+      return;
+    }
+
+    const sellerId = listing.sellerId?.toString();
+    const vehicleInfo = `${listing.make} ${listing.model} ${listing.year}`;
+
+    // Lấy danh sách tất cả người đã tham gia (có deposit FROZEN hoặc đã REFUNDED)
+    const deposits = await AuctionDeposit.find({
+      auctionId: auction._id,
+      $or: [{ status: 'FROZEN' }, { status: 'REFUNDED' }]
+    }).select('userId status');
+
+    const participantIds = deposits.map(d => d.userId.toString());
+    const notifications: any[] = [];
+
+    // Thông báo cho người thắng
+    if (winnerId) {
+      notifications.push({
+        userId: winnerId,
+        type: 'system',
+        title: '🎉 Chúc mừng! Bạn đã thắng đấu giá',
+        message: `Bạn đã thắng phiên đấu giá cho xe ${vehicleInfo} với giá ${winningBid?.price?.toLocaleString('vi-VN')}₫. Vui lòng hoàn tất giao dịch`,
+        relatedId: auctionId,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem chi tiết',
+        metadata: {
+          auctionId,
+          listingId: listing._id.toString(),
+          vehicleInfo,
+          winningPrice: winningBid?.price,
+          endAt: auction.endAt,
+          notificationType: 'auction_won'
+        }
+      });
+    }
+
+    // Thông báo cho người thua
+    const loserIds = participantIds.filter(id => id !== winnerId);
+    loserIds.forEach(userId => {
+      notifications.push({
+        userId,
+        type: 'system',
+        title: 'Phiên đấu giá đã kết thúc',
+        message: winnerId
+          ? `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc. Tiền cọc của bạn đã được hoàn trả`
+          : `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc mà không có người thắng. Tiền cọc đã được hoàn trả`,
+        relatedId: auctionId,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem kết quả',
+        metadata: {
+          auctionId,
+          listingId: listing._id.toString(),
+          vehicleInfo,
+          hasWinner: !!winnerId,
+          endAt: auction.endAt,
+          notificationType: 'auction_ended'
+        }
+      });
+    });
+
+    // Thông báo cho seller
+    if (sellerId && !participantIds.includes(sellerId)) {
+      notifications.push({
+        userId: sellerId,
+        type: 'system',
+        title: winnerId ? 'Phiên đấu giá thành công!' : 'Phiên đấu giá đã kết thúc',
+        message: winnerId
+          ? `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc với giá thắng ${winningBid?.price?.toLocaleString('vi-VN')}₫`
+          : `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc mà không có người thắng`,
+        relatedId: auctionId,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem chi tiết',
+        metadata: {
+          auctionId,
+          listingId: listing._id.toString(),
+          vehicleInfo,
+          hasWinner: !!winnerId,
+          winningPrice: winningBid?.price,
+          participantCount: participantIds.length,
+          endAt: auction.endAt,
+          notificationType: winnerId ? 'auction_sold' : 'auction_ended_no_winner'
+        }
+      });
+    }
+
+    // Lưu tất cả notifications
+    if (notifications.length > 0) {
+      await NotificationMessage.insertMany(notifications);
+      console.log(`✅ Đã gửi thông báo kết thúc đấu giá đến ${notifications.length} người`);
+    }
+
+    // Emit WebSocket events
+    const wsService = WebSocketService.getInstance();
+
+    // Gửi cho người thắng
+    if (winnerId) {
+      wsService.sendToUser(winnerId, 'auction_won', {
+        auctionId,
+        title: 'Chúc mừng! Bạn đã thắng đấu giá',
+        message: `Bạn đã thắng phiên đấu giá cho xe ${vehicleInfo}`,
+        winningPrice: winningBid?.price,
+        endAt: auction.endAt
+      });
+    }
+
+    // Gửi cho người thua
+    loserIds.forEach(userId => {
+      wsService.sendToUser(userId, 'auction_ended', {
+        auctionId,
+        title: 'Phiên đấu giá đã kết thúc',
+        message: `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc`,
+        hasWinner: !!winnerId,
+        endAt: auction.endAt
+      });
+    });
+
+    // Gửi cho seller
+    if (sellerId) {
+      wsService.sendToUser(sellerId, 'auction_ended', {
+        auctionId,
+        title: winnerId ? 'Phiên đấu giá thành công' : 'Phiên đấu giá đã kết thúc',
+        message: winnerId
+          ? `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc với giá thắng ${winningBid?.price?.toLocaleString('vi-VN')}₫`
+          : `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc mà không có người thắng`,
+        hasWinner: !!winnerId,
+        winningPrice: winningBid?.price,
+        participantCount: participantIds.length,
+        endAt: auction.endAt
+      });
+    }
+  } catch (error) {
+    console.error('[sendAuctionEndNotifications] Error:', error);
+  }
+}
 
 // Tính ms đến endAt (âm nếu đã quá hạn)
 function msUntilEnd(endAt: Date | string) {
@@ -77,6 +337,17 @@ export async function autoCloseAuction(
   auction.status = "ended";
   await auction.save();
 
+  // Gửi thông báo kết thúc đấu giá cho participants và seller
+  try {
+    await sendAuctionEndNotifications(
+      auction,
+      auction.winnerId?.toString(),
+      winningBid
+    );
+  } catch (error) {
+    console.error("[auctionService] Error sending end notifications:", error);
+  }
+
   // Refund cọc cho người thua
   try {
     await auctionDepositService.refundNonWinners(
@@ -92,6 +363,11 @@ export async function autoCloseAuction(
     try {
       const listing: any = auction.listingId;
       if (listing) {
+        // Cập nhật status listing thành InTransaction khi có người thắng
+        await Listing.findByIdAndUpdate(listing._id, {
+          status: "InTransaction",
+        });
+
         const depositAmountForWinner =
           auctionDepositService.getParticipationFee(auction);
 
@@ -340,9 +616,286 @@ export function startAuctionSweepCron() {
           }
 
           console.log(`[auctionService] Cancelled auction ${auction._id} - not enough participants`);
+        }
+      }
+
+      // 4. Tự động bắt đầu các phiên đã approved và đã đến thời gian startAt
+      const readyToStart = await Auction.find({
+        approvalStatus: 'approved',
+        status: 'approved',
+        startAt: { $lte: now },
+        endAt: { $gt: now }
+      }).populate('listingId', 'make model year sellerId');
+
+      if (readyToStart.length) {
+        console.log(
+          `[auctionService] cron: starting ${readyToStart.length} approved auctions that have reached startAt`
+        );
+      }
+
+      for (const auction of readyToStart) {
+        // Đếm số người đã đặt cọc
+        const depositCount = await AuctionDeposit.countDocuments({
+          auctionId: auction._id,
+          status: 'FROZEN'
+        });
+
+        // Chỉ bắt đầu nếu đủ số người tham gia tối thiểu
+        if (depositCount >= auction.minParticipants) {
+          auction.status = 'active';
+          await auction.save();
+
+          // Gửi thông báo bắt đầu đấu giá
+          try {
+            await sendAuctionStartNotifications(auction);
+          } catch (notifError) {
+            console.error('[auctionService] Error sending start notifications:', notifError);
+          }
+
+          // Schedule auto close
+          await scheduleAuctionClose(auction);
+
+          console.log(`[auctionService] Started auction ${auction._id} with ${depositCount} participants`);
         } else {
-          // Đủ người, activate auction
-          console.log(`[auctionService] Auction ${auction._id} ready to start with ${depositCount} participants`);
+          // Không đủ người, hủy phiên
+          const listing: any = auction.listingId;
+          const sellerId = listing?.sellerId?.toString();
+          const cancellationReason = `Phiên đấu giá bị hủy do không đủ số lượng người tham gia tối thiểu (${depositCount}/${auction.minParticipants} người)`;
+
+          auction.status = 'cancelled';
+          auction.cancellationReason = cancellationReason;
+          await auction.save();
+
+          // Hoàn tiền cọc
+          try {
+            await auctionDepositService.refundNonWinners(auction._id.toString());
+          } catch (refundError) {
+            console.error('[auctionService] Error refunding deposits:', refundError);
+          }
+
+          // Gửi thông báo hủy cho seller
+          if (sellerId) {
+            await NotificationMessage.create({
+              userId: sellerId,
+              type: 'system',
+              title: 'Phiên đấu giá bị hủy',
+              message: cancellationReason,
+              relatedId: auction._id.toString(),
+              actionUrl: `/listings/${listing._id}`,
+              actionText: 'Xem sản phẩm',
+              metadata: {
+                auctionId: auction._id.toString(),
+                reason: cancellationReason,
+                depositCount,
+                minParticipants: auction.minParticipants,
+                notificationType: 'auction_cancelled'
+              }
+            });
+
+            ws.sendToUser(sellerId, 'auction_cancelled', {
+              auctionId: auction._id.toString(),
+              title: 'Phiên đấu giá bị hủy',
+              message: cancellationReason,
+              reason: cancellationReason
+            });
+          }
+
+          // Gửi thông báo hủy cho participants
+          const deposits = await AuctionDeposit.find({
+            auctionId: auction._id
+          }).select('userId');
+
+          for (const deposit of deposits) {
+            await NotificationMessage.create({
+              userId: deposit.userId,
+              type: 'system',
+              title: 'Phiên đấu giá bị hủy',
+              message: `Phiên đấu giá cho xe ${listing.make} ${listing.model} ${listing.year} đã bị hủy do không đủ người tham gia. Tiền cọc đã được hoàn lại.`,
+              relatedId: auction._id.toString(),
+              actionUrl: `/auctions`,
+              actionText: 'Xem phiên khác',
+              metadata: {
+                auctionId: auction._id.toString(),
+                refunded: true,
+                notificationType: 'auction_cancelled'
+              }
+            });
+
+            ws.sendToUser(deposit.userId.toString(), 'auction_cancelled', {
+              auctionId: auction._id.toString(),
+              title: 'Phiên đấu giá bị hủy',
+              message: 'Tiền cọc đã được hoàn lại'
+            });
+          }
+
+          console.log(`[auctionService] Cancelled auction ${auction._id} at startAt time - not enough participants`);
+        }
+      }
+
+      // 5. Xử lý penalty cho winner không tạo appointment trong 24h
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000);
+      const expiredWinnerAuctions = await Auction.find({
+        status: 'ended',
+        winnerId: { $exists: true, $ne: null },
+        updatedAt: { $lte: twentyFourHoursAgo } // Đã kết thúc > 24h
+      }).populate('listingId', 'make model year sellerId');
+
+      if (expiredWinnerAuctions.length) {
+        console.log(
+          `[auctionService] cron: checking ${expiredWinnerAuctions.length} ended auctions for appointment penalty`
+        );
+      }
+
+      for (const auction of expiredWinnerAuctions) {
+        const auctionId = auction._id.toString();
+        const winnerId = auction.winnerId?.toString();
+        const listing: any = auction.listingId;
+        const sellerId = listing?.sellerId?.toString();
+
+        if (!winnerId) continue;
+
+        // Kiểm tra có appointment nào được tạo chưa
+        const appointment = await Appointment.findOne({
+          auctionId,
+          appointmentType: 'AUCTION'
+        });
+
+        // Nếu đã có appointment thì bỏ qua
+        if (appointment) continue;
+
+        console.log(`[auctionService] Processing penalty for auction ${auctionId} - winner ${winnerId} did not create appointment`);
+
+        // Lấy thông tin deposit của winner (bao gồm cả REFUNDED nếu đã hủy appointment)
+        const winnerDeposit = await AuctionDeposit.findOne({
+          auctionId: auction._id,
+          userId: winnerId,
+          status: { $in: ['FROZEN', 'REFUNDED', 'DEDUCTED'] } // Tìm tất cả trạng thái có thể
+        });
+
+        if (!winnerDeposit) {
+          console.log(`[auctionService] No deposit found for winner ${winnerId} in auction ${auctionId} (might be CANCELLED)`);
+          continue;
+        }
+
+        // Nếu deposit đã REFUNDED hoặc DEDUCTED rồi thì skip (đã xử lý penalty rồi)
+        if (winnerDeposit.status !== 'FROZEN') {
+          console.log(`[auctionService] Deposit status is ${winnerDeposit.status} for winner ${winnerId} in auction ${auctionId}, skipping penalty (already processed)`);
+          continue;
+        }
+
+        const penaltyAmount = winnerDeposit.depositAmount; // Toàn bộ tiền cọc
+        const sellerShare = Math.floor(penaltyAmount * 0.3); // 30% cho seller
+        const systemShare = Math.floor(penaltyAmount * 0.2); // 20% cho hệ thống
+        const winnerRefund = penaltyAmount - sellerShare - systemShare; // 50% còn lại (hoàn về winner)
+
+        try {
+          // 1. Cập nhật deposit status
+          winnerDeposit.status = 'DEDUCTED';
+          winnerDeposit.deductedAt = new Date();
+          await winnerDeposit.save();
+
+          // 2. Lấy ví của winner
+          const winnerWallet = await walletService.getWallet(winnerId);
+          
+          // Giảm frozenAmount
+          if (winnerWallet.frozenAmount >= penaltyAmount) {
+            winnerWallet.frozenAmount -= penaltyAmount;
+          } else {
+            winnerWallet.frozenAmount = 0;
+          }
+
+          // Hoàn lại 50% vào balance
+          winnerWallet.balance += winnerRefund;
+          winnerWallet.lastTransactionAt = new Date();
+          await winnerWallet.save();
+
+          // 3. Chuyển 30% cho seller
+          if (sellerId) {
+            const sellerWallet = await walletService.getWallet(sellerId);
+            sellerWallet.balance += sellerShare;
+            sellerWallet.lastTransactionAt = new Date();
+            await sellerWallet.save();
+
+            // Gửi notification cho seller
+            await NotificationMessage.create({
+              userId: sellerId,
+              type: 'system',
+              title: 'Nhận bồi thường từ người thắng đấu giá',
+              message: `Bạn nhận được ${sellerShare.toLocaleString('vi-VN')}₫ bồi thường do người thắng đấu giá xe ${listing.make} ${listing.model} ${listing.year} không tạo lịch hẹn trong 24h`,
+              relatedId: auctionId,
+              actionUrl: `/auctions/${auctionId}`,
+              actionText: 'Xem chi tiết',
+              metadata: {
+                auctionId,
+                amount: sellerShare,
+                reason: 'winner_no_appointment_penalty',
+                notificationType: 'penalty_received'
+              }
+            });
+
+            ws.sendToUser(sellerId, 'penalty_received', {
+              auctionId,
+              amount: sellerShare,
+              message: 'Nhận bồi thường từ người thắng đấu giá'
+            });
+          }
+
+          // 4. Chuyển 20% cho system wallet
+          const SystemWallet = (await import('../models/SystemWallet')).default;
+          let systemWallet = await SystemWallet.findOne();
+          if (!systemWallet) {
+            systemWallet = await SystemWallet.create({
+              balance: systemShare,
+              totalEarned: systemShare,
+              totalTransactions: 1,
+              lastTransactionAt: new Date()
+            });
+          } else {
+            systemWallet.balance += systemShare;
+            systemWallet.totalEarned += systemShare;
+            systemWallet.totalTransactions += 1;
+            systemWallet.lastTransactionAt = new Date();
+            await systemWallet.save();
+          }
+
+          // 5. Gửi notification cho winner
+          await NotificationMessage.create({
+            userId: winnerId,
+            type: 'system',
+            title: 'Bị phạt do không tạo lịch hẹn',
+            message: `Bạn đã bị phạt ${(penaltyAmount - winnerRefund).toLocaleString('vi-VN')}₫ (50% tiền cọc) do không tạo lịch hẹn trong 24h sau khi thắng đấu giá xe ${listing.make} ${listing.model} ${listing.year}. ${winnerRefund.toLocaleString('vi-VN')}₫ đã được hoàn lại.`,
+            relatedId: auctionId,
+            actionUrl: `/wallet`,
+            actionText: 'Xem ví',
+            metadata: {
+              auctionId,
+              penaltyAmount: penaltyAmount - winnerRefund,
+              refundAmount: winnerRefund,
+              reason: 'no_appointment_within_24h',
+              notificationType: 'penalty_charged'
+            }
+          });
+
+          ws.sendToUser(winnerId, 'penalty_charged', {
+            auctionId,
+            penaltyAmount: penaltyAmount - winnerRefund,
+            refundAmount: winnerRefund,
+            message: 'Bị phạt do không tạo lịch hẹn trong 24h'
+          });
+
+          // 6. Cập nhật listing về Published để bán lại
+          await Listing.findByIdAndUpdate(listing._id, {
+            status: 'Published'
+          });
+
+          // 7. Cập nhật auction status
+          auction.status = 'cancelled';
+          auction.cancellationReason = 'Người thắng không tạo lịch hẹn trong 24h';
+          await auction.save();
+
+          console.log(`[auctionService] Penalty processed: Winner refund ${winnerRefund}, Seller ${sellerShare}, System ${systemShare}`);
+        } catch (penaltyError) {
+          console.error(`[auctionService] Error processing penalty for auction ${auctionId}:`, penaltyError);
         }
       }
     } catch (e) {
@@ -475,8 +1028,72 @@ export const auctionService = {
       );
     }
 
+    // Kiểm tra không cho cùng user đặt giá liên tiếp (anti-spam)
+    if (auction.bids.length > 0) {
+      const lastBid = auction.bids[auction.bids.length - 1] as any;
+      if (lastBid.userId.toString() === userId.toString()) {
+        throw new Error(
+          "Bạn không thể đặt giá liên tiếp. Vui lòng đợi người khác đặt giá trước"
+        );
+      }
+    }
+
     auction.bids.push({ userId, price, createdAt: now } as any);
     await auction.save();
+
+    // Broadcast bid mới cho tất cả participants qua WebSocket
+    try {
+      const ws = WebSocketService.getInstance();
+      
+      // Lấy thông tin người bid
+      const { User } = await import("../models/User");
+      const bidder = await User.findById(userId).select("fullName avatar").lean();
+      
+      // Lấy tất cả participants (đã đặt cọc)
+      const deposits = await AuctionDeposit.find({
+        auctionId,
+        status: 'FROZEN'
+      }).select('userId');
+
+      // Broadcast cho tất cả participants
+      deposits.forEach(deposit => {
+        const participantId = deposit.userId.toString();
+        // Không gửi lại cho người vừa bid
+        if (participantId !== userId.toString()) {
+          ws.sendToUser(participantId, 'new_bid', {
+            auctionId,
+            bidder: {
+              userId: userId.toString(),
+              fullName: bidder?.fullName || 'Unknown',
+              avatar: bidder?.avatar
+            },
+            price,
+            currentHighestBid: price,
+            totalBids: auction.bids.length,
+            timestamp: now
+          });
+        }
+      });
+
+      // Gửi cho seller
+      if (listing?.sellerId) {
+        ws.sendToUser(listing.sellerId.toString(), 'new_bid', {
+          auctionId,
+          bidder: {
+            userId: userId.toString(),
+            fullName: bidder?.fullName || 'Unknown',
+            avatar: bidder?.avatar
+          },
+          price,
+          currentHighestBid: price,
+          totalBids: auction.bids.length,
+          timestamp: now
+        });
+      }
+    } catch (wsError) {
+      console.error('Lỗi gửi WebSocket notification cho bid:', wsError);
+    }
+
     return auction;
   },
 

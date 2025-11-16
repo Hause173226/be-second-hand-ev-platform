@@ -239,32 +239,39 @@ export class AuctionApprovalService {
       },
     });
 
-    // 2. Gửi thông báo broadcast cho toàn bộ hệ thống (buyer)
-    const allUsers = await User.find({ role: "buyer" }).select("_id").lean();
+    // 2. Gửi thông báo broadcast cho toàn bộ hệ thống (tất cả user, không bao gồm staff/admin)
+    const allUsers = await User.find({ 
+      role: "user",
+      status: "ACTIVE" 
+    }).select("_id").lean();
+    
     const notifications = allUsers.map((user) => ({
       userId: user._id,
       type: "system",
-      title: "Phiên đấu giá mới",
+      title: "Phiên đấu giá mới - Đăng ký ngay!",
       message: `Phiên đấu giá cho xe ${listing.make} ${listing.model} ${listing.year} sắp bắt đầu vào ${new Date(
         auction.startAt
-      ).toLocaleString("vi-VN")}. Đặt cọc ngay để tham gia!`,
+      ).toLocaleString("vi-VN")}. Đặt cọc ${auction.depositAmount.toLocaleString('vi-VN')}₫ ngay để tham gia!`,
       relatedId: auctionId,
       actionUrl: `/auctions/${auctionId}`,
-      actionText: "Xem chi tiết",
+      actionText: "Đăng ký tham gia",
       metadata: {
         auctionId,
         listingId: listing._id.toString(),
         startAt: auction.startAt,
         endAt: auction.endAt,
         startingPrice: auction.startingPrice,
-        depositAmount: auction.depositAmount, // 👈 giờ đã có giá trị 10%
+        depositAmount: auction.depositAmount,
         vehicleInfo: `${listing.make} ${listing.model} ${listing.year}`,
         photos: listing.photos,
         notificationType: "new_auction",
       },
     }));
 
-    await NotificationMessage.insertMany(notifications);
+    if (notifications.length > 0) {
+      await NotificationMessage.insertMany(notifications);
+      console.log(`✅ Đã gửi thông báo đến ${notifications.length} người dùng về phiên đấu giá mới`);
+    }
 
     // 3. Emit WebSocket events
     try {

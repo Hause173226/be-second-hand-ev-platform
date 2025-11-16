@@ -40,10 +40,12 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
     // Kiểm tra số dư ví
     const wallet = await walletService.getWallet(userId);
     if (wallet.balance < participationFee) {
-      // Không đủ tiền -> Tạo link nạp tiền qua VNPay
+      // Không đủ tiền -> Tính số tiền còn thiếu và tạo link nạp tiền qua VNPay
+      const missingAmount = participationFee - wallet.balance; // Số tiền còn thiếu
+      
       const vnpayUrl = await walletService.createDepositUrl(
         userId.toString(),
-        participationFee,
+        missingAmount, // ✅ Chỉ nạp số tiền còn thiếu
         `Nạp tiền đặt cọc tham gia đấu giá #${auctionId}`,
         req
       );
@@ -52,8 +54,9 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
         success: false,
         message: 'Số dư không đủ để đặt cọc',
         vnpayUrl: vnpayUrl,
-        requiredAmount: participationFee,
-        currentBalance: wallet.balance
+        requiredAmount: participationFee, // Tổng tiền cần đặt cọc
+        currentBalance: wallet.balance, // Số dư hiện tại
+        missingAmount: missingAmount // Số tiền còn thiếu (chỉ cần nạp số này)
       });
     }
 

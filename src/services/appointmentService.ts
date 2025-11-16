@@ -51,18 +51,31 @@ export class AppointmentService {
       appointmentDate.setDate(appointmentDate.getDate() + 7);
     }
 
+    // Xác định ai tạo appointment
+    const isBuyer = buyerId === data.userId;
+    const isSeller = sellerId === data.userId;
+    const createdBy = isSeller ? 'SELLER' : 'BUYER';
+    
+    // Người tạo tự động được xác nhận
+    const buyerConfirmed = isBuyer;
+    const sellerConfirmed = isSeller;
+    const now = new Date();
+
     const appointment = await Appointment.create({
       depositRequestId: data.depositRequestId,
       appointmentType: 'NORMAL_DEPOSIT',
       buyerId: buyerId,
       sellerId: sellerId,
+      createdBy: createdBy,
       scheduledDate: appointmentDate,
       status: "PENDING",
       type: "CONTRACT_SIGNING",
       location: data.location || "Văn phòng công ty",
       notes: data.notes || "Ký kết hợp đồng mua bán xe",
-      buyerConfirmed: false,
-      sellerConfirmed: false,
+      buyerConfirmed: buyerConfirmed,
+      sellerConfirmed: sellerConfirmed,
+      buyerConfirmedAt: buyerConfirmed ? now : undefined,
+      sellerConfirmedAt: sellerConfirmed ? now : undefined,
       rescheduledCount: 0,
       maxReschedules: 3,
     });
@@ -114,18 +127,21 @@ export class AppointmentService {
       throw new Error("Phiên đấu giá không có người thắng cuộc");
     }
 
-    // Kiểm tra user có phải là winner không
-    const winnerId = auction.winnerId.toString();
-    if (winnerId !== data.userId) {
-      throw new Error("Chỉ người thắng cuộc mới được tạo lịch hẹn");
-    }
-
     // Lấy thông tin listing
     const listing = auction.listingId as any;
     if (!listing) {
       throw new Error("Không tìm thấy thông tin sản phẩm");
     }
     const sellerId = listing.sellerId.toString();
+    const winnerId = auction.winnerId.toString();
+
+    // Kiểm tra user có quyền tạo appointment không (winner HOẶC seller)
+    const isWinner = winnerId === data.userId;
+    const isSeller = sellerId === data.userId;
+    
+    if (!isWinner && !isSeller) {
+      throw new Error("Chỉ người thắng cuộc hoặc người bán mới được tạo lịch hẹn");
+    }
 
     // Kiểm tra đã có lịch hẹn chưa
     const existingAppointment = await Appointment.findOne({
@@ -143,18 +159,29 @@ export class AppointmentService {
       appointmentDate.setDate(appointmentDate.getDate() + 7);
     }
 
+    // Xác định ai tạo appointment
+    const createdBy = isSeller ? 'SELLER' : 'BUYER';
+    const now = new Date();
+    
+    // Người tạo tự động xác nhận
+    const buyerConfirmed = isWinner; // Winner tạo thì buyer confirmed
+    const sellerConfirmed = isSeller; // Seller tạo thì seller confirmed
+
     const appointment = await Appointment.create({
       auctionId: data.auctionId,
       appointmentType: 'AUCTION',
       buyerId: winnerId,
       sellerId: sellerId,
+      createdBy: createdBy,
       scheduledDate: appointmentDate,
       status: "PENDING",
       type: "CONTRACT_SIGNING",
       location: data.location || "Văn phòng công ty",
       notes: data.notes || `Ký kết hợp đồng mua bán xe - Đấu giá thành công với giá ${auction.winningBid?.price?.toLocaleString('vi-VN')} VNĐ`,
-      buyerConfirmed: false,
-      sellerConfirmed: false,
+      buyerConfirmed: buyerConfirmed,
+      sellerConfirmed: sellerConfirmed,
+      buyerConfirmedAt: buyerConfirmed ? now : undefined,
+      sellerConfirmedAt: sellerConfirmed ? now : undefined,
       rescheduledCount: 0,
       maxReschedules: 3,
     });
