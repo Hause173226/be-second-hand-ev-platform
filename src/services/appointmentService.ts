@@ -199,11 +199,83 @@ export class AppointmentService {
       console.log(`✅ Updated listing ${listingToUpdate._id} status to InTransaction (from auction)`);
     }
 
-    // Gửi email thông báo
+    // Gửi thông báo cho buyer và seller
     try {
-      console.log('TODO: Send auction appointment created email');
+      const NotificationMessage = (await import('../models/NotificationMessage')).default;
+      const { WebSocketService } = await import('./websocketService');
+      const wsService = WebSocketService.getInstance();
+
+      const vehicleInfo = `${listing.make} ${listing.model} ${listing.year}`;
+      const scheduledDateStr = appointmentDate.toLocaleString('vi-VN', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit'
+      });
+
+      // Thông báo cho người tạo (đã tự động confirmed)
+      const creatorId = isWinner ? winnerId : sellerId;
+      const creatorRole = isWinner ? 'buyer' : 'seller';
+      await NotificationMessage.create({
+        userId: creatorId,
+        type: 'system',
+        title: 'Lịch hẹn đã được tạo',
+        message: `Bạn đã tạo lịch hẹn ký hợp đồng cho xe ${vehicleInfo} vào ${scheduledDateStr}. Chờ ${creatorRole === 'buyer' ? 'người bán' : 'người thắng đấu giá'} xác nhận.`,
+        relatedId: appointment._id.toString(),
+        actionUrl: `/appointments/${appointment._id}`,
+        actionText: 'Xem lịch hẹn',
+        metadata: {
+          appointmentId: appointment._id.toString(),
+          auctionId: data.auctionId,
+          appointmentType: 'AUCTION',
+          scheduledDate: appointmentDate,
+          notificationType: 'appointment_created_self'
+        }
+      });
+
+      wsService.sendToUser(creatorId, 'appointment_created', {
+        appointmentId: appointment._id.toString(),
+        title: 'Lịch hẹn đã được tạo',
+        message: 'Lịch hẹn ký hợp đồng đã được tạo thành công',
+        scheduledDate: appointmentDate
+      });
+
+      // Thông báo cho bên còn lại (cần confirm)
+      const recipientId = isWinner ? sellerId : winnerId;
+      const recipientRole = isWinner ? 'seller' : 'buyer';
+      const creatorName = isWinner ? 'Người thắng đấu giá' : 'Người bán';
+      
+      await NotificationMessage.create({
+        userId: recipientId,
+        type: 'system',
+        title: 'Lịch hẹn mới từ đấu giá',
+        message: `${creatorName} đã tạo lịch hẹn ký hợp đồng cho xe ${vehicleInfo} vào ${scheduledDateStr}. Vui lòng xác nhận lịch hẹn.`,
+        relatedId: appointment._id.toString(),
+        actionUrl: `/appointments/${appointment._id}`,
+        actionText: 'Xác nhận lịch hẹn',
+        metadata: {
+          appointmentId: appointment._id.toString(),
+          auctionId: data.auctionId,
+          appointmentType: 'AUCTION',
+          scheduledDate: appointmentDate,
+          createdBy: creatorRole,
+          notificationType: 'appointment_created_pending'
+        }
+      });
+
+      wsService.sendToUser(recipientId, 'new_appointment', {
+        appointmentId: appointment._id.toString(),
+        title: 'Lịch hẹn mới từ đấu giá',
+        message: `${creatorName} đã tạo lịch hẹn ký hợp đồng`,
+        scheduledDate: appointmentDate,
+        needsConfirmation: true
+      });
+
+      console.log(`✅ Sent appointment notifications for auction ${data.auctionId}`);
     } catch (error) {
-      console.error("Error sending appointment email:", error);
+      console.error("Error sending appointment notifications:", error);
     }
 
     return appointment;

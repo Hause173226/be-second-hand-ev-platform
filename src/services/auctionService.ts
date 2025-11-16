@@ -754,14 +754,18 @@ export function startAuctionSweepCron() {
 
         if (!winnerId) continue;
 
-        // Kiểm tra có appointment nào được tạo chưa
+        // Kiểm tra có appointment ACTIVE nào được tạo chưa (không tính CANCELLED/REJECTED)
         const appointment = await Appointment.findOne({
           auctionId,
-          appointmentType: 'AUCTION'
+          appointmentType: 'AUCTION',
+          status: { $in: ['PENDING', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED'] } // Chỉ tính appointment còn active
         });
 
-        // Nếu đã có appointment thì bỏ qua
-        if (appointment) continue;
+        // Nếu đã có appointment active thì bỏ qua (winner đã thực hiện nghĩa vụ)
+        if (appointment) {
+          console.log(`[auctionService] Auction ${auctionId} has active appointment, skipping penalty`);
+          continue;
+        }
 
         console.log(`[auctionService] Processing penalty for auction ${auctionId} - winner ${winnerId} did not create appointment`);
 
@@ -1132,6 +1136,32 @@ export const auctionService = {
       );
     }
 
+    // Kiểm tra xem đã có appointment chưa (chỉ tính appointment active)
+    let appointmentInfo = null;
+    if (auction.status === 'ended' && auction.winnerId) {
+      const appointment = await Appointment.findOne({
+        auctionId,
+        appointmentType: 'AUCTION',
+        status: { $in: ['PENDING', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED'] }
+      }).select('_id status scheduledDate buyerConfirmed sellerConfirmed createdAt');
+
+      if (appointment) {
+        appointmentInfo = {
+          id: appointment._id,
+          status: appointment.status,
+          scheduledDate: appointment.scheduledDate,
+          buyerConfirmed: appointment.buyerConfirmed,
+          sellerConfirmed: appointment.sellerConfirmed,
+          createdAt: appointment.createdAt,
+          hasAppointment: true
+        };
+      } else {
+        appointmentInfo = {
+          hasAppointment: false
+        };
+      }
+    }
+
     const auctionData = auction.toObject();
     return {
       ...auctionData,
@@ -1152,6 +1182,7 @@ export const auctionService = {
           }
         : null,
       totalParticipants: deposits.length,
+      appointment: appointmentInfo, // Thêm thông tin appointment
     };
   },
 
