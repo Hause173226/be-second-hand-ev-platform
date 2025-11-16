@@ -36,7 +36,7 @@ export const membershipController = {
    */
   getCurrentMembership: async (req: Request, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.userId;
+      const userId = (req as any).user?._id || (req as any).user?.id;
       if (!userId) {
         res.status(401).json({
           success: false,
@@ -74,7 +74,7 @@ export const membershipController = {
    */
   checkListingLimit: async (req: Request, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.userId;
+      const userId = (req as any).user?._id || (req as any).user?.id;
       if (!userId) {
         res.status(401).json({
           success: false,
@@ -104,7 +104,7 @@ export const membershipController = {
    */
   purchasePackage: async (req: Request, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.userId;
+      const userId = (req as any).user?._id || (req as any).user?.id;
       if (!userId) {
         res.status(401).json({
           success: false,
@@ -478,7 +478,7 @@ export const membershipController = {
    */
   renewMembership: async (req: Request, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.userId;
+      const userId = (req as any).user?._id || (req as any).user?.id;
       if (!userId) {
         res.status(401).json({
           success: false,
@@ -672,7 +672,7 @@ export const membershipController = {
    */
   cancelMembership: async (req: Request, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.userId;
+      const userId = (req as any).user?._id || (req as any).user?.id;
       if (!userId) {
         res.status(401).json({
           success: false,
@@ -823,7 +823,7 @@ export const membershipController = {
    */
   getMembershipHistory: async (req: Request, res: Response): Promise<void> => {
     try {
-      const userId = req.user?.userId;
+      const userId = (req as any).user?._id || (req as any).user?.id;
       if (!userId) {
         res.status(401).json({
           success: false,

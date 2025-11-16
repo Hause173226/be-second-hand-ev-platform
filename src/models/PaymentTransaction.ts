@@ -10,6 +10,8 @@ export interface IPaymentTransaction extends Document {
   vnp_TransactionNo?: string; // Mã giao dịch từ VNPay
   processedAt?: Date; // Thời gian xử lý
   description?: string; // Mô tả
+  listingId?: string; // ID listing (cho thanh toán toàn bộ)
+  depositRequestId?: string; // ID deposit request (cho đặt cọc)
   createdAt: Date;
   updatedAt: Date;
 }
@@ -49,6 +51,18 @@ const PaymentTransactionSchema = new Schema(
     },
     description: {
       type: String,
+    },
+    listingId: {
+      type: String,
+      required: false,
+      ref: "Listing",
+      index: true,
+    },
+    depositRequestId: {
+      type: String,
+      required: false,
+      ref: "DepositRequest",
+      index: true,
     },
   },
   {

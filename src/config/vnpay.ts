@@ -10,4 +10,13 @@ export const VNPayConfig = {
 
   // Wallet payment
   vnp_WalletReturnUrl: "http://localhost:8081/api/payment/wallet/vnpay-return",
+  
+  // Deposit payment (đặt cọc - nạp vào ví người dùng)
+  vnp_DepositReturnUrl: "http://localhost:8081/api/payment/deposit/vnpay-return",
+  
+  // Remaining amount payment (số tiền còn lại - chuyển vào ví hệ thống)
+  vnp_RemainingReturnUrl: "http://localhost:8081/api/payment/remaining/vnpay-return",
+  
+  // Full payment (mua full - chuyển vào ví hệ thống)
+  vnp_FullPaymentReturnUrl: "http://localhost:8081/api/payment/full/vnpay-return",
 };

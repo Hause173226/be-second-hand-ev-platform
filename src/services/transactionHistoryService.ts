@@ -110,9 +110,11 @@ class TransactionHistoryService {
         const buyer = appointment.buyerId as any;
         const seller = appointment.sellerId as any;
 
-        // Determine user's role
+        // Determine user's role - đảm bảo so sánh string
+        const buyerIdStr = buyer?._id?.toString() || (buyer as any)?._id?.toString() || String(buyer?._id || buyer);
+        const userIdStr = String(userId);
         const userType: "buyer" | "seller" =
-          buyer?._id?.toString() === userId ? "buyer" : "seller";
+          buyerIdStr === userIdStr ? "buyer" : "seller";
         const counterparty = userType === "buyer" ? seller : buyer;
 
         // Get listing
