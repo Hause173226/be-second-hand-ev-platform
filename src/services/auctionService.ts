@@ -983,123 +983,135 @@ export const auctionService = {
     return auction;
   },
 
-  async placeBid({
+async placeBid({
+  auctionId,
+  price,
+  userId,
+}: {
+  auctionId: string;
+  price: number;
+  userId: AnyId;
+}) {
+  const auction = await Auction.findById(auctionId).populate("listingId");
+  if (!auction) throw new Error("Phiên đấu giá không tồn tại");
+  if (auction.status !== "active") throw new Error("Phiên đã đóng");
+
+  const listing: any = auction.listingId;
+  if (listing.sellerId.toString() === userId.toString()) {
+    throw new Error("Bạn không thể đấu giá sản phẩm của chính mình");
+  }
+
+  const now = new Date();
+  if (now < auction.startAt || now > auction.endAt)
+    throw new Error("Ngoài thời gian đấu giá");
+
+  const hasDeposited = await auctionDepositService.hasDeposited(
     auctionId,
-    price,
-    userId,
-  }: {
-    auctionId: string;
-    price: number;
-    userId: AnyId;
-  }) {
-    const auction = await Auction.findById(auctionId).populate("listingId");
-    if (!auction) throw new Error("Phiên đấu giá không tồn tại");
-    if (auction.status !== "active") throw new Error("Phiên đã đóng");
-
-    const listing: any = auction.listingId;
-    if (listing.sellerId.toString() === userId.toString()) {
-      throw new Error("Bạn không thể đấu giá sản phẩm của chính mình");
-    }
-
-    const now = new Date();
-    if (now < auction.startAt || now > auction.endAt)
-      throw new Error("Ngoài thời gian đấu giá");
-
-    const hasDeposited = await auctionDepositService.hasDeposited(
-      auctionId,
-      userId.toString()
+    userId.toString()
+  );
+  if (!hasDeposited) {
+    const participationFee =
+      auctionDepositService.getParticipationFee(auction);
+    throw new Error(
+      `Bạn cần đặt cọc ${participationFee.toLocaleString(
+        "vi-VN"
+      )} VNĐ để tham gia đấu giá`
     );
-    if (!hasDeposited) {
-      const participationFee =
-        auctionDepositService.getParticipationFee(auction);
+  }
+
+  const currentHighestBid =
+    auction.bids.length > 0
+      ? Math.max(...auction.bids.map((b: any) => b.price))
+      : auction.startingPrice;
+
+  if (price <= currentHighestBid) {
+    throw new Error(
+      `Giá đặt phải cao hơn giá hiện tại ${currentHighestBid.toLocaleString(
+        "vi-VN"
+      )} VNĐ`
+    );
+  }
+
+  // Kiểm tra không cho cùng user đặt giá liên tiếp (anti-spam)
+  if (auction.bids.length > 0) {
+    const lastBid = auction.bids[auction.bids.length - 1] as any;
+    if (lastBid.userId.toString() === userId.toString()) {
       throw new Error(
-        `Bạn cần đặt cọc ${participationFee.toLocaleString(
-          "vi-VN"
-        )} VNĐ để tham gia đấu giá`
+        "Bạn không thể đặt giá liên tiếp. Vui lòng đợi người khác đặt giá trước"
       );
     }
+  }
 
-    const currentHighestBid =
-      auction.bids.length > 0
-        ? Math.max(...auction.bids.map((b: any) => b.price))
-        : auction.startingPrice;
+  // ==== PUSH BID MỚI ====
+  auction.bids.push({ userId, price, createdAt: now } as any);
+  await auction.save();
 
-    if (price <= currentHighestBid) {
-      throw new Error(
-        `Giá đặt phải cao hơn giá hiện tại ${currentHighestBid.toLocaleString(
-          "vi-VN"
-        )} VNĐ`
-      );
-    }
+  // ✅ Populate lại để có fullName / avatar cho FE
+  await auction.populate("bids.userId", "fullName avatar");
+  const auctionObj = auction.toObject();
+  const newBid = auctionObj.bids[auctionObj.bids.length - 1] as any;
 
-    // Kiểm tra không cho cùng user đặt giá liên tiếp (anti-spam)
-    if (auction.bids.length > 0) {
-      const lastBid = auction.bids[auction.bids.length - 1] as any;
-      if (lastBid.userId.toString() === userId.toString()) {
-        throw new Error(
-          "Bạn không thể đặt giá liên tiếp. Vui lòng đợi người khác đặt giá trước"
-        );
-      }
-    }
+  // ============================================
+  // Broadcast bid mới qua WebSocket
+  // ============================================
+  try {
+    const ws = WebSocketService.getInstance();
 
-    auction.bids.push({ userId, price, createdAt: now } as any);
-    await auction.save();
+    // Lấy info người bid từ chính newBid đã populate
+    const bidderDoc: any = newBid.userId;
+    const bidderInfo = {
+      userId:
+        bidderDoc?._id?.toString?.() ??
+        (typeof userId === "string" ? userId : userId.toString()),
+      fullName: bidderDoc?.fullName || "Unknown",
+      avatar: bidderDoc?.avatar,
+    };
 
-    // Broadcast bid mới cho tất cả participants qua WebSocket
-    try {
-      const ws = WebSocketService.getInstance();
-      
-      // Lấy thông tin người bid
-      const { User } = await import("../models/User");
-      const bidder = await User.findById(userId).select("fullName avatar").lean();
-      
-      // Lấy tất cả participants (đã đặt cọc)
-      const deposits = await AuctionDeposit.find({
-        auctionId,
-        status: 'FROZEN'
-      }).select('userId');
+    // 1) Emit vào room của phiên để FE đang joinAuction(...) nhận realtime
+    ws.emitAuctionEvent(`auction_${auctionId}`, "new_bid", {
+      bid: newBid,          // ✅ đã có fullName/avatar
+      auction: auctionObj,  // ✅ cập nhật luôn currentPrice, tổng bids,...
+    });
 
-      // Broadcast cho tất cả participants
-      deposits.forEach(deposit => {
-        const participantId = deposit.userId.toString();
-        // Không gửi lại cho người vừa bid
-        if (participantId !== userId.toString()) {
-          ws.sendToUser(participantId, 'new_bid', {
-            auctionId,
-            bidder: {
-              userId: userId.toString(),
-              fullName: bidder?.fullName || 'Unknown',
-              avatar: bidder?.avatar
-            },
-            price,
-            currentHighestBid: price,
-            totalBids: auction.bids.length,
-            timestamp: now
-          });
-        }
-      });
+    // 2) Giữ nguyên phần gửi notif cho participants + seller như cũ
+    const deposits = await AuctionDeposit.find({
+      auctionId,
+      status: "FROZEN",
+    }).select("userId");
 
-      // Gửi cho seller
-      if (listing?.sellerId) {
-        ws.sendToUser(listing.sellerId.toString(), 'new_bid', {
+    deposits.forEach((deposit) => {
+      const participantId = deposit.userId.toString();
+      // Không gửi lại cho người vừa bid
+      if (participantId !== userId.toString()) {
+        ws.sendToUser(participantId, "new_bid", {
           auctionId,
-          bidder: {
-            userId: userId.toString(),
-            fullName: bidder?.fullName || 'Unknown',
-            avatar: bidder?.avatar
-          },
+          bidder: bidderInfo,
           price,
           currentHighestBid: price,
-          totalBids: auction.bids.length,
-          timestamp: now
+          totalBids: auctionObj.bids.length,
+          timestamp: now,
         });
       }
-    } catch (wsError) {
-      console.error('Lỗi gửi WebSocket notification cho bid:', wsError);
-    }
+    });
 
-    return auction;
-  },
+    // Gửi cho seller
+    if (listing?.sellerId) {
+      ws.sendToUser(listing.sellerId.toString(), "new_bid", {
+        auctionId,
+        bidder: bidderInfo,
+        price,
+        currentHighestBid: price,
+        totalBids: auctionObj.bids.length,
+        timestamp: now,
+      });
+    }
+  } catch (wsError) {
+    console.error("Lỗi gửi WebSocket notification cho bid:", wsError);
+  }
+
+  // Vẫn return auction như cũ để không vỡ controller
+  return auction;
+},
 
   async getAuctionById(auctionId: string, userId?: string) {
     const auction = await Auction.findById(auctionId)

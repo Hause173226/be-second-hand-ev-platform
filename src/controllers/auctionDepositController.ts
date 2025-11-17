@@ -34,8 +34,8 @@ export const createAuctionDeposit = async (req: Request, res: Response) => {
       });
     }
 
-  // Lấy phí cọc tính theo startingPrice của phiên đấu giá (10%)
-  const participationFee = auctionDepositService.getParticipationFee(auction);
+    // Lấy phí cọc tính theo startingPrice của phiên đấu giá (10%)
+    const participationFee = auctionDepositService.getParticipationFee(auction);
 
     // Kiểm tra số dư ví
     const wallet = await walletService.getWallet(userId);
@@ -155,8 +155,12 @@ export const checkDepositStatus = async (req: Request, res: Response) => {
     const deposit = await auctionDepositService.getUserDeposit(auctionId, userId);
     const hasDeposited = await auctionDepositService.hasDeposited(auctionId, userId);
 
-    res.json({
+    // ✅ TRẢ RA ĐÚNG FORMAT FE ĐANG DÙNG (hasDeposit, deposit ở top-level)
+    return res.json({
       success: true,
+      hasDeposit: hasDeposited,
+      deposit: deposit || null,
+      // Giữ thêm field data cũ để không phá chỗ khác
       data: {
         hasDeposited,
         deposit: deposit || null
