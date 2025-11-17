@@ -31,6 +31,7 @@ export const authenticate: RequestHandler = (req, res, next) => {
     (req as any).user = {
       _id: userId,
       id: userId, // Thêm id để tương thích
+      userId: userId, // ✅ Thêm userId để tương thích với các controller khác
       role: decoded.role,
       isActive: decoded.isActive,
       email: decoded.email, // Giữ email nếu có

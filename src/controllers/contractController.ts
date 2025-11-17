@@ -8,6 +8,7 @@ import walletService from "../services/walletService";
 import { uploadFromBuffer } from "../services/cloudinaryService";
 import depositNotificationService from "../services/depositNotificationService";
 import emailService from "../services/emailService";
+import auctionDepositService from "../services/auctionDepositService";
 
 // Lấy thông tin hợp đồng (người mua/bán và xe)
 export const getContractInfo = async (req: Request, res: Response) => {
@@ -61,7 +62,7 @@ export const getContractInfo = async (req: Request, res: Response) => {
         });
       }
       listing = auction.listingId;
-      depositAmount = 1000000; // Phí tham gia đấu giá cố định
+      depositAmount = auctionDepositService.getParticipationFee(auction); // Tính 10% startingPrice
       finalPrice = auction.winningBid?.price || auction.startingPrice; // Giá thắng đấu giá
     } else {
       // Appointment từ đặt cọc thông thường
@@ -319,8 +320,9 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
 
       // Lấy depositAmount tùy theo loại appointment
       let depositAmount = 0;
-      if (appointment.appointmentType === 'AUCTION') {
-        depositAmount = 1000000; // Phí tham gia đấu giá
+      if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
+        const auction = appointment.auctionId as any;
+        depositAmount = auctionDepositService.getParticipationFee(auction); // Tính 10% startingPrice
       } else if (depositRequestId) {
         const depositReq = await DepositRequest.findById(depositRequestId);
         depositAmount = depositReq?.depositAmount || 0;
