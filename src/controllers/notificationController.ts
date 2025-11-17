@@ -12,6 +12,9 @@ export const getNotifications = async (
         const userId = (req as any).user.userId;
         const { limit = 20, skip = 0, type, isRead } = req.query;
 
+        console.log('🎯 getNotifications called by userId:', userId);
+        console.log('📋 Query params:', { limit, skip, type, isRead });
+
         const result = await notificationMessageService.getUserNotifications(userId, {
             limit: Number(limit),
             skip: Number(skip),

@@ -100,12 +100,23 @@ export async function sendAuctionStartNotifications(auction: any) {
     
     // Gửi cho từng participant
     participantIds.forEach(userId => {
+      // Gửi event đấu giá cụ thể
       wsService.sendToUser(userId, 'auction_started', {
         auctionId,
         title: 'Phiên đấu giá đã bắt đầu',
         message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu`,
         startAt: auction.startAt,
         endAt: auction.endAt
+      });
+      
+      // Gửi notification chung để hiển thị badge/popup
+      wsService.sendToUser(userId, 'new_notification', {
+        type: 'system',
+        title: 'Phiên đấu giá đã bắt đầu!',
+        message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu. Hãy đặt giá ngay!`,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Tham gia đấu giá',
+        metadata: { auctionId, vehicleInfo }
       });
     });
 
@@ -118,6 +129,15 @@ export async function sendAuctionStartNotifications(auction: any) {
         participantCount: participantIds.length,
         startAt: auction.startAt,
         endAt: auction.endAt
+      });
+      
+      wsService.sendToUser(sellerId, 'new_notification', {
+        type: 'system',
+        title: 'Phiên đấu giá của bạn đã bắt đầu',
+        message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu với ${participantIds.length} người tham gia`,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem phiên đấu giá',
+        metadata: { auctionId, participantCount: participantIds.length }
       });
     }
   } catch (error) {
@@ -245,6 +265,16 @@ export async function sendAuctionEndNotifications(
         winningPrice: winningBid?.price,
         endAt: auction.endAt
       });
+      
+      // Gửi notification chung
+      wsService.sendToUser(winnerId, 'new_notification', {
+        type: 'system',
+        title: '🎉 Chúc mừng! Bạn đã thắng đấu giá',
+        message: `Bạn đã thắng phiên đấu giá cho xe ${vehicleInfo} với giá ${winningBid?.price?.toLocaleString('vi-VN')}₫`,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem chi tiết',
+        metadata: { auctionId, winningPrice: winningBid?.price }
+      });
     }
 
     // Gửi cho người thua
@@ -255,6 +285,17 @@ export async function sendAuctionEndNotifications(
         message: `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc`,
         hasWinner: !!winnerId,
         endAt: auction.endAt
+      });
+      
+      wsService.sendToUser(userId, 'new_notification', {
+        type: 'system',
+        title: 'Phiên đấu giá đã kết thúc',
+        message: winnerId 
+          ? `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc. Tiền cọc đã được hoàn trả`
+          : `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc mà không có người thắng`,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem kết quả',
+        metadata: { auctionId, hasWinner: !!winnerId }
       });
     });
 
@@ -270,6 +311,17 @@ export async function sendAuctionEndNotifications(
         winningPrice: winningBid?.price,
         participantCount: participantIds.length,
         endAt: auction.endAt
+      });
+      
+      wsService.sendToUser(sellerId, 'new_notification', {
+        type: 'system',
+        title: winnerId ? 'Phiên đấu giá thành công!' : 'Phiên đấu giá đã kết thúc',
+        message: winnerId
+          ? `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc với giá thắng ${winningBid?.price?.toLocaleString('vi-VN')}₫`
+          : `Phiên đấu giá cho xe ${vehicleInfo} đã kết thúc mà không có người thắng`,
+        actionUrl: `/auctions/${auctionId}`,
+        actionText: 'Xem chi tiết',
+        metadata: { auctionId, hasWinner: !!winnerId, winningPrice: winningBid?.price }
       });
     }
   } catch (error) {

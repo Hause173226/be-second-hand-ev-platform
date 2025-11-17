@@ -16,6 +16,8 @@ export class NotificationMessageService {
         senderAvatar?: string;
     }) {
         try {
+            console.log('🔔 Creating chat notification for user:', data.userId);
+            
             const notification = await NotificationMessage.create({
                 userId: new Types.ObjectId(data.userId),
                 type: "message",
@@ -41,6 +43,8 @@ export class NotificationMessageService {
                 }
             });
 
+            console.log('✅ Notification created in DB:', notification._id);
+
             // Populate thông tin sender
             await notification.populate("senderId", "fullName avatar");
 
@@ -57,13 +61,14 @@ export class NotificationMessageService {
                     createdAt: notification.createdAt,
                     isRead: false
                 });
+                console.log('✅ WebSocket notification sent to:', data.userId);
             } catch (error) {
-                console.log("WebSocket not available, notification saved to DB only");
+                console.log("⚠️ WebSocket not available, notification saved to DB only");
             }
 
             return notification;
         } catch (error) {
-            console.error("Error creating message notification:", error);
+            console.error("❌ Error creating message notification:", error);
             throw error;
         }
     }
@@ -75,6 +80,8 @@ export class NotificationMessageService {
         type?: string;
         isRead?: boolean;
     }) {
+        console.log('📋 Getting notifications for userId:', userId);
+        
         const query: any = {
             userId: new Types.ObjectId(userId),
             isDeleted: false
@@ -88,6 +95,8 @@ export class NotificationMessageService {
             query.isRead = options.isRead;
         }
 
+        console.log('🔍 Query:', JSON.stringify(query));
+
         const notifications = await NotificationMessage.find(query)
             .populate("senderId", "fullName avatar email")
             .populate("chatId", "buyerId sellerId listingId")
@@ -95,12 +104,16 @@ export class NotificationMessageService {
             .skip(options?.skip || 0)
             .limit(options?.limit || 20);
 
+        console.log('✅ Found notifications:', notifications.length);
+
         const total = await NotificationMessage.countDocuments(query);
         const unreadCount = await NotificationMessage.countDocuments({
             userId: new Types.ObjectId(userId),
             isDeleted: false,
             isRead: false
         });
+
+        console.log('📊 Total:', total, 'Unread:', unreadCount);
 
         return {
             notifications,
