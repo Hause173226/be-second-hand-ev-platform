@@ -7,6 +7,166 @@ import { User } from '../models/User';
 import emailService from '../services/emailService';
 import walletService from '../services/walletService';
 import depositNotificationService from '../services/depositNotificationService';
+import Chat from '../models/Chat';
+import { WebSocketService } from '../services/websocketService';
+
+export const createAppointmentFromChat = async (req: Request, res: Response) => {
+  try {
+    const { chatId, scheduledDate, location, notes } = req.body || {};
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập',
+      });
+    }
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu chatId',
+      });
+    }
+
+    const chat = await Chat.findById(chatId)
+      .populate('listingId', 'make model year priceListed status sellerId')
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone');
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy cuộc trò chuyện',
+      });
+    }
+
+    // ⚠️ Lưu ý: buyerId / sellerId có thể là ObjectId hoặc document (do populate)
+    // Nếu là document, .toString() sẽ trả "[object Object]" -> so sánh sai
+    const buyerId =
+      (chat.buyerId && (chat.buyerId as any)._id?.toString()) ||
+      chat.buyerId?.toString();
+    const sellerId =
+      (chat.sellerId && (chat.sellerId as any)._id?.toString()) ||
+      chat.sellerId?.toString();
+
+    const listingIdValue =
+      (chat.listingId && (chat.listingId as any)._id?.toString()) ||
+      chat.listingId?.toString();
+
+    if (!buyerId || !sellerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cuộc trò chuyện không hợp lệ',
+      });
+    }
+
+    const isBuyer = buyerId === userId;
+    const isSeller = sellerId === userId;
+
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền tạo lịch hẹn từ cuộc trò chuyện này',
+      });
+    }
+
+    // Không cho tạo trùng lịch hẹn đang active cho cùng chat
+    const existingAppointment = await Appointment.findOne({
+      chatId,
+      status: { $in: ['PENDING', 'CONFIRMED', 'RESCHEDULED'] },
+    });
+
+    if (existingAppointment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Đã có lịch hẹn đang hoạt động cho cuộc trò chuyện này',
+        appointmentId: existingAppointment._id,
+      });
+    }
+
+    let appointmentDate: Date;
+    if (scheduledDate) {
+      appointmentDate = new Date(scheduledDate);
+      if (isNaN(appointmentDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ngày hẹn không hợp lệ',
+        });
+      }
+    } else {
+      appointmentDate = new Date();
+      appointmentDate.setDate(appointmentDate.getDate() + 3);
+    }
+
+    if (appointmentDate.getTime() < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ngày hẹn phải lớn hơn hiện tại',
+      });
+    }
+
+    const now = new Date();
+    const createdBy = isSeller ? 'SELLER' : 'BUYER';
+
+    const appointment = await Appointment.create({
+      chatId,
+      listingId: listingIdValue || undefined,
+      appointmentType: 'NORMAL_DEPOSIT',
+      buyerId,
+      sellerId,
+      createdBy,
+      scheduledDate: appointmentDate,
+      status: 'PENDING',
+      type: 'VEHICLE_INSPECTION',
+      location: location || 'Thỏa thuận thêm trong cuộc trò chuyện',
+      notes,
+      buyerConfirmed: isBuyer,
+      sellerConfirmed: isSeller,
+      buyerConfirmedAt: isBuyer ? now : undefined,
+      sellerConfirmedAt: isSeller ? now : undefined,
+    });
+
+    // WebSocket notify người còn lại
+    try {
+      const wsService = WebSocketService.getInstance();
+      const notifyUserId = isBuyer ? sellerId : buyerId;
+      wsService.sendToUser(notifyUserId, 'appointment_created_from_chat', {
+        appointmentId: appointment._id,
+        chatId,
+        scheduledDate: appointment.scheduledDate,
+        location: appointment.location,
+        type: appointment.type,
+        createdBy,
+      });
+    } catch (wsError) {
+      console.error('Error sending websocket notification:', wsError);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Đã tạo lịch hẹn xem xe thành công',
+      appointment: {
+        id: appointment._id,
+        chatId,
+        buyerId,
+        sellerId,
+        scheduledDate: appointment.scheduledDate,
+        location: appointment.location,
+        status: appointment.status,
+        type: appointment.type,
+        createdBy,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating appointment from chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
 
 // Tạo lịch hẹn sau khi người bán xác nhận cọc
 export const createAppointment = async (req: Request, res: Response): Promise<any> => {
@@ -96,6 +256,7 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
 
         const appointment = new Appointment({
       depositRequestId,
+      listingId: depositRequest.listingId,
       appointmentType: 'NORMAL_DEPOSIT',
       buyerId: depositRequest.buyerId,
       sellerId: depositRequest.sellerId,
@@ -709,6 +870,86 @@ export const cancelAppointment = async (req: Request, res: Response): Promise<an
   }
 };
 
+// Staff xác nhận buổi xem xe đã hoàn thành
+export const completeAppointment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { appointmentId } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập',
+      });
+    }
+
+    const isStaff = userRole === 'staff' || userRole === 'admin';
+    if (!isStaff) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ nhân viên hoặc admin mới có quyền xác nhận hoàn thành lịch hẹn',
+      });
+    }
+
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone');
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy lịch hẹn',
+      });
+    }
+
+    if (appointment.status !== 'CONFIRMED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Chỉ có thể hoàn thành lịch hẹn đã được xác nhận',
+      });
+    }
+
+    
+
+    const staff = await User.findById(userId).select('fullName email phone');
+
+    appointment.status = 'COMPLETED' as any;
+    appointment.completedAt = new Date();
+    appointment.completedByStaffId = userId;
+    appointment.completedByStaffName =
+      staff?.fullName || (req.user as any)?.fullName || 'N/A';
+    appointment.completedByStaffEmail = staff?.email || (req.user as any)?.email;
+    appointment.completedByStaffPhone = staff?.phone || undefined;
+    await appointment.save();
+
+    return res.json({
+      success: true,
+      message: 'Đã đánh dấu buổi xem xe hoàn thành',
+      appointment: {
+        id: appointment._id,
+        status: appointment.status,
+        completedAt: appointment.completedAt,
+        completedByStaff: appointment.completedByStaffId
+          ? {
+              id: appointment.completedByStaffId,
+              name: appointment.completedByStaffName,
+              email: appointment.completedByStaffEmail,
+              phone: appointment.completedByStaffPhone,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error('Error completing appointment:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
 // Lấy danh sách lịch hẹn của user
 export const getUserAppointments = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -760,6 +1001,74 @@ export const getUserAppointments = async (req: Request, res: Response): Promise<
       success: false,
       message: 'Lỗi hệ thống',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Lấy appointment active của một chat (nếu có)
+export const getAppointmentByChatId = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập',
+      });
+    }
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu chatId',
+      });
+    }
+
+    // Tìm appointment active của chat này
+    const appointment = await Appointment.findOne({
+      chatId,
+      status: { $in: ['PENDING', 'CONFIRMED',  'RESCHEDULED'] },
+    })
+      .populate('buyerId', 'fullName email phone avatar')
+      .populate('sellerId', 'fullName email phone avatar')
+      .populate('listingId', 'make model year priceListed photos')
+      .sort({ createdAt: -1 }); // Lấy appointment mới nhất nếu có nhiều
+
+    if (!appointment) {
+      return res.json({
+        success: true,
+        data: null,
+        hasActiveAppointment: false,
+      });
+    }
+
+    // Kiểm tra quyền xem (chỉ người mua hoặc người bán)
+    const buyerId =
+      (appointment.buyerId && (appointment.buyerId as any)._id?.toString()) ||
+      appointment.buyerId?.toString();
+    const sellerId =
+      (appointment.sellerId && (appointment.sellerId as any)._id?.toString()) ||
+      appointment.sellerId?.toString();
+
+    if (buyerId !== userId && sellerId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền xem lịch hẹn này',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: appointment,
+      hasActiveAppointment: true,
+    });
+  } catch (error) {
+    console.error('Error getting appointment by chatId:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };
@@ -877,6 +1186,10 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
           select: 'title brand make model year priceListed licensePlate engineDisplacementCc vehicleType paintColor engineNumber chassisNumber otherFeatures'
         }
       })
+      .populate(
+        'listingId',
+        'title brand make model year priceListed licensePlate engineDisplacementCc vehicleType paintColor engineNumber chassisNumber otherFeatures'
+      )
       .sort({ scheduledDate: 1 }); // Sắp xếp theo ngày hẹn gần nhất
 
     // ✅ Filter theo search term sau khi populate (nếu có)
@@ -919,22 +1232,27 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       
       // Xác định nguồn dữ liệu: auction hoặc deposit
       const isAuction = appointment.appointmentType === 'AUCTION' && appointment.auctionId;
+      let listingFromAppointment = appointment.listingId as any;
       let listing, depositAmount, depositStatus, vehiclePrice;
       
       if (isAuction) {
         // Từ auction
         const auction = appointment.auctionId as any;
-        listing = auction?.listingId;
+        listing = auction?.listingId || listingFromAppointment;
         depositAmount = 1000000; // Phí tham gia đấu giá
         depositStatus = 'N/A';
-        vehiclePrice = auction?.winningBid?.price || auction?.startingPrice || 0;
+        vehiclePrice =
+          auction?.winningBid?.price ||
+          auction?.startingPrice ||
+          listing?.priceListed ||
+          0;
       } else {
         // Từ deposit thông thường
         const depositRequest = appointment.depositRequestId as any;
-        listing = depositRequest?.listingId;
+        listing = depositRequest?.listingId || listingFromAppointment;
         depositAmount = depositRequest?.depositAmount || 0;
         depositStatus = depositRequest?.status || 'N/A';
-        vehiclePrice = listing?.priceListed || 0;
+        vehiclePrice = depositRequest?.vehiclePrice || listing?.priceListed || 0;
       }
       
       return {
@@ -1009,6 +1327,15 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
         id: contract.staffId,
         name: contract.staffName || 'N/A'
       } : null,
+      completionStaff: appointment.completedByStaffId
+        ? {
+            id: appointment.completedByStaffId,
+            name: appointment.completedByStaffName || 'N/A',
+            email: appointment.completedByStaffEmail || 'N/A',
+            phone: appointment.completedByStaffPhone || 'N/A',
+          }
+        : null,
+      completedAt: appointment.completedAt,
       
       createdAt: appointment.createdAt,
       updatedAt: appointment.updatedAt

@@ -2,6 +2,7 @@
 import express, { RequestHandler } from "express";
 import {
     createAppointment,
+    createAppointmentFromChat,
     getUserAppointments,
     confirmAppointment,
     rejectAppointment,
@@ -11,11 +12,139 @@ import {
     getStaffAppointments,
     createAppointmentFromAuction,
     getAuctionAppointments,
+    getAppointmentByChatId,
+    completeAppointment,
 } from "../controllers/appointmentController";
 import { authenticate } from "../middlewares/authenticate";
 
 // Router cho các API endpoints liên quan đến appointments và lịch hẹn
 const router = express.Router();
+
+/**
+ * @swagger
+ * /api/appointments/chat:
+ *   post:
+ *     summary: Tạo lịch hẹn xem xe trực tiếp từ chat
+ *     description: Cho phép buyer hoặc seller đặt lịch xem xe trước khi đặt cọc, dựa trên một cuộc trò chuyện cụ thể.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - chatId
+ *             properties:
+ *               chatId:
+ *                 type: string
+ *                 description: ID của cuộc trò chuyện
+ *                 example: "676c1234567890abcdef1234"
+ *               scheduledDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Ngày giờ mong muốn (mặc định +3 ngày nếu không cung cấp)
+ *                 example: "2025-11-05T09:00:00Z"
+ *               location:
+ *                 type: string
+ *                 description: Địa điểm dự kiến
+ *                 example: "Showroom EV - 123 Hai Bà Trưng"
+ *               notes:
+ *                 type: string
+ *                 description: Ghi chú thêm cho cuộc hẹn
+ *                 example: "Mang theo giấy tờ xe gốc"
+ *     responses:
+ *       201:
+ *         description: Tạo lịch hẹn thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Đã tạo lịch hẹn xem xe thành công"
+ *                 appointment:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     chatId:
+ *                       type: string
+ *                     scheduledDate:
+ *                       type: string
+ *                       format: date-time
+ *                     location:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       example: "PENDING"
+ *                     type:
+ *                       type: string
+ *                       example: "VEHICLE_INSPECTION"
+ *       400:
+ *         description: Thiếu chatId hoặc dữ liệu không hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Người dùng không thuộc cuộc trò chuyện này
+ *       404:
+ *         description: Không tìm thấy chat
+ *       500:
+ *         description: Lỗi server
+ */
+router.post('/chat', authenticate, createAppointmentFromChat as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/appointments/chat/{chatId}:
+ *   get:
+ *     summary: Lấy appointment active của một chat (nếu có)
+ *     description: Kiểm tra xem chat này đã có lịch hẹn đang hoạt động (PENDING/CONFIRMED/RESCHEDULED) chưa
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của cuộc trò chuyện
+ *         example: "691adf246fe28d87f725acdc"
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 hasActiveAppointment:
+ *                   type: boolean
+ *                   description: Có appointment active hay không
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Appointment object nếu có, null nếu không có
+ *                   $ref: '#/components/schemas/Appointment'
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền xem appointment của chat này
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/chat/:chatId', authenticate, getAppointmentByChatId as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -356,6 +485,37 @@ router.put('/:appointmentId/reschedule', authenticate, rescheduleAppointment as 
  *         description: Lỗi server
  */
 router.put('/:appointmentId/cancel', authenticate, cancelAppointment as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/appointments/{appointmentId}/complete:
+ *   post:
+ *     summary: Staff/Admin xác nhận buổi xem xe đã hoàn thành
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của lịch hẹn cần đánh dấu hoàn thành
+ *     responses:
+ *       200:
+ *         description: Đã đánh dấu hoàn thành
+ *       400:
+ *         description: Lịch hẹn chưa được xác nhận
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền thực hiện
+ *       404:
+ *         description: Không tìm thấy lịch hẹn
+ *       500:
+ *         description: Lỗi hệ thống
+ */
+router.post('/:appointmentId/complete', authenticate, completeAppointment as unknown as RequestHandler);
 
 /**
  * @swagger

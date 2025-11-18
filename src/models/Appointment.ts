@@ -4,6 +4,8 @@ export interface IAppointment extends Document {
   // Có thể là depositRequestId (luồng thường) hoặc auctionId (luồng đấu giá)
   depositRequestId?: string;
   auctionId?: string;
+  chatId?: string;
+  listingId?: string;
   appointmentType: 'NORMAL_DEPOSIT' | 'AUCTION';
   buyerId: string;
   sellerId: string;
@@ -23,6 +25,10 @@ export interface IAppointment extends Document {
   completedAt?: Date;
   cancelledAt?: Date;
   rejectedAt?: Date;
+  completedByStaffId?: string;
+  completedByStaffName?: string;
+  completedByStaffEmail?: string;
+  completedByStaffPhone?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -40,6 +46,14 @@ const AppointmentSchema = new Schema({
     type: String,
     enum: ['NORMAL_DEPOSIT', 'AUCTION'],
     required: true
+  },
+  chatId: {
+    type: String,
+    ref: 'Chat'
+  },
+  listingId: {
+    type: String,
+    ref: 'Listing'
   },
   buyerId: {
     type: String,
@@ -109,6 +123,19 @@ const AppointmentSchema = new Schema({
   },
   cancelledAt: {
     type: Date
+  },
+  completedByStaffId: {
+    type: String,
+    ref: 'User'
+  },
+  completedByStaffName: {
+    type: String
+  },
+  completedByStaffEmail: {
+    type: String
+  },
+  completedByStaffPhone: {
+    type: String
   }
 }, {
   timestamps: true
@@ -121,5 +148,6 @@ AppointmentSchema.index({ scheduledDate: 1 });
 AppointmentSchema.index({ depositRequestId: 1 });
 AppointmentSchema.index({ auctionId: 1 });
 AppointmentSchema.index({ appointmentType: 1 });
+AppointmentSchema.index({ chatId: 1 });
 
 export default mongoose.model<IAppointment>('Appointment', AppointmentSchema);
