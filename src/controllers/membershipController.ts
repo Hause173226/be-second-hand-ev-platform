@@ -146,16 +146,25 @@ export const membershipController = {
 
           if (currentPkg) {
             const isSamePackage = currentPkg.slug === pkg.slug;
+            const now = new Date();
+            const endDate = currentMembership.endDate ?? null;
+            const daysRemaining = endDate
+              ? Math.max(
+                  0,
+                  Math.ceil(
+                    (endDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+                  )
+                )
+              : null;
+            const hasRemainingDays =
+              endDate !== null && (daysRemaining ?? 0) > 0;
+            const remainingDescription = hasRemainingDays
+              ? `${daysRemaining} ngày còn lại`
+              : "quyền lợi của gói hiện tại (không giới hạn thời gian)";
 
             if (isSamePackage) {
-              if (currentMembership.endDate) {
-                const now = new Date();
-                const daysRemaining = Math.ceil(
-                  (currentMembership.endDate.getTime() - now.getTime()) /
-                    (1000 * 60 * 60 * 24)
-                );
-
-                if (daysRemaining > 0) {
+              if (hasRemainingDays) {
+                if ((daysRemaining ?? 0) > 0) {
                   res.status(409).json({
                     success: false,
                     message: `Bạn đã mua gói ${currentPkg.name} trước đó và còn ${daysRemaining} ngày. Bạn có muốn gia hạn gói không?`,
@@ -192,11 +201,7 @@ export const membershipController = {
                 actionType = "nâng cấp";
                 warningMessage = `
                 • Gói ${currentPkg.name} hiện tại sẽ bị hủy ngay lập tức
-                • Bạn sẽ mất ${Math.ceil(
-                  (currentMembership.endDate!.getTime() -
-                    new Date().getTime()) /
-                    (1000 * 60 * 60 * 24)
-                )} ngày còn lại
+                • Bạn sẽ mất ${remainingDescription}
                 • Gói ${pkg.name} sẽ được kích hoạt với ${pkg.duration} ngày mới
                 • Bạn sẽ có đầy đủ tính năng của gói ${pkg.name}
               `;
@@ -205,11 +210,7 @@ export const membershipController = {
                 actionType = "hạ cấp";
                 warningMessage = `
                 • Gói ${currentPkg.name} hiện tại sẽ bị hủy ngay lập tức
-                • Bạn sẽ mất ${Math.ceil(
-                  (currentMembership.endDate!.getTime() -
-                    new Date().getTime()) /
-                    (1000 * 60 * 60 * 24)
-                )} ngày còn lại
+                • Bạn sẽ mất ${remainingDescription}
                 • Gói ${pkg.name} sẽ được kích hoạt với ${pkg.duration} ngày mới
                 • Một số tính năng sẽ bị giới hạn
               `;
@@ -218,11 +219,7 @@ export const membershipController = {
                 actionType = "chuyển đổi";
                 warningMessage = `
                 • Gói ${currentPkg.name} hiện tại sẽ bị hủy ngay lập tức
-                • Bạn sẽ mất ${Math.ceil(
-                  (currentMembership.endDate!.getTime() -
-                    new Date().getTime()) /
-                    (1000 * 60 * 60 * 24)
-                )} ngày còn lại
+                • Bạn sẽ mất ${remainingDescription}
                 • Gói ${pkg.name} sẽ được kích hoạt với ${pkg.duration} ngày mới
               `;
               }
@@ -236,11 +233,8 @@ export const membershipController = {
                     slug: currentPkg.slug,
                     price: currentPkg.price,
                     endDate: currentMembership.endDate,
-                    daysRemaining: Math.ceil(
-                      (currentMembership.endDate!.getTime() -
-                        new Date().getTime()) /
-                        (1000 * 60 * 60 * 24)
-                    ),
+                    daysRemaining: hasRemainingDays ? daysRemaining : null,
+                    isPermanent: endDate === null,
                     features: currentPkg.features,
                   },
                   newPackage: {
@@ -718,7 +712,15 @@ export const membershipController = {
       // ✅ Tính số ngày đã dùng và ngày còn lại
       const now = new Date();
       const startDate = currentMembership.startDate;
-      const endDate = currentMembership.endDate!;
+      const endDate = currentMembership.endDate;
+
+      if (!endDate) {
+        res.status(400).json({
+          success: false,
+          message: "Gói hiện tại không có ngày kết thúc để tính toán hoàn tiền",
+        });
+        return;
+      }
 
       const totalDays = Math.ceil(
         (endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60 * 24)
