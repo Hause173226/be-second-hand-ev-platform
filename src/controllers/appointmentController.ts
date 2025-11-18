@@ -7,6 +7,161 @@ import { User } from '../models/User';
 import emailService from '../services/emailService';
 import walletService from '../services/walletService';
 import depositNotificationService from '../services/depositNotificationService';
+import Chat from '../models/Chat';
+import { WebSocketService } from '../services/websocketService';
+
+export const createAppointmentFromChat = async (req: Request, res: Response) => {
+  try {
+    const { chatId, scheduledDate, location, notes } = req.body || {};
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập',
+      });
+    }
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu chatId',
+      });
+    }
+
+    const chat = await Chat.findById(chatId)
+      .populate('listingId', 'make model year priceListed status sellerId')
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone');
+
+    if (!chat) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy cuộc trò chuyện',
+      });
+    }
+
+    // ⚠️ Lưu ý: buyerId / sellerId có thể là ObjectId hoặc document (do populate)
+    // Nếu là document, .toString() sẽ trả "[object Object]" -> so sánh sai
+    const buyerId =
+      (chat.buyerId && (chat.buyerId as any)._id?.toString()) ||
+      chat.buyerId?.toString();
+    const sellerId =
+      (chat.sellerId && (chat.sellerId as any)._id?.toString()) ||
+      chat.sellerId?.toString();
+
+    if (!buyerId || !sellerId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Cuộc trò chuyện không hợp lệ',
+      });
+    }
+
+    const isBuyer = buyerId === userId;
+    const isSeller = sellerId === userId;
+
+    if (!isBuyer && !isSeller) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền tạo lịch hẹn từ cuộc trò chuyện này',
+      });
+    }
+
+    // Không cho tạo trùng lịch hẹn đang active cho cùng chat
+    const existingAppointment = await Appointment.findOne({
+      chatId,
+      status: { $in: ['PENDING', 'CONFIRMED', 'RESCHEDULED'] },
+    });
+
+    if (existingAppointment) {
+      return res.status(400).json({
+        success: false,
+        message: 'Đã có lịch hẹn đang hoạt động cho cuộc trò chuyện này',
+        appointmentId: existingAppointment._id,
+      });
+    }
+
+    let appointmentDate: Date;
+    if (scheduledDate) {
+      appointmentDate = new Date(scheduledDate);
+      if (isNaN(appointmentDate.getTime())) {
+        return res.status(400).json({
+          success: false,
+          message: 'Ngày hẹn không hợp lệ',
+        });
+      }
+    } else {
+      appointmentDate = new Date();
+      appointmentDate.setDate(appointmentDate.getDate() + 3);
+    }
+
+    if (appointmentDate.getTime() < Date.now()) {
+      return res.status(400).json({
+        success: false,
+        message: 'Ngày hẹn phải lớn hơn hiện tại',
+      });
+    }
+
+    const now = new Date();
+    const createdBy = isSeller ? 'SELLER' : 'BUYER';
+
+    const appointment = await Appointment.create({
+      chatId,
+      appointmentType: 'NORMAL_DEPOSIT',
+      buyerId,
+      sellerId,
+      createdBy,
+      scheduledDate: appointmentDate,
+      status: 'PENDING',
+      type: 'VEHICLE_INSPECTION',
+      location: location || 'Thỏa thuận thêm trong cuộc trò chuyện',
+      notes,
+      buyerConfirmed: isBuyer,
+      sellerConfirmed: isSeller,
+      buyerConfirmedAt: isBuyer ? now : undefined,
+      sellerConfirmedAt: isSeller ? now : undefined,
+    });
+
+    // WebSocket notify người còn lại
+    try {
+      const wsService = WebSocketService.getInstance();
+      const notifyUserId = isBuyer ? sellerId : buyerId;
+      wsService.sendToUser(notifyUserId, 'appointment_created_from_chat', {
+        appointmentId: appointment._id,
+        chatId,
+        scheduledDate: appointment.scheduledDate,
+        location: appointment.location,
+        type: appointment.type,
+        createdBy,
+      });
+    } catch (wsError) {
+      console.error('Error sending websocket notification:', wsError);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Đã tạo lịch hẹn xem xe thành công',
+      appointment: {
+        id: appointment._id,
+        chatId,
+        buyerId,
+        sellerId,
+        scheduledDate: appointment.scheduledDate,
+        location: appointment.location,
+        status: appointment.status,
+        type: appointment.type,
+        createdBy,
+      },
+    });
+  } catch (error) {
+    console.error('Error creating appointment from chat:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
 
 // Tạo lịch hẹn sau khi người bán xác nhận cọc
 export const createAppointment = async (req: Request, res: Response): Promise<any> => {

@@ -2,6 +2,7 @@
 import express, { RequestHandler } from "express";
 import {
     createAppointment,
+    createAppointmentFromChat,
     getUserAppointments,
     confirmAppointment,
     rejectAppointment,
@@ -16,6 +17,86 @@ import { authenticate } from "../middlewares/authenticate";
 
 // Router cho các API endpoints liên quan đến appointments và lịch hẹn
 const router = express.Router();
+
+/**
+ * @swagger
+ * /api/appointments/chat:
+ *   post:
+ *     summary: Tạo lịch hẹn xem xe trực tiếp từ chat
+ *     description: Cho phép buyer hoặc seller đặt lịch xem xe trước khi đặt cọc, dựa trên một cuộc trò chuyện cụ thể.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - chatId
+ *             properties:
+ *               chatId:
+ *                 type: string
+ *                 description: ID của cuộc trò chuyện
+ *                 example: "676c1234567890abcdef1234"
+ *               scheduledDate:
+ *                 type: string
+ *                 format: date-time
+ *                 description: Ngày giờ mong muốn (mặc định +3 ngày nếu không cung cấp)
+ *                 example: "2025-11-05T09:00:00Z"
+ *               location:
+ *                 type: string
+ *                 description: Địa điểm dự kiến
+ *                 example: "Showroom EV - 123 Hai Bà Trưng"
+ *               notes:
+ *                 type: string
+ *                 description: Ghi chú thêm cho cuộc hẹn
+ *                 example: "Mang theo giấy tờ xe gốc"
+ *     responses:
+ *       201:
+ *         description: Tạo lịch hẹn thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Đã tạo lịch hẹn xem xe thành công"
+ *                 appointment:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     chatId:
+ *                       type: string
+ *                     scheduledDate:
+ *                       type: string
+ *                       format: date-time
+ *                     location:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       example: "PENDING"
+ *                     type:
+ *                       type: string
+ *                       example: "VEHICLE_INSPECTION"
+ *       400:
+ *         description: Thiếu chatId hoặc dữ liệu không hợp lệ
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Người dùng không thuộc cuộc trò chuyện này
+ *       404:
+ *         description: Không tìm thấy chat
+ *       500:
+ *         description: Lỗi server
+ */
+router.post('/chat', authenticate, createAppointmentFromChat as unknown as RequestHandler);
 
 /**
  * @swagger

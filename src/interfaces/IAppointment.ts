@@ -6,7 +6,7 @@ export interface IAppointment {
     listingId: Types.ObjectId;
     buyerId: Types.ObjectId;
     sellerId: Types.ObjectId;
-    chatId: Types.ObjectId;
+    chatId?: Types.ObjectId;
     scheduledDate: Date;
     location: {
         address: string;
