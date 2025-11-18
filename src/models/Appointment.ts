@@ -5,6 +5,7 @@ export interface IAppointment extends Document {
   depositRequestId?: string;
   auctionId?: string;
   chatId?: string;
+  listingId?: string;
   appointmentType: 'NORMAL_DEPOSIT' | 'AUCTION';
   buyerId: string;
   sellerId: string;
@@ -24,6 +25,10 @@ export interface IAppointment extends Document {
   completedAt?: Date;
   cancelledAt?: Date;
   rejectedAt?: Date;
+  completedByStaffId?: string;
+  completedByStaffName?: string;
+  completedByStaffEmail?: string;
+  completedByStaffPhone?: string;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -45,6 +50,10 @@ const AppointmentSchema = new Schema({
   chatId: {
     type: String,
     ref: 'Chat'
+  },
+  listingId: {
+    type: String,
+    ref: 'Listing'
   },
   buyerId: {
     type: String,
@@ -114,6 +123,19 @@ const AppointmentSchema = new Schema({
   },
   cancelledAt: {
     type: Date
+  },
+  completedByStaffId: {
+    type: String,
+    ref: 'User'
+  },
+  completedByStaffName: {
+    type: String
+  },
+  completedByStaffEmail: {
+    type: String
+  },
+  completedByStaffPhone: {
+    type: String
   }
 }, {
   timestamps: true

@@ -50,6 +50,10 @@ export const createAppointmentFromChat = async (req: Request, res: Response) => 
       (chat.sellerId && (chat.sellerId as any)._id?.toString()) ||
       chat.sellerId?.toString();
 
+    const listingIdValue =
+      (chat.listingId && (chat.listingId as any)._id?.toString()) ||
+      chat.listingId?.toString();
+
     if (!buyerId || !sellerId) {
       return res.status(400).json({
         success: false,
@@ -107,6 +111,7 @@ export const createAppointmentFromChat = async (req: Request, res: Response) => 
 
     const appointment = await Appointment.create({
       chatId,
+      listingId: listingIdValue || undefined,
       appointmentType: 'NORMAL_DEPOSIT',
       buyerId,
       sellerId,
@@ -251,6 +256,7 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
 
         const appointment = new Appointment({
       depositRequestId,
+      listingId: depositRequest.listingId,
       appointmentType: 'NORMAL_DEPOSIT',
       buyerId: depositRequest.buyerId,
       sellerId: depositRequest.sellerId,
@@ -864,6 +870,86 @@ export const cancelAppointment = async (req: Request, res: Response): Promise<an
   }
 };
 
+// Staff xác nhận buổi xem xe đã hoàn thành
+export const completeAppointment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { appointmentId } = req.params;
+    const userId = req.user?.id;
+    const userRole = req.user?.role;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập',
+      });
+    }
+
+    const isStaff = userRole === 'staff' || userRole === 'admin';
+    if (!isStaff) {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ nhân viên hoặc admin mới có quyền xác nhận hoàn thành lịch hẹn',
+      });
+    }
+
+    const appointment = await Appointment.findById(appointmentId)
+      .populate('buyerId', 'fullName email phone')
+      .populate('sellerId', 'fullName email phone');
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy lịch hẹn',
+      });
+    }
+
+    if (appointment.status !== 'CONFIRMED') {
+      return res.status(400).json({
+        success: false,
+        message: 'Chỉ có thể hoàn thành lịch hẹn đã được xác nhận',
+      });
+    }
+
+    
+
+    const staff = await User.findById(userId).select('fullName email phone');
+
+    appointment.status = 'COMPLETED' as any;
+    appointment.completedAt = new Date();
+    appointment.completedByStaffId = userId;
+    appointment.completedByStaffName =
+      staff?.fullName || (req.user as any)?.fullName || 'N/A';
+    appointment.completedByStaffEmail = staff?.email || (req.user as any)?.email;
+    appointment.completedByStaffPhone = staff?.phone || undefined;
+    await appointment.save();
+
+    return res.json({
+      success: true,
+      message: 'Đã đánh dấu buổi xem xe hoàn thành',
+      appointment: {
+        id: appointment._id,
+        status: appointment.status,
+        completedAt: appointment.completedAt,
+        completedByStaff: appointment.completedByStaffId
+          ? {
+              id: appointment.completedByStaffId,
+              name: appointment.completedByStaffName,
+              email: appointment.completedByStaffEmail,
+              phone: appointment.completedByStaffPhone,
+            }
+          : null,
+      },
+    });
+  } catch (error) {
+    console.error('Error completing appointment:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error',
+    });
+  }
+};
+
 // Lấy danh sách lịch hẹn của user
 export const getUserAppointments = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -915,6 +1001,74 @@ export const getUserAppointments = async (req: Request, res: Response): Promise<
       success: false,
       message: 'Lỗi hệ thống',
       error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Lấy appointment active của một chat (nếu có)
+export const getAppointmentByChatId = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const { chatId } = req.params;
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập',
+      });
+    }
+
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu chatId',
+      });
+    }
+
+    // Tìm appointment active của chat này
+    const appointment = await Appointment.findOne({
+      chatId,
+      status: { $in: ['PENDING', 'CONFIRMED',  'RESCHEDULED'] },
+    })
+      .populate('buyerId', 'fullName email phone avatar')
+      .populate('sellerId', 'fullName email phone avatar')
+      .populate('listingId', 'make model year priceListed photos')
+      .sort({ createdAt: -1 }); // Lấy appointment mới nhất nếu có nhiều
+
+    if (!appointment) {
+      return res.json({
+        success: true,
+        data: null,
+        hasActiveAppointment: false,
+      });
+    }
+
+    // Kiểm tra quyền xem (chỉ người mua hoặc người bán)
+    const buyerId =
+      (appointment.buyerId && (appointment.buyerId as any)._id?.toString()) ||
+      appointment.buyerId?.toString();
+    const sellerId =
+      (appointment.sellerId && (appointment.sellerId as any)._id?.toString()) ||
+      appointment.sellerId?.toString();
+
+    if (buyerId !== userId && sellerId !== userId) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền xem lịch hẹn này',
+      });
+    }
+
+    res.json({
+      success: true,
+      data: appointment,
+      hasActiveAppointment: true,
+    });
+  } catch (error) {
+    console.error('Error getting appointment by chatId:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
 };
@@ -1032,6 +1186,10 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
           select: 'title brand make model year priceListed licensePlate engineDisplacementCc vehicleType paintColor engineNumber chassisNumber otherFeatures'
         }
       })
+      .populate(
+        'listingId',
+        'title brand make model year priceListed licensePlate engineDisplacementCc vehicleType paintColor engineNumber chassisNumber otherFeatures'
+      )
       .sort({ scheduledDate: 1 }); // Sắp xếp theo ngày hẹn gần nhất
 
     // ✅ Filter theo search term sau khi populate (nếu có)
@@ -1074,22 +1232,27 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       
       // Xác định nguồn dữ liệu: auction hoặc deposit
       const isAuction = appointment.appointmentType === 'AUCTION' && appointment.auctionId;
+      let listingFromAppointment = appointment.listingId as any;
       let listing, depositAmount, depositStatus, vehiclePrice;
       
       if (isAuction) {
         // Từ auction
         const auction = appointment.auctionId as any;
-        listing = auction?.listingId;
+        listing = auction?.listingId || listingFromAppointment;
         depositAmount = 1000000; // Phí tham gia đấu giá
         depositStatus = 'N/A';
-        vehiclePrice = auction?.winningBid?.price || auction?.startingPrice || 0;
+        vehiclePrice =
+          auction?.winningBid?.price ||
+          auction?.startingPrice ||
+          listing?.priceListed ||
+          0;
       } else {
         // Từ deposit thông thường
         const depositRequest = appointment.depositRequestId as any;
-        listing = depositRequest?.listingId;
+        listing = depositRequest?.listingId || listingFromAppointment;
         depositAmount = depositRequest?.depositAmount || 0;
         depositStatus = depositRequest?.status || 'N/A';
-        vehiclePrice = listing?.priceListed || 0;
+        vehiclePrice = depositRequest?.vehiclePrice || listing?.priceListed || 0;
       }
       
       return {
@@ -1164,6 +1327,15 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
         id: contract.staffId,
         name: contract.staffName || 'N/A'
       } : null,
+      completionStaff: appointment.completedByStaffId
+        ? {
+            id: appointment.completedByStaffId,
+            name: appointment.completedByStaffName || 'N/A',
+            email: appointment.completedByStaffEmail || 'N/A',
+            phone: appointment.completedByStaffPhone || 'N/A',
+          }
+        : null,
+      completedAt: appointment.completedAt,
       
       createdAt: appointment.createdAt,
       updatedAt: appointment.updatedAt

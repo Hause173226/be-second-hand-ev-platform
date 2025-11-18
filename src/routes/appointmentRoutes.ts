@@ -12,6 +12,8 @@ import {
     getStaffAppointments,
     createAppointmentFromAuction,
     getAuctionAppointments,
+    getAppointmentByChatId,
+    completeAppointment,
 } from "../controllers/appointmentController";
 import { authenticate } from "../middlewares/authenticate";
 
@@ -97,6 +99,52 @@ const router = express.Router();
  *         description: Lỗi server
  */
 router.post('/chat', authenticate, createAppointmentFromChat as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/appointments/chat/{chatId}:
+ *   get:
+ *     summary: Lấy appointment active của một chat (nếu có)
+ *     description: Kiểm tra xem chat này đã có lịch hẹn đang hoạt động (PENDING/CONFIRMED/RESCHEDULED) chưa
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: chatId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của cuộc trò chuyện
+ *         example: "691adf246fe28d87f725acdc"
+ *     responses:
+ *       200:
+ *         description: Thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 hasActiveAppointment:
+ *                   type: boolean
+ *                   description: Có appointment active hay không
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   nullable: true
+ *                   description: Appointment object nếu có, null nếu không có
+ *                   $ref: '#/components/schemas/Appointment'
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền xem appointment của chat này
+ *       500:
+ *         description: Lỗi server
+ */
+router.get('/chat/:chatId', authenticate, getAppointmentByChatId as unknown as RequestHandler);
 
 /**
  * @swagger
@@ -437,6 +485,37 @@ router.put('/:appointmentId/reschedule', authenticate, rescheduleAppointment as 
  *         description: Lỗi server
  */
 router.put('/:appointmentId/cancel', authenticate, cancelAppointment as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/appointments/{appointmentId}/complete:
+ *   post:
+ *     summary: Staff/Admin xác nhận buổi xem xe đã hoàn thành
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của lịch hẹn cần đánh dấu hoàn thành
+ *     responses:
+ *       200:
+ *         description: Đã đánh dấu hoàn thành
+ *       400:
+ *         description: Lịch hẹn chưa được xác nhận
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền thực hiện
+ *       404:
+ *         description: Không tìm thấy lịch hẹn
+ *       500:
+ *         description: Lỗi hệ thống
+ */
+router.post('/:appointmentId/complete', authenticate, completeAppointment as unknown as RequestHandler);
 
 /**
  * @swagger
