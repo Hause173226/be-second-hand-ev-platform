@@ -50,14 +50,14 @@ export const auctionDepositService = {
     //   throw new Error('Phiên đấu giá đã bắt đầu, không thể đặt cọc');
     // }
 
-    // 6. Kiểm tra user đã có cọc FROZEN chưa
-    const existingDeposit = await AuctionDeposit.findOne({
+    // 6. Kiểm tra user đã có deposit chưa (bất kể status)
+    let existingDeposit = await AuctionDeposit.findOne({
       auctionId: new Types.ObjectId(auctionId),
       userId: new Types.ObjectId(userId),
-      status: 'FROZEN',
     });
 
-    if (existingDeposit) {
+    // Nếu đã có deposit FROZEN → không cho đặt lại
+    if (existingDeposit && existingDeposit.status === 'FROZEN') {
       throw new Error('Bạn đã đặt cọc cho phiên đấu giá này rồi');
     }
 
@@ -67,7 +67,7 @@ export const auctionDepositService = {
       (listing && listing.priceListed) ||
       0;
     const participationFee =
-      startingPrice > 0 ? Math.ceil(startingPrice * 0.1) : 1_000_000;
+      startingPrice > 0 ? Math.ceil(startingPrice * 0.1) : Math.ceil(startingPrice * 0.1);
 
     // 8. Kiểm tra số dư ví
     const wallet = await walletService.getWallet(userId);
@@ -86,14 +86,28 @@ export const auctionDepositService = {
       `Đặt cọc tham gia đấu giá #${auctionId}`
     );
 
-    // 10. Tạo record deposit
-    const deposit = await AuctionDeposit.create({
-      auctionId: new Types.ObjectId(auctionId),
-      userId: new Types.ObjectId(userId),
-      depositAmount: participationFee,
-      status: 'FROZEN',
-      frozenAt: new Date(),
-    });
+    // 10. Nếu đã có deposit cũ (CANCELLED/REFUNDED) → update, nếu không → tạo mới
+    let deposit;
+    if (existingDeposit) {
+      // Update deposit cũ
+      existingDeposit.depositAmount = participationFee;
+      existingDeposit.status = 'FROZEN';
+      existingDeposit.frozenAt = new Date();
+      existingDeposit.cancelledAt = undefined;
+      existingDeposit.refundedAt = undefined;
+      existingDeposit.deductedAt = undefined;
+      await existingDeposit.save();
+      deposit = existingDeposit;
+    } else {
+      // Tạo mới
+      deposit = await AuctionDeposit.create({
+        auctionId: new Types.ObjectId(auctionId),
+        userId: new Types.ObjectId(userId),
+        depositAmount: participationFee,
+        status: 'FROZEN',
+        frozenAt: new Date(),
+      });
+    }
 
     return deposit;
   },

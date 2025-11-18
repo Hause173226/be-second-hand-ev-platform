@@ -86,9 +86,24 @@ export class DepositNotificationService {
                     metadata: notification.metadata,
                     timestamp: notification.createdAt,
                 });
+                
+                // Gửi thêm new_notification event chung
+                wsService.sendToUser(sellerId, 'new_notification', {
+                    _id: notification._id,
+                    type: 'deposit',
+                    title: notification.title,
+                    message: notification.message,
+                    actionUrl: `/deposits/${depositRequest._id}`,
+                    actionText: 'Xem yêu cầu',
+                    metadata: notification.metadata,
+                    createdAt: notification.createdAt,
+                    isRead: false
+                });
+                
+                console.log('✅ Deposit notification sent to seller:', sellerId);
+            } else {
+                console.warn('⚠️ WebSocket not available for deposit notification');
             }
-
-            console.log('Deposit notification sent to seller:', sellerId);
 
             // Gửi email cho seller
             try {
@@ -177,9 +192,24 @@ export class DepositNotificationService {
                     metadata: notification.metadata,
                     timestamp: notification.createdAt,
                 });
+                
+                // Gửi thêm new_notification event chung
+                wsService.sendToUser(buyerId, 'new_notification', {
+                    _id: notification._id,
+                    type: 'deposit_confirmation',
+                    title,
+                    message,
+                    actionUrl: `/deposits/${depositRequest._id}`,
+                    actionText: 'Xem chi tiết',
+                    metadata: notification.metadata,
+                    createdAt: notification.createdAt,
+                    isRead: false
+                });
+                
+                console.log('✅ Deposit confirmation sent to buyer:', buyerId);
+            } else {
+                console.warn('⚠️ WebSocket not available for deposit confirmation');
             }
-
-            console.log('Deposit confirmation notification sent to buyer:', buyerId);
 
             return notification;
         } catch (error) {
@@ -381,9 +411,24 @@ export class DepositNotificationService {
                     metadata: notification.metadata,
                     timestamp: notification.createdAt,
                 });
+                
+                // Gửi thêm new_notification event chung để FE dễ xử lý
+                wsService.sendToUser(receiverId, 'new_notification', {
+                    _id: notification._id,
+                    type: 'appointment_created',
+                    title: notification.title,
+                    message: notification.message,
+                    actionUrl: `/appointments/${appointment._id}`,
+                    actionText: 'Xem lịch hẹn',
+                    metadata: notification.metadata,
+                    createdAt: notification.createdAt,
+                    isRead: false
+                });
+                
+                console.log('✅ Appointment notification sent to user:', receiverId);
+            } else {
+                console.warn('⚠️ WebSocket not available for appointment notification');
             }
-
-            console.log('Appointment created notification sent to user:', receiverId);
 
             return notification;
         } catch (error) {
