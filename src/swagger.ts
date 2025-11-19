@@ -64,6 +64,14 @@ const options = {
         name: "Transactions",
         description: "Quản lý giao dịch và xác nhận hoàn thành",
       },
+      {
+        name: "Orders",
+        description: "Quản lý đơn hàng và thanh toán",
+      },
+      {
+        name: "Staff Orders",
+        description: "Staff quản lý đặt cọc và thanh toán đơn hàng",
+      },
     ],
     components: {
       securitySchemes: {

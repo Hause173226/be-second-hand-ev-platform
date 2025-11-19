@@ -15,7 +15,14 @@ import {
     getAppointmentByChatId,
     completeAppointment,
 } from "../controllers/appointmentController";
+import {
+    createDeposit,
+    createFullPayment,
+    createRemainingPayment,
+    getAppointmentTimeline,
+} from "../controllers/appointmentDepositController";
 import { authenticate } from "../middlewares/authenticate";
+import { requireRole } from "../middlewares/role";
 
 // Router cho các API endpoints liên quan đến appointments và lịch hẹn
 const router = express.Router();
@@ -956,5 +963,175 @@ router.post('/auction/:auctionId', authenticate, createAppointmentFromAuction as
  *         description: Lỗi server
  */
 router.get('/auction/list', authenticate, getAuctionAppointments as unknown as RequestHandler);
+
+/**
+ * @swagger
+ * /api/appointments/{appointmentId}/deposit:
+ *   post:
+ *     summary: Staff tạo đặt cọc 10%
+ *     description: |
+ *       Staff tạo yêu cầu đặt cọc 10% cho appointment đã COMPLETED. 
+ *       Hệ thống sẽ tính tiền đặt cọc = 10% giá listing và tạo payment URL từ VNPay.
+ *       Timeline.depositRequestAt sẽ được lưu ngay khi tạo.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của appointment (phải ở status COMPLETED)
+ *         example: "64fb3c81a9c2c0a1b6a12345"
+ *     responses:
+ *       200:
+ *         description: Tạo đặt cọc thành công
+ *       400:
+ *         description: Dữ liệu không hợp lệ hoặc appointment không ở trạng thái COMPLETED
+ *       403:
+ *         description: Không có quyền (chỉ staff/admin)
+ *       404:
+ *         description: Không tìm thấy appointment
+ */
+router.post(
+  '/:appointmentId/deposit',
+  authenticate,
+  requireRole(['staff', 'admin']),
+  createDeposit as unknown as RequestHandler
+);
+
+/**
+ * @swagger
+ * /api/appointments/{appointmentId}/full-payment:
+ *   post:
+ *     summary: Staff tạo thanh toán toàn bộ 100%
+ *     description: |
+ *       Staff tạo yêu cầu thanh toán toàn bộ 100% cho appointment đã COMPLETED. 
+ *       Hệ thống sẽ tính tiền thanh toán = 100% giá listing và tạo payment URL từ VNPay.
+ *       Timeline.fullPaymentRequestAt sẽ được lưu ngay khi tạo.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của appointment (phải ở status COMPLETED)
+ *         example: "64fb3c81a9c2c0a1b6a12345"
+ *     responses:
+ *       200:
+ *         description: Tạo thanh toán toàn bộ thành công
+ *       400:
+ *         description: Dữ liệu không hợp lệ hoặc appointment không ở trạng thái COMPLETED
+ *       403:
+ *         description: Không có quyền (chỉ staff/admin)
+ *       404:
+ *         description: Không tìm thấy appointment
+ */
+router.post(
+  '/:appointmentId/full-payment',
+  authenticate,
+  requireRole(['staff', 'admin']),
+  createFullPayment as unknown as RequestHandler
+);
+
+/**
+ * @swagger
+ * /api/appointments/{appointmentId}/remaining-payment:
+ *   post:
+ *     summary: User tự tạo thanh toán còn lại 90%
+ *     description: |
+ *       User (buyer) tự tạo yêu cầu thanh toán còn lại 90% sau khi đã đặt cọc 10% thành công.
+ *       Hệ thống sẽ tính tiền thanh toán = 90% giá listing và tạo payment URL từ VNPay.
+ *       Timeline.remainingPaymentRequestAt sẽ được lưu ngay khi tạo.
+ *       Sau khi thanh toán thành công, appointment.status sẽ chuyển thành COMPLETED.
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của appointment (phải ở status COMPLETED và đã đặt cọc 10%)
+ *         example: "64fb3c81a9c2c0a1b6a12345"
+ *     responses:
+ *       200:
+ *         description: Tạo thanh toán còn lại thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 message:
+ *                   type: string
+ *                   example: "Tạo thanh toán còn lại thành công"
+ *                 paymentUrl:
+ *                   type: string
+ *                   description: URL thanh toán VNPay (dùng để tạo QR code)
+ *                 orderId:
+ *                   type: string
+ *                   description: Mã giao dịch VNPay
+ *                 amount:
+ *                   type: number
+ *                   description: Số tiền thanh toán (90% giá listing)
+ *                 qrCode:
+ *                   type: string
+ *                   description: URL thanh toán (giống paymentUrl, dùng để tạo QR code)
+ *       400:
+ *         description: Dữ liệu không hợp lệ, chưa đặt cọc 10%, hoặc đã thanh toán đủ
+ *       403:
+ *         description: Không có quyền (chỉ buyer của appointment)
+ *       404:
+ *         description: Không tìm thấy appointment
+ */
+router.post(
+  '/:appointmentId/remaining-payment',
+  authenticate,
+  createRemainingPayment as unknown as RequestHandler
+);
+
+/**
+ * @swagger
+ * /api/appointments/{appointmentId}/timeline:
+ *   get:
+ *     summary: User xem timeline giao dịch
+ *     description: |
+ *       Lấy timeline giao dịch của appointment bao gồm:
+ *       - depositRequestAt: Thời điểm staff tạo đặt cọc
+ *       - depositPaidAt: Thời điểm user thanh toán đặt cọc 10%
+ *       - remainingPaymentRequestAt: Thời điểm user tạo thanh toán 90%
+ *       - remainingPaidAt: Thời điểm user thanh toán 90% thành công
+ *       - fullPaymentRequestAt: Thời điểm staff tạo thanh toán toàn bộ
+ *       - fullPaymentPaidAt: Thời điểm user thanh toán toàn bộ 100% thành công
+ *       - completedAt: Thời điểm giao dịch hoàn thành
+ *     tags: [Appointments]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: appointmentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: ID của appointment
+ *         example: "64fb3c81a9c2c0a1b6a12345"
+ *     responses:
+ *       200:
+ *         description: Timeline giao dịch
+ *       403:
+ *         description: Không có quyền xem timeline (chỉ buyer, seller hoặc staff)
+ *       404:
+ *         description: Không tìm thấy appointment
+ */
+router.get(
+  '/:appointmentId/timeline',
+  authenticate,
+  getAppointmentTimeline as unknown as RequestHandler
+);
 
 export default router;
