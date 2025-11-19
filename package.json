@@ -10,7 +10,8 @@
     "start": "node dist/server.js",
     "migrate": "node scripts/migrate-users.js",
     "migrate:check": "node scripts/migrate-users.js check",
-    "migrate:rollback": "node scripts/migrate-users.js rollback"
+    "migrate:rollback": "node scripts/migrate-users.js rollback",
+    "create-test-order": "node scripts/create-test-order.js"
   },
   "keywords": [],
   "author": "",
