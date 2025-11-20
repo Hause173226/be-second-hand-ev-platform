@@ -20,7 +20,12 @@ export interface IAppointment extends Document {
     | "COMPLETED"
     | "CANCELLED"
     | "REJECTED";
-  type: "CONTRACT_SIGNING" | "VEHICLE_INSPECTION" | "DELIVERY" | "CONTRACT_NOTARIZATION" | "VEHICLE_HANDOVER";
+  type:
+    | "CONTRACT_SIGNING"
+    | "VEHICLE_INSPECTION"
+    | "DELIVERY"
+    | "CONTRACT_NOTARIZATION"
+    | "VEHICLE_HANDOVER";
   location?: string;
   notes?: string;
   rescheduledCount: number;
@@ -122,7 +127,13 @@ const AppointmentSchema = new Schema(
     },
     type: {
       type: String,
-      enum: ["CONTRACT_SIGNING", "VEHICLE_INSPECTION", "DELIVERY", "CONTRACT_NOTARIZATION", "VEHICLE_HANDOVER"],
+      enum: [
+        "CONTRACT_SIGNING",
+        "VEHICLE_INSPECTION",
+        "DELIVERY",
+        "CONTRACT_NOTARIZATION",
+        "VEHICLE_HANDOVER",
+      ],
       default: "CONTRACT_SIGNING",
     },
     location: {
