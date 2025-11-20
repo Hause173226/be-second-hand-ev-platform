@@ -1,10 +1,15 @@
 import express, { RequestHandler } from "express";
 import {
+  createContract,
   getContractInfo,
   uploadContractPhotos,
   completeTransaction,
   getStaffContracts,
   cancelContractTransaction,
+  getContractTimeline,
+  updateContractTimelineStep,
+  generateContractPdfFile,
+  getContractPdfFile,
 } from "../controllers/contractController";
 import { authenticate } from "../middlewares/authenticate";
 import { requireRole } from "../middlewares/role";
@@ -38,6 +43,13 @@ router.get(
   "/:appointmentId",
   authenticate,
   getContractInfo as unknown as RequestHandler
+);
+
+router.post(
+  "/:appointmentId/create",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  createContract as unknown as RequestHandler
 );
 
 /**
@@ -130,6 +142,33 @@ router.post(
  *         description: Danh sách contract
  */
 router.get("/", authenticate, getStaffContracts as unknown as RequestHandler);
+
+router.get(
+  "/:contractId/timeline",
+  authenticate,
+  getContractTimeline as unknown as RequestHandler
+);
+
+router.patch(
+  "/:contractId/timeline/:step",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  memoryUpload.array("attachments", 5),
+  updateContractTimelineStep as unknown as RequestHandler
+);
+
+router.post(
+  "/:contractId/pdf",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  generateContractPdfFile as unknown as RequestHandler
+);
+
+router.get(
+  "/:contractId/pdf",
+  authenticate,
+  getContractPdfFile as unknown as RequestHandler
+);
 
 /**
  * @swagger

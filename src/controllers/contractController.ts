@@ -9,6 +9,255 @@ import { uploadFromBuffer } from "../services/cloudinaryService";
 import depositNotificationService from "../services/depositNotificationService";
 import emailService from "../services/emailService";
 import auctionDepositService from "../services/auctionDepositService";
+import axios from "axios";
+
+type ContractContext = {
+  appointment: any;
+  listing: any;
+  listingId: string;
+  buyer: any;
+  seller: any;
+  depositAmount: number;
+  purchasePrice: number;
+  depositRequestId?: string;
+  auctionId?: string;
+};
+
+const STAFF_ROLES = ["staff", "admin"];
+
+function isStaff(user?: { role?: string | null }) {
+  return !!user && STAFF_ROLES.includes(user.role ?? "");
+}
+
+export const createContract = async (req: Request, res: Response) => {
+  try {
+    const { appointmentId } = req.params;
+    const { contractType = "DEPOSIT", contractTerms } = req.body as {
+      contractType?: ContractType;
+      contractTerms?: string;
+    };
+
+    if (!isStaff(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền tạo hợp đồng",
+      });
+    }
+
+    const appointment = await Appointment.findById(appointmentId)
+      .populate("depositRequestId")
+      .populate({
+        path: "auctionId",
+        populate: {
+          path: "listingId",
+        },
+      });
+
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy lịch hẹn",
+      });
+    }
+
+    const existingContract = await Contract.findOne({ appointmentId });
+    if (existingContract) {
+      return res.status(400).json({
+        success: false,
+        message: "Lịch hẹn này đã có hợp đồng",
+      });
+    }
+
+    const context = await resolveContractContext(appointment);
+    const normalizedContractType: ContractType = CONTRACT_TYPES.includes(
+      (contractType as ContractType) ?? "DEPOSIT"
+    )
+      ? (contractType as ContractType) ?? "DEPOSIT"
+      : "DEPOSIT";
+
+    const contract = new Contract({
+      appointmentId,
+      depositRequestId: context.depositRequestId,
+      auctionId: context.auctionId,
+      buyerId: appointment.buyerId,
+      sellerId: appointment.sellerId,
+      listingId: context.listingId,
+      contractNumber: `CT-${Date.now()}`,
+      contractDate: new Date(),
+      buyerName: context.buyer.fullName || context.buyer.email,
+      buyerIdNumber: context.buyer.citizenId || "N/A",
+      buyerIdIssuedDate: context.buyer.citizenIdIssuedDate || new Date(),
+      buyerIdIssuedBy:
+        context.buyer.citizenIdIssuedBy || "Cơ quan có thẩm quyền",
+      buyerAddress: context.buyer.address?.fullAddress || "N/A",
+      sellerName: context.seller.fullName || context.seller.email,
+      sellerIdNumber: context.seller.citizenId || "N/A",
+      sellerIdIssuedDate: context.seller.citizenIdIssuedDate || new Date(),
+      sellerIdIssuedBy:
+        context.seller.citizenIdIssuedBy || "Cơ quan có thẩm quyền",
+      sellerAddress: context.seller.address?.fullAddress || "N/A",
+      vehicleBrand:
+        context.listing.make || (context.listing as any).brand || "N/A",
+      vehicleModel: context.listing.model || "N/A",
+      vehicleType:
+        context.listing.vehicleType || (context.listing as any).type || "N/A",
+      vehicleColor:
+        context.listing.paintColor || (context.listing as any).color || "N/A",
+      engineNumber: context.listing.engineNumber || "N/A",
+      chassisNumber: context.listing.chassisNumber || "N/A",
+      seatCount: context.listing.seatCount || 2,
+      manufactureYear: context.listing.year || new Date().getFullYear(),
+      licensePlate: context.listing.licensePlate || "N/A",
+      registrationNumber: context.listing.registrationNumber || "N/A",
+      registrationIssuedDate: context.listing.registrationDate || new Date(),
+      registrationIssuedBy:
+        context.listing.registrationIssuedBy || "Cơ quan có thẩm quyền",
+      registrationIssuedTo: context.listing.registrationIssuedTo || "N/A",
+      registrationAddress: context.listing.registrationAddress || "N/A",
+      purchasePrice: context.purchasePrice,
+      depositAmount: context.depositAmount,
+      paymentMethod: "Escrow",
+      status: "DRAFT",
+      staffId: req.user?.id,
+      staffName: req.user?.name || req.user?.email,
+      contractType: normalizedContractType,
+      contractTerms,
+      paperworkTimeline: buildDefaultTimeline(normalizedContractType),
+    });
+
+    await contract.save();
+
+    res.json({
+      success: true,
+      message: "Tạo hợp đồng thành công",
+      data: contract,
+    });
+  } catch (error: any) {
+    console.error("Error creating contract:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
+async function resolveContractContext(
+  appointment: any
+): Promise<ContractContext> {
+  let listing: any | null = null;
+  let listingId: string | undefined;
+  let depositRequestId: string | undefined;
+  let auctionId: string | undefined;
+  let depositAmount = 0;
+  let purchasePrice = 0;
+
+  if (appointment.appointmentType === "AUCTION" && appointment.auctionId) {
+    const auction = appointment.auctionId as any;
+    if (!auction || !auction.listingId) {
+      throw new Error("Không tìm thấy thông tin auction hoặc listingId");
+    }
+    listing = auction.listingId;
+    listingId = listing._id?.toString() ?? listing.id;
+    auctionId = auction._id?.toString() ?? auction.id;
+    depositAmount = auctionDepositService.getParticipationFee(auction);
+    purchasePrice = auction.winningBid?.price || auction.startingPrice || 0;
+  } else {
+    const depositRequest = appointment.depositRequestId as any;
+    if (depositRequest && depositRequest.listingId) {
+      depositRequestId = depositRequest._id?.toString() ?? depositRequest.id;
+      listingId =
+        depositRequest.listingId?.toString() ?? depositRequest.listingId;
+      listing = await Listing.findById(listingId);
+      depositAmount = depositRequest.depositAmount || 0;
+      purchasePrice = listing?.priceListed || listing?.price || 0;
+    } else if (appointment.listingId) {
+      listingId = appointment.listingId?.toString();
+      listing = await Listing.findById(listingId);
+      if (!listing) {
+        throw new Error("Không tìm thấy thông tin listing cho lịch hẹn này");
+      }
+      purchasePrice = listing.priceListed || listing.price || 0;
+      depositAmount = Math.round((purchasePrice || 0) * 0.1);
+    } else {
+      throw new Error("Không tìm thấy thông tin depositRequest hoặc listingId");
+    }
+  }
+
+  if (!listing) {
+    throw new Error("Không tìm thấy thông tin xe");
+  }
+
+  const buyer = appointment.buyerId?._id
+    ? appointment.buyerId
+    : await User.findById(appointment.buyerId);
+  const seller = appointment.sellerId?._id
+    ? appointment.sellerId
+    : await User.findById(appointment.sellerId);
+
+  if (!buyer || !seller) {
+    throw new Error("Không tìm thấy thông tin người mua/bán");
+  }
+
+  return {
+    appointment,
+    listing,
+    listingId: listingId || listing._id?.toString(),
+    buyer,
+    seller,
+    depositAmount,
+    purchasePrice,
+    depositRequestId,
+    auctionId,
+  };
+}
+
+function ensureTimeline(contract: any, contractType?: ContractType) {
+  if (!contract.paperworkTimeline || contract.paperworkTimeline.length === 0) {
+    contract.paperworkTimeline = buildDefaultTimeline(
+      contractType || contract.contractType || "DEPOSIT"
+    );
+  }
+}
+
+function applyTimelineAutoProgress(contract: any) {
+  if (!contract.paperworkTimeline) return;
+
+  // ✅ Tự động unlock bước tiếp theo khi bước trước đó hoàn thành
+  for (let i = 0; i < contract.paperworkTimeline.length - 1; i += 1) {
+    const current = contract.paperworkTimeline[i];
+    const next = contract.paperworkTimeline[i + 1];
+
+    // Nếu bước hiện tại đã DONE và bước tiếp theo đang PENDING hoặc BLOCKED
+    // → Chuyển bước tiếp theo thành PENDING (trừ khi nó đã là DONE)
+    if (
+      current.status === "DONE" &&
+      next.status !== "DONE" &&
+      next.status !== "IN_PROGRESS"
+    ) {
+      // Với DEPOSIT: chỉ unlock các bước làm giấy tờ sau khi thanh toán đủ 100%
+      // Logic này sẽ được xử lý ở chỗ khác khi thanh toán đủ 100%
+      // Ở đây chỉ unlock cho FULL_PAYMENT hoặc nếu đã unlock rồi
+      if (
+        contract.contractType === "FULL_PAYMENT" ||
+        next.status !== "BLOCKED"
+      ) {
+        next.status = "PENDING";
+      }
+    }
+  }
+}
+import {
+  CONTRACT_TYPES,
+  buildDefaultTimeline,
+  ContractTimelineAttachment,
+  ContractTimelineStatus,
+  ContractTimelineStepId,
+  ContractType,
+  isValidTimelineStatus,
+  isValidTimelineStep,
+} from "../constants/contractTimeline";
+import { generateContractPdf as buildContractPdfFile } from "../services/contractPdfService";
 
 // Lấy thông tin hợp đồng (người mua/bán và xe)
 export const getContractInfo = async (req: Request, res: Response) => {
@@ -22,8 +271,8 @@ export const getContractInfo = async (req: Request, res: Response) => {
       .populate({
         path: "auctionId",
         populate: {
-          path: "listingId"
-        }
+          path: "listingId",
+        },
       })
       .populate("buyerId", "fullName email phone")
       .populate("sellerId", "fullName email phone");
@@ -47,53 +296,24 @@ export const getContractInfo = async (req: Request, res: Response) => {
       });
     }
 
-    // Xác định loại appointment và lấy listing
-    let listing;
-    let depositAmount = 0;
-    let finalPrice = 0; // Giá xe thực tế
-    
-    if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
-      // Appointment từ đấu giá
-      const auction = appointment.auctionId as any;
-      if (!auction || !auction.listingId) {
-        return res.status(400).json({
-          success: false,
-          message: "Không tìm thấy thông tin auction hoặc listingId",
-        });
-      }
-      listing = auction.listingId;
-      depositAmount = auctionDepositService.getParticipationFee(auction); // Tính 10% startingPrice
-      finalPrice = auction.winningBid?.price || auction.startingPrice; // Giá thắng đấu giá
-    } else {
-      // Appointment từ đặt cọc thông thường
-      const depositRequest = appointment.depositRequestId as any;
-      if (!depositRequest || !depositRequest.listingId) {
-        return res.status(400).json({
-          success: false,
-          message: "Không tìm thấy thông tin depositRequest hoặc listingId",
-        });
-      }
-      listing = await Listing.findById(depositRequest.listingId);
-      depositAmount = depositRequest.depositAmount;
-      finalPrice = listing?.priceListed || 0; // Giá niêm yết
-    }
+    const context = await resolveContractContext(appointment);
+    const listing = context.listing;
+    const depositAmount = context.depositAmount;
+    const finalPrice = context.purchasePrice;
 
-    // Kiểm tra listing tồn tại
-    if (!listing) {
-      return res.status(400).json({
-        success: false,
-        message: "Không tìm thấy thông tin xe",
-      });
-    }
+    const buyerProfile = context.buyer;
+    const sellerProfile = context.seller;
 
-    // Lấy thông tin chi tiết
-    // Lấy thông tin chi tiết
-    const buyerProfile = await User.findById((appointment.buyerId as any)._id);
-    const sellerProfile = await User.findById((appointment.sellerId as any)._id);
+    // Tìm contract nếu có
+    const contract = await Contract.findOne({ appointmentId }).select(
+      "_id contractNumber status contractType"
+    );
+    const contractId = contract ? (contract._id as any).toString() : null;
 
     res.json({
       success: true,
       message: "Lấy thông tin hợp đồng thành công",
+      contractId: contractId,
       contractInfo: {
         // Thông tin người mua
         buyer: {
@@ -176,8 +396,8 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       .populate({
         path: "auctionId",
         populate: {
-          path: "listingId"
-        }
+          path: "listingId",
+        },
       });
 
     if (!appointment) {
@@ -194,32 +414,9 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       });
     }
 
-    // Xác định loại appointment và lấy listingId
-    let listingId;
-    let depositRequestId = null;
-    
-    if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
-      // Appointment từ đấu giá
-      const auction = appointment.auctionId as any;
-      if (!auction || !auction.listingId) {
-        return res.status(400).json({
-          success: false,
-          message: "Không tìm thấy thông tin auction hoặc listingId",
-        });
-      }
-      listingId = auction.listingId._id || auction.listingId;
-    } else {
-      // Appointment từ đặt cọc thông thường
-      const depositRequest = appointment.depositRequestId as any;
-      if (!depositRequest || !depositRequest.listingId) {
-        return res.status(400).json({
-          success: false,
-          message: "Không tìm thấy depositRequest hoặc listingId cho lịch hẹn này",
-        });
-      }
-      listingId = depositRequest.listingId;
-      depositRequestId = depositRequest._id;
-    }
+    const context = await resolveContractContext(appointment);
+    const listingId = context.listingId;
+    const depositRequestId = context.depositRequestId ?? null;
 
     // Kiểm tra có file upload không
     const files = req.files as Express.Multer.File[];
@@ -306,81 +503,67 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
     }
 
     if (!contract) {
-      // Tạo contract mới với thông tin cơ bản
-      const listing = await Listing.findById(listingId);
-      const buyer = await User.findById(appointment.buyerId);
-      const seller = await User.findById(appointment.sellerId);
-
-      if (!listing || !buyer || !seller) {
-        return res.status(400).json({
-          success: false,
-          message: "Không tìm thấy thông tin giao dịch",
-        });
-      }
-
-      // Lấy depositAmount tùy theo loại appointment
-      let depositAmount = 0;
-      if (appointment.appointmentType === 'AUCTION' && appointment.auctionId) {
-        const auction = appointment.auctionId as any;
-        depositAmount = auctionDepositService.getParticipationFee(auction); // Tính 10% startingPrice
-      } else if (depositRequestId) {
-        const depositReq = await DepositRequest.findById(depositRequestId);
-        depositAmount = depositReq?.depositAmount || 0;
-      }
+      const context = await resolveContractContext(appointment);
 
       contract = new Contract({
         appointmentId,
-        depositRequestId: depositRequestId,
-        auctionId: appointment.appointmentType === 'AUCTION' ? appointment.auctionId : undefined,
+        depositRequestId: depositRequestId ?? context.depositRequestId,
+        auctionId:
+          appointment.appointmentType === "AUCTION"
+            ? appointment.auctionId
+            : context.auctionId,
         buyerId: appointment.buyerId,
         sellerId: appointment.sellerId,
         listingId: listingId,
         contractNumber: `CT-${Date.now()}`,
         contractDate: new Date(),
-
-        // Thông tin người mua
-        buyerName: buyer.fullName || buyer.email,
-        buyerIdNumber: buyer.citizenId || "N/A",
-        buyerIdIssuedDate: new Date(), // Default value
-        buyerIdIssuedBy: "Cơ quan có thẩm quyền", // Default value
-        buyerAddress: buyer.address?.fullAddress || "N/A",
-
-        // Thông tin người bán
-        sellerName: seller.fullName || seller.email,
-        sellerIdNumber: seller.citizenId || "N/A",
-        sellerIdIssuedDate: new Date(), // Default value
-        sellerIdIssuedBy: "Cơ quan có thẩm quyền", // Default value
-        sellerAddress: seller.address?.fullAddress || "N/A",
-
-        // Thông tin xe
-        vehicleBrand: listing.make || "N/A",
-        vehicleModel: listing.model || "N/A",
-        vehicleType: (listing as any).vehicleType || "N/A",
-        vehicleColor: (listing as any).paintColor || "N/A",
-        engineNumber: (listing as any).engineNumber || "N/A",
-        chassisNumber: (listing as any).chassisNumber || "N/A",
-        seatCount: 1, // Default value - xe máy thường 1-2 chỗ
-        manufactureYear: listing.year || new Date().getFullYear(),
-        licensePlate: (listing as any).licensePlate || "N/A",
-        registrationNumber: "N/A", // Default value - không có trong model
-        registrationIssuedDate: new Date(), // Default value
-        registrationIssuedBy: "Cơ quan có thẩm quyền", // Default value
-        registrationIssuedTo: "N/A", // Default value
-        registrationAddress: "N/A", // Default value
-
-        // Thông tin giao dịch
-        purchasePrice: listing.priceListed || 0,
-        depositAmount: depositAmount,
+        buyerName: context.buyer.fullName || context.buyer.email,
+        buyerIdNumber: context.buyer.citizenId || "N/A",
+        buyerIdIssuedDate: context.buyer.citizenIdIssuedDate || new Date(),
+        buyerIdIssuedBy:
+          context.buyer.citizenIdIssuedBy || "Cơ quan có thẩm quyền",
+        buyerAddress: context.buyer.address?.fullAddress || "N/A",
+        sellerName: context.seller.fullName || context.seller.email,
+        sellerIdNumber: context.seller.citizenId || "N/A",
+        sellerIdIssuedDate: context.seller.citizenIdIssuedDate || new Date(),
+        sellerIdIssuedBy:
+          context.seller.citizenIdIssuedBy || "Cơ quan có thẩm quyền",
+        sellerAddress: context.seller.address?.fullAddress || "N/A",
+        vehicleBrand:
+          context.listing.make || (context.listing as any).brand || "N/A",
+        vehicleModel: context.listing.model || "N/A",
+        vehicleType:
+          context.listing.vehicleType || (context.listing as any).type || "N/A",
+        vehicleColor:
+          context.listing.paintColor || (context.listing as any).color || "N/A",
+        engineNumber: context.listing.engineNumber || "N/A",
+        chassisNumber: context.listing.chassisNumber || "N/A",
+        seatCount: context.listing.seatCount || 2,
+        manufactureYear: context.listing.year || new Date().getFullYear(),
+        licensePlate: context.listing.licensePlate || "N/A",
+        registrationNumber: context.listing.registrationNumber || "N/A",
+        registrationIssuedDate: context.listing.registrationDate || new Date(),
+        registrationIssuedBy:
+          context.listing.registrationIssuedBy || "Cơ quan có thẩm quyền",
+        registrationIssuedTo: context.listing.registrationIssuedTo || "N/A",
+        registrationAddress: context.listing.registrationAddress || "N/A",
+        purchasePrice: context.purchasePrice,
+        depositAmount: context.depositAmount,
         paymentMethod: "Escrow",
-
         status: "SIGNED",
         signedAt: new Date(),
-
-        // Thông tin staff
         staffId: staffId!,
         staffName: req.user?.name || req.user?.email,
-
-        contractPhotos: uploadedPhotos, // ✅ Ảnh mới
+        contractPhotos: uploadedPhotos,
+        contractType:
+          context.appointment.appointmentType === "NORMAL_DEPOSIT"
+            ? "DEPOSIT"
+            : "FULL_PAYMENT",
+        paperworkTimeline: buildDefaultTimeline(
+          context.appointment.appointmentType === "NORMAL_DEPOSIT"
+            ? "DEPOSIT"
+            : "FULL_PAYMENT"
+        ),
       });
     } else {
       // ✅ Replace toàn bộ ảnh cũ bằng ảnh mới (không append)
@@ -391,6 +574,27 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       contract.staffName = req.user?.name || req.user?.email;
     }
 
+    ensureTimeline(contract, contract.contractType || "DEPOSIT");
+    const signStep = contract.paperworkTimeline.find(
+      (item) => item.step === "SIGN_CONTRACT"
+    );
+    if (signStep) {
+      signStep.status = "DONE";
+      signStep.updatedAt = new Date();
+      signStep.updatedBy = staffId!;
+      const attachments: ContractTimelineAttachment[] = uploadedPhotos.map(
+        (photo) => ({
+          url: photo.url,
+          publicId: photo.publicId,
+          description: photo.description,
+          uploadedAt: photo.uploadedAt,
+          uploadedBy: staffId!,
+        })
+      );
+      signStep.attachments = [...signStep.attachments, ...attachments];
+    }
+
+    applyTimelineAutoProgress(contract);
     await contract.save();
 
     res.json({
@@ -438,8 +642,8 @@ export const completeTransaction = async (req: Request, res: Response) => {
       .populate({
         path: "auctionId",
         populate: {
-          path: "listingId"
-        }
+          path: "listingId",
+        },
       });
 
     if (!appointment) {
@@ -469,31 +673,49 @@ export const completeTransaction = async (req: Request, res: Response) => {
       });
     }
 
+    const context = await resolveContractContext(appointment);
+
     // Xác định loại appointment và xử lý tương ứng
-    const isAuction = appointment.appointmentType === 'AUCTION' && appointment.auctionId;
-    let listingId;
+    const isAuction =
+      appointment.appointmentType === "AUCTION" && appointment.auctionId;
+    let listingId = context.listingId || contract.listingId?.toString();
 
     if (isAuction) {
       // Appointment từ đấu giá - Không cần chuyển tiền từ escrow vì đã xử lý khi đấu giá
       const auction = appointment.auctionId as any;
-      listingId = auction?.listingId?._id || auction?.listingId;
-      
-      // Với auction, tiền cọc đã bị khóa, không cần completeTransaction
-      console.log('✅ Completing auction transaction - no escrow transfer needed');
+      listingId =
+        listingId || auction?.listingId?._id?.toString() || auction?.listingId;
+
+      console.log(
+        "✅ Completing auction transaction - no escrow transfer needed"
+      );
     } else {
-      // Appointment từ đặt cọc thông thường
       const depositRequest = appointment.depositRequestId as any;
-      if (!depositRequest || !depositRequest._id) {
-        return res.status(400).json({
-          success: false,
-          message: "Không tìm thấy thông tin deposit request",
-        });
+      if (depositRequest && depositRequest._id) {
+        const linkedListing = depositRequest.listingId;
+        if (linkedListing) {
+          if (typeof linkedListing === "object") {
+            listingId =
+              linkedListing._id?.toString() ??
+              linkedListing.id?.toString() ??
+              listingId;
+          } else {
+            listingId = linkedListing.toString();
+          }
+        }
+        await walletService.completeTransaction(depositRequest._id);
+      } else {
+        console.log(
+          "⚠️ No depositRequest attached to appointment, skip escrow transfer"
+        );
       }
-      
-      listingId = depositRequest.listingId;
-      
-      // Chuyển tiền từ Escrow về hệ thống
-      await walletService.completeTransaction(depositRequest._id);
+    }
+
+    if (!listingId) {
+      return res.status(400).json({
+        success: false,
+        message: "Không xác định được listing cho giao dịch",
+      });
     }
 
     // Cập nhật trạng thái listing thành Sold
@@ -510,6 +732,16 @@ export const completeTransaction = async (req: Request, res: Response) => {
     // Lưu thông tin staff xử lý giao dịch
     contract.staffId = staffId!;
     contract.staffName = req.user?.name || req.user?.email;
+    ensureTimeline(contract, contract.contractType || "DEPOSIT");
+    const handoverStep = contract.paperworkTimeline.find(
+      (item) => item.step === "HANDOVER_PAPERS_AND_CAR"
+    );
+    if (handoverStep) {
+      handoverStep.status = "DONE";
+      handoverStep.updatedAt = new Date();
+      handoverStep.updatedBy = staffId!;
+    }
+    applyTimelineAutoProgress(contract);
     await contract.save();
 
     // Cập nhật trạng thái appointment
@@ -519,13 +751,19 @@ export const completeTransaction = async (req: Request, res: Response) => {
 
     // Cập nhật DepositRequest status từ IN_ESCROW sang COMPLETED (chỉ cho trường hợp deposit thông thường, không phải auction)
     if (!isAuction && appointment.depositRequestId) {
-      const depositRequestId = (appointment.depositRequestId as any)?._id || appointment.depositRequestId;
+      const depositRequestId =
+        (appointment.depositRequestId as any)?._id ||
+        appointment.depositRequestId;
       if (depositRequestId) {
-        const depositRequestDoc = await DepositRequest.findById(depositRequestId);
+        const depositRequestDoc = await DepositRequest.findById(
+          depositRequestId
+        );
         if (depositRequestDoc && depositRequestDoc.status === "IN_ESCROW") {
           depositRequestDoc.status = "COMPLETED";
           await depositRequestDoc.save();
-          console.log(`✅ Updated deposit request ${depositRequestId} status from IN_ESCROW to COMPLETED`);
+          console.log(
+            `✅ Updated deposit request ${depositRequestId} status from IN_ESCROW to COMPLETED`
+          );
         }
       }
     }
@@ -617,6 +855,195 @@ export const getStaffContracts = async (req: Request, res: Response) => {
   }
 };
 
+export const getContractTimeline = async (req: Request, res: Response) => {
+  try {
+    const { contractId } = req.params;
+    const contract = await Contract.findById(contractId).populate({
+      path: "appointmentId",
+      populate: [
+        { path: "buyerId", select: "_id email name" },
+        { path: "sellerId", select: "_id email name" },
+      ],
+    });
+
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy hợp đồng",
+      });
+    }
+
+    const userId = req.user?.id;
+
+    // ✅ Kiểm tra quyền: staff hoặc buyer/seller
+    const isStaffUser = isStaff(req.user);
+
+    let isBuyer = false;
+    let isSeller = false;
+
+    if (!isStaffUser && contract.appointmentId) {
+      const appointment = contract.appointmentId as any;
+      // Kiểm tra từ appointment (giống logic trong getContractInfo)
+      isBuyer =
+        (appointment.buyerId as any)?._id?.toString() === userId ||
+        (appointment.buyerId as any)?.toString() === userId ||
+        contract.buyerId?.toString() === userId;
+      isSeller =
+        (appointment.sellerId as any)?._id?.toString() === userId ||
+        (appointment.sellerId as any)?.toString() === userId ||
+        contract.sellerId?.toString() === userId;
+    } else if (!isStaffUser) {
+      // Fallback: kiểm tra từ contract nếu không có appointment
+      isBuyer = contract.buyerId?.toString() === userId;
+      isSeller = contract.sellerId?.toString() === userId;
+    }
+
+    // const canView = isStaffUser || isBuyer || isSeller;
+
+    // if (!canView) {
+    //   return res.status(403).json({
+    //     success: false,
+    //     message: "Bạn không có quyền xem timeline hợp đồng này",
+    //   });
+    // }
+
+    ensureTimeline(contract, contract.contractType || "DEPOSIT");
+
+    res.json({
+      success: true,
+      message: "Lấy timeline hợp đồng thành công",
+      data: contract.paperworkTimeline,
+    });
+  } catch (error: any) {
+    console.error("Error getting contract timeline:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
+export const updateContractTimelineStep = async (
+  req: Request,
+  res: Response
+) => {
+  try {
+    const { contractId, step } = req.params;
+    const { status, note, dueDate } = req.body as {
+      status?: ContractTimelineStatus;
+      note?: string;
+      dueDate?: string;
+    };
+
+    if (!isStaff(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền cập nhật timeline",
+      });
+    }
+
+    if (!isValidTimelineStep(step)) {
+      return res.status(400).json({
+        success: false,
+        message: "Bước timeline không hợp lệ",
+      });
+    }
+
+    if (status && !isValidTimelineStatus(status)) {
+      return res.status(400).json({
+        success: false,
+        message: "Trạng thái timeline không hợp lệ",
+      });
+    }
+
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy hợp đồng",
+      });
+    }
+
+    ensureTimeline(contract, contract.contractType || "DEPOSIT");
+
+    const timelineStep = contract.paperworkTimeline.find(
+      (item) => item.step === (step as ContractTimelineStepId)
+    );
+
+    if (!timelineStep) {
+      return res.status(400).json({
+        success: false,
+        message: "Không tìm thấy bước timeline",
+      });
+    }
+
+    if (status) {
+      timelineStep.status = status;
+      if (status === "DONE" && step === "SIGN_CONTRACT") {
+        contract.status =
+          contract.status === "DRAFT" ? "SIGNED" : contract.status;
+        contract.signedAt = contract.signedAt || new Date();
+      }
+    }
+
+    if (note !== undefined) {
+      timelineStep.note = note;
+    }
+
+    if (dueDate !== undefined) {
+      timelineStep.dueDate = dueDate ? new Date(dueDate) : undefined;
+    }
+
+    timelineStep.updatedAt = new Date();
+    timelineStep.updatedBy = req.user?.id;
+
+    const files = req.files as Express.Multer.File[];
+    if (files && files.length > 0) {
+      for (const file of files) {
+        if (!file.buffer || file.buffer.length === 0) {
+          continue;
+        }
+
+        const uploadResult = await uploadFromBuffer(
+          file.buffer,
+          `contract-${contractId}-${Date.now()}`,
+          {
+            folder: "secondhand-ev/contracts/timeline",
+            resource_type: "image",
+          }
+        );
+
+        const attachment: ContractTimelineAttachment = {
+          url: uploadResult.secureUrl,
+          publicId: uploadResult.publicId,
+          description: file.originalname,
+          uploadedAt: new Date(),
+          uploadedBy: req.user?.id || "staff",
+        };
+
+        timelineStep.attachments.push(attachment);
+      }
+    }
+
+    applyTimelineAutoProgress(contract);
+    await contract.save();
+
+    res.json({
+      success: true,
+      message: "Cập nhật timeline thành công",
+      data: contract.paperworkTimeline,
+    });
+  } catch (error: any) {
+    console.error("Error updating contract timeline:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
 // Staff hủy giao dịch tại cuộc hẹn (trường hợp C)
 export const cancelContractTransaction = async (
   req: Request,
@@ -674,12 +1101,31 @@ export const cancelContractTransaction = async (
     // Hoàn tiền từ escrow về ví người mua với phí hủy (80% tiền đặt cọc về buyer, 20% về system)
     // Tiền đặt cọc = 10% giá xe, khi hủy: hoàn 8% giá xe (80% tiền đặt cọc) về buyer, 2% giá xe (20% tiền đặt cọc) về system
     const depositRequest = appointment.depositRequestId as any;
-    await walletService.refundFromEscrowWithCancellationFee(
-      depositRequest._id.toString()
-    );
+    if (depositRequest && depositRequest._id) {
+      await walletService.refundFromEscrowWithCancellationFee(
+        depositRequest._id.toString()
+      );
+    } else {
+      console.log(
+        "⚠️ No depositRequest attached to appointment, skip escrow refund"
+      );
+    }
+
+    let listingId: string | undefined;
+    if (depositRequest?.listingId) {
+      if (typeof depositRequest.listingId === "object") {
+        listingId =
+          depositRequest.listingId._id?.toString() ||
+          depositRequest.listingId.id?.toString();
+      } else {
+        listingId = depositRequest.listingId.toString();
+      }
+    } else if (appointment.listingId) {
+      listingId = appointment.listingId.toString();
+    }
 
     // Cập nhật trạng thái listing về Published để có thể bán lại
-    const listing = await Listing.findById(depositRequest.listingId);
+    let listing = listingId ? await Listing.findById(listingId) : null;
     if (listing && listing.status === "InTransaction") {
       listing.status = "Published";
       await listing.save();
@@ -696,10 +1142,14 @@ export const cancelContractTransaction = async (
     await appointment.save();
 
     // Cập nhật DepositRequest status
-    const depositRequestDoc = await DepositRequest.findById(depositRequest._id);
-    if (depositRequestDoc) {
-      depositRequestDoc.status = "CANCELLED";
-      await depositRequestDoc.save();
+    if (depositRequest && depositRequest._id) {
+      const depositRequestDoc = await DepositRequest.findById(
+        depositRequest._id
+      );
+      if (depositRequestDoc) {
+        depositRequestDoc.status = "CANCELLED";
+        await depositRequestDoc.save();
+      }
     }
 
     // Cập nhật hợp đồng nếu có
@@ -716,7 +1166,9 @@ export const cancelContractTransaction = async (
     try {
       const buyer = await User.findById(appointment.buyerId);
       const seller = await User.findById(appointment.sellerId);
-      const listing = await Listing.findById(depositRequest.listingId);
+      if (!listing && listingId) {
+        listing = await Listing.findById(listingId);
+      }
 
       if (buyer && seller && listing) {
         // Gửi email cho buyer
@@ -767,6 +1219,169 @@ export const cancelContractTransaction = async (
     });
   } catch (error: any) {
     console.error("Error cancelling contract transaction:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
+export const generateContractPdfFile = async (req: Request, res: Response) => {
+  try {
+    const { contractId } = req.params;
+
+    if (!isStaff(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền tạo file PDF hợp đồng",
+      });
+    }
+
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy hợp đồng",
+      });
+    }
+
+    // ✅ Validate contract data trước khi tạo PDF
+    if (!contract.buyerId || !contract.sellerId || !contract.listingId) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Hợp đồng thiếu thông tin cần thiết (buyerId, sellerId, hoặc listingId)",
+      });
+    }
+
+    if (!contract.buyerName || !contract.sellerName) {
+      return res.status(400).json({
+        success: false,
+        message: "Hợp đồng thiếu thông tin người mua/bán",
+      });
+    }
+
+    console.log(`[PDF Generation] Starting for contract ${contractId}`);
+    console.log(`[PDF Generation] Contract type: ${contract.contractType}`);
+    console.log(`[PDF Generation] Contract number: ${contract.contractNumber}`);
+
+    const [buyerUser, sellerUser] = await Promise.all([
+      User.findById(contract.buyerId).select("email phone fullName"),
+      User.findById(contract.sellerId).select("email phone fullName"),
+    ]);
+
+    console.log(
+      `[PDF Generation] Buyer: ${buyerUser?.email || contract.buyerName}`
+    );
+    console.log(
+      `[PDF Generation] Seller: ${sellerUser?.email || contract.sellerName}`
+    );
+
+    const pdf = await buildContractPdfFile(contract, {
+      buyerContact: {
+        email: buyerUser?.email,
+        phone: buyerUser?.phone,
+      },
+      sellerContact: {
+        email: sellerUser?.email,
+        phone: sellerUser?.phone,
+      },
+      staffContact: {
+        email: req.user?.email || req.user?.name,
+      },
+    });
+
+    console.log(`[PDF Generation] PDF created successfully: ${pdf.url}`);
+
+    contract.contractPdfUrl = pdf.url;
+    contract.contractPdfPublicId = pdf.publicId;
+    await contract.save();
+
+    res.json({
+      success: true,
+      message: "Tạo file hợp đồng thành công",
+      data: {
+        contractId: contract._id,
+        contractPdfUrl: contract.contractPdfUrl,
+      },
+    });
+  } catch (error: any) {
+    console.error("❌ Error generating contract PDF:", error);
+    console.error("❌ Contract ID:", req.params.contractId);
+    console.error("❌ Error stack:", error?.stack);
+    console.error("❌ Error details:", {
+      message: error?.message,
+      name: error?.name,
+      code: error?.code,
+    });
+
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống khi tạo PDF",
+      error: error?.message || "Unknown error",
+      details:
+        process.env.NODE_ENV === "development" ? error?.stack : undefined,
+    });
+  }
+};
+
+export const getContractPdfFile = async (req: Request, res: Response) => {
+  try {
+    const { contractId } = req.params;
+    const contract = await Contract.findById(contractId);
+
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy hợp đồng",
+      });
+    }
+
+    const userId = req.user?.id;
+    const canView =
+      isStaff(req.user) ||
+      contract.buyerId?.toString() === userId ||
+      contract.sellerId?.toString() === userId;
+
+    if (!canView) {
+      return res.status(403).json({
+        success: false,
+        message: "Bạn không có quyền truy cập file hợp đồng này",
+      });
+    }
+
+    if (!contract.contractPdfUrl) {
+      return res.status(404).json({
+        success: false,
+        message: "Chưa có file PDF, vui lòng tạo trước",
+      });
+    }
+
+    // ✅ Tự động download file PDF khi gọi API
+    try {
+      // Fetch file PDF từ Cloudinary
+      const response = await axios.get(contract.contractPdfUrl, {
+        responseType: "arraybuffer",
+      });
+
+      // Set headers để browser tự động download file PDF
+      res.setHeader("Content-Type", "application/pdf");
+      res.setHeader(
+        "Content-Disposition",
+        `attachment; filename="hop-dong-${contract.contractNumber}.pdf"`
+      );
+      res.setHeader("Content-Length", response.data.length);
+
+      // Gửi file PDF về client
+      return res.send(Buffer.from(response.data));
+    } catch (fetchError: any) {
+      console.error("Error fetching PDF from Cloudinary:", fetchError);
+      // Nếu không fetch được, fallback: redirect đến URL
+      return res.redirect(contract.contractPdfUrl);
+    }
+  } catch (error: any) {
+    console.error("Error getting contract PDF:", error);
     res.status(500).json({
       success: false,
       message: "Lỗi hệ thống",
