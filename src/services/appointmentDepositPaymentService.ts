@@ -277,6 +277,16 @@ export const createFullPaymentUrl = async (
   let signed = hmac.update(Buffer.from(signData, "utf-8")).digest("hex");
   vnp_Params["vnp_SecureHash"] = signed;
 
+  // Debug logging để kiểm tra hash
+  console.log("=== Full Payment Debug ===");
+  console.log("vnp_TmnCode:", VNPayConfig.vnp_TmnCode);
+  console.log("vnp_ReturnUrl:", vnp_Params["vnp_ReturnUrl"]);
+  console.log("vnp_Amount:", vnp_Params["vnp_Amount"]);
+  console.log("vnp_TxnRef:", vnp_Params["vnp_TxnRef"]);
+  console.log("vnp_OrderInfo:", vnp_Params["vnp_OrderInfo"]);
+  console.log("Sign Data:", signData);
+  console.log("Signed Hash:", signed);
+
   let vnpUrl =
     VNPayConfig.vnp_Url +
     "?" +
@@ -594,6 +604,46 @@ export const handleDeposit10Callback = async (vnp_Params: any) => {
       }
       await appointment.save();
 
+      // Cập nhật listing status thành "InTransaction" khi đặt cọc 10%
+      let listingId: string | null = null;
+      if (appointment.listingId) {
+        listingId = appointment.listingId.toString().replace(/,/g, "");
+      } else if (appointment.depositRequestId) {
+        const depositRequest = await DepositRequest.findById(
+          appointment.depositRequestId.toString().replace(/,/g, "")
+        );
+        if (depositRequest && depositRequest.listingId) {
+          listingId = depositRequest.listingId.toString().replace(/,/g, "");
+        }
+      }
+
+      if (listingId) {
+        try {
+          const listing = await Listing.findById(listingId);
+          if (listing && listing.status === "Published") {
+            listing.status = "InTransaction";
+            await listing.save();
+            console.log(
+              `✅ [Deposit 10%] Updated listing ${listingId} status to "InTransaction"`
+            );
+          } else if (listing && listing.status !== "InTransaction") {
+            console.log(
+              `⚠️ [Deposit 10%] Listing ${listingId} status is "${listing.status}", not updating to InTransaction`
+            );
+          }
+        } catch (listingError: any) {
+          console.error(
+            `❌ [Deposit 10%] Error updating listing status:`,
+            listingError.message
+          );
+          // Không throw error vì thanh toán đã thành công, chỉ log
+        }
+      } else {
+        console.log(
+          `⚠️ [Deposit 10%] No listingId found in appointment, skipping listing update`
+        );
+      }
+
       // Gửi email và notification
       const buyer = await User.findById(appointment.buyerId);
       if (buyer && buyer.email) {
@@ -891,6 +941,44 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
         `[Full Payment] ✅ Appointment ${appointmentId} saved with status COMPLETED`
       );
 
+      // Cập nhật listing status thành "Sold" khi thanh toán toàn bộ 100%
+      let listingId: string | null = null;
+      if (appointment.listingId) {
+        listingId = appointment.listingId.toString().replace(/,/g, "");
+      } else if (appointment.depositRequestId) {
+        const depositRequest = await DepositRequest.findById(
+          appointment.depositRequestId.toString().replace(/,/g, "")
+        );
+        if (depositRequest && depositRequest.listingId) {
+          listingId = depositRequest.listingId.toString().replace(/,/g, "");
+        }
+      }
+
+      if (listingId) {
+        try {
+          const listing = await Listing.findById(listingId);
+          if (listing && listing.status !== "Sold") {
+            listing.status = "Sold";
+            await listing.save();
+            console.log(
+              `✅ [Full Payment] Updated listing ${listingId} status to "Sold"`
+            );
+          } else if (listing && listing.status === "Sold") {
+            console.log(`⚠️ [Full Payment] Listing ${listingId} already sold`);
+          }
+        } catch (listingError: any) {
+          console.error(
+            `❌ [Full Payment] Error updating listing status:`,
+            listingError.message
+          );
+          // Không throw error vì thanh toán đã thành công, chỉ log
+        }
+      } else {
+        console.log(
+          `⚠️ [Full Payment] No listingId found in appointment, skipping listing update`
+        );
+      }
+
       // Verify appointment was saved correctly
       const savedAppointment = await Appointment.findById(appointmentId);
       if (savedAppointment) {
@@ -1177,6 +1265,44 @@ export const handleRemaining90Callback = async (vnp_Params: any) => {
       appointment.timeline.completedAt = new Date();
       appointment.status = "COMPLETED";
       await appointment.save();
+
+      // Cập nhật listing status thành "Sold" khi thanh toán còn lại 90%
+      let listingId: string | null = null;
+      if (appointment.listingId) {
+        listingId = appointment.listingId.toString().replace(/,/g, "");
+      } else if (appointment.depositRequestId) {
+        const depositRequest = await DepositRequest.findById(
+          appointment.depositRequestId.toString().replace(/,/g, "")
+        );
+        if (depositRequest && depositRequest.listingId) {
+          listingId = depositRequest.listingId.toString().replace(/,/g, "");
+        }
+      }
+
+      if (listingId) {
+        try {
+          const listing = await Listing.findById(listingId);
+          if (listing && listing.status !== "Sold") {
+            listing.status = "Sold";
+            await listing.save();
+            console.log(
+              `✅ [Remaining 90%] Updated listing ${listingId} status to "Sold"`
+            );
+          } else if (listing && listing.status === "Sold") {
+            console.log(`⚠️ [Remaining 90%] Listing ${listingId} already sold`);
+          }
+        } catch (listingError: any) {
+          console.error(
+            `❌ [Remaining 90%] Error updating listing status:`,
+            listingError.message
+          );
+          // Không throw error vì thanh toán đã thành công, chỉ log
+        }
+      } else {
+        console.log(
+          `⚠️ [Remaining 90%] No listingId found in appointment, skipping listing update`
+        );
+      }
 
       // Gửi email và notification
       const buyer = await User.findById(appointment.buyerId);

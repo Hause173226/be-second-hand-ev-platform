@@ -5,10 +5,33 @@ import Listing from '../models/Listing';
 import Contract from '../models/Contract';
 import { User } from '../models/User';
 import emailService from '../services/emailService';
+import { uploadFromBuffer } from "../services/cloudinaryService";
 import walletService from '../services/walletService';
+import systemWalletService from "../services/systemWalletService";
 import depositNotificationService from '../services/depositNotificationService';
 import Chat from '../models/Chat';
 import { WebSocketService } from '../services/websocketService';
+import dealService from '../services/dealService';
+import { buildDefaultTimeline } from '../constants/contractTimeline';
+
+const mapAppointmentTypeToMilestone = (
+  type?: string
+): "signContract" | "notarization" | "handover" | undefined => {
+  switch (type) {
+    case "CONTRACT_SIGNING":
+      return "signContract";
+    case "CONTRACT_NOTARIZATION":
+      return "notarization";
+    case "VEHICLE_HANDOVER":
+    case "DELIVERY":
+      return "handover";
+    case "DELIVERY":
+    case "VEHICLE_DELIVERY":
+      return "handover";
+    default:
+      return undefined;
+  }
+};
 
 export const createAppointmentFromChat = async (req: Request, res: Response) => {
   try {
@@ -127,6 +150,55 @@ export const createAppointmentFromChat = async (req: Request, res: Response) => 
       sellerConfirmedAt: isSeller ? now : undefined,
     });
 
+    let createdDealId: string | undefined;
+    if (listingIdValue) {
+      const listingFromChat = chat.listingId as any;
+      const vehiclePrice =
+        listingFromChat?.priceListed ||
+        listingFromChat?.price ||
+        listingFromChat?.expectedPrice ||
+        0;
+
+      if (vehiclePrice > 0) {
+        try {
+          const depositAmount = Math.round(vehiclePrice * 0.1);
+          const deal = await dealService.createDeal({
+            listingId: listingIdValue,
+            buyerId,
+            sellerId,
+            dealType: "DEPOSIT",
+            source: "NORMAL_DEPOSIT",
+            paymentPlan: {
+              vehiclePrice,
+              depositAmount,
+              remainingAmount: Math.max(vehiclePrice - depositAmount, 0),
+            },
+            notes: `Deal tạo từ appointment chat ${appointment._id}`,
+            createdBy: userId,
+          });
+
+          createdDealId = (deal._id as any)?.toString?.() || "";
+          appointment.dealId = createdDealId;
+          await appointment.save();
+
+          const milestone = mapAppointmentTypeToMilestone(appointment.type);
+          if (milestone && createdDealId) {
+            try {
+              await dealService.updateAppointmentMilestone(createdDealId, milestone, {
+                appointmentId: (appointment._id as any)?.toString?.(),
+                status: "SCHEDULED",
+                scheduledAt: appointment.scheduledDate,
+              });
+            } catch (err) {
+              console.error("Error updating deal milestone:", err);
+            }
+          }
+        } catch (dealError) {
+          console.error("Error creating deal from chat appointment:", dealError);
+        }
+      }
+    }
+
     // WebSocket notify người còn lại
     try {
       const wsService = WebSocketService.getInstance();
@@ -156,6 +228,7 @@ export const createAppointmentFromChat = async (req: Request, res: Response) => 
         status: appointment.status,
         type: appointment.type,
         createdBy,
+        dealId: appointment.dealId || createdDealId,
       },
     });
   } catch (error) {
@@ -254,7 +327,7 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
     const sellerConfirmed = isSeller;
     const now = new Date();
 
-        const appointment = new Appointment({
+    const appointment = new Appointment({
       depositRequestId,
       listingId: depositRequest.listingId,
       appointmentType: 'NORMAL_DEPOSIT',
@@ -270,9 +343,24 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
       sellerConfirmed: sellerConfirmed,
       buyerConfirmedAt: buyerConfirmed ? now : undefined,
       sellerConfirmedAt: sellerConfirmed ? now : undefined
-        });
+    });
 
-        await appointment.save();
+    await appointment.save();
+
+    if (appointment.dealId) {
+      const milestone = mapAppointmentTypeToMilestone(appointment.type);
+      if (milestone) {
+        try {
+          await dealService.updateAppointmentMilestone(appointment.dealId, milestone, {
+            appointmentId: (appointment._id as any)?.toString?.(),
+            status: "SCHEDULED",
+            scheduledAt: appointment.scheduledDate,
+          });
+        } catch (err) {
+          console.error("Error updating deal milestone:", err);
+        }
+      }
+    }
 
     // Gửi thông báo cho người mua
     try {
@@ -314,6 +402,1122 @@ export const createAppointment = async (req: Request, res: Response): Promise<an
   }
 };
 
+// Staff gửi yêu cầu công chứng với nhiều time slot
+export const requestNotarizationAppointment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userRole = req.user?.role;
+    if (userRole !== 'staff' && userRole !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: 'Chỉ nhân viên mới có quyền gửi yêu cầu công chứng'
+      });
+    }
+
+    const { dealId } = req.params;
+    const { proposedSlots, location, notes } = req.body || {};
+
+    if (!dealId) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu dealId'
+      });
+    }
+
+    if (!Array.isArray(proposedSlots) || proposedSlots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Vui lòng cung cấp ít nhất 1 slot thời gian'
+      });
+    }
+
+    const normalizedSlots = proposedSlots
+      .map((slot: string) => new Date(slot))
+      .filter((slotDate) => !isNaN(slotDate.getTime()) && slotDate.getTime() > Date.now());
+
+    if (normalizedSlots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Các slot thời gian không hợp lệ hoặc đã qua'
+      });
+    }
+
+    if (normalizedSlots.length > 5) {
+      return res.status(400).json({
+        success: false,
+        message: 'Chỉ cho phép tối đa 5 slot đề xuất'
+      });
+    }
+
+    const deal = await dealService.getDealById(dealId);
+    if (!deal) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy deal tương ứng'
+      });
+    }
+
+    const firstSlot = normalizedSlots[0];
+    const appointment = await Appointment.create({
+      dealId: deal._id?.toString(),
+      listingId: deal.listingId,
+      appointmentType: deal.dealType === 'AUCTION' ? 'AUCTION' : 'NORMAL_DEPOSIT',
+      buyerId: deal.buyerId,
+      sellerId: deal.sellerId,
+      createdBy: 'STAFF',
+      scheduledDate: firstSlot,
+      status: 'PENDING_CONFIRMATION',
+      type: 'CONTRACT_NOTARIZATION',
+      location: location || 'Văn phòng công chứng',
+      notes,
+      proposedSlots: normalizedSlots,
+      buyerConfirmed: false,
+      sellerConfirmed: false,
+      buyerConfirmedAt: undefined,
+      sellerConfirmedAt: undefined
+    });
+
+    const appointmentIdStr = (appointment as any)?._id?.toString?.();
+
+    if (deal._id && appointmentIdStr) {
+      try {
+        await dealService.updatePaperworkStep(deal._id.toString(), 'NOTARIZATION', {
+          status: 'IN_PROGRESS',
+          note: 'Đang chờ buyer & seller chọn lịch công chứng',
+          appointmentId: appointmentIdStr
+        });
+      } catch (err) {
+        console.error('Error updating deal paperwork for notarization:', err);
+      }
+
+      try {
+        await dealService.updateAppointmentMilestone(deal._id.toString(), 'notarization', {
+          appointmentId: appointmentIdStr,
+          status: 'SCHEDULED',
+          scheduledAt: firstSlot
+        });
+      } catch (err) {
+        console.error('Error updating deal milestone for notarization:', err);
+      }
+    }
+
+    try {
+      const contract: any =
+        ((deal._id &&
+          (await Contract.findOne({ dealId: deal._id.toString() }))) ||
+          (await Contract.findOne({ appointmentId: appointmentIdStr })));
+
+      if (contract) {
+        if (!contract.paperworkTimeline || contract.paperworkTimeline.length === 0) {
+          contract.paperworkTimeline = buildDefaultTimeline(
+            contract.contractType || "DEPOSIT"
+          ) as any;
+        }
+
+        const notarizationStep = contract.paperworkTimeline.find(
+          (step: any) => step.step === "NOTARIZATION"
+        );
+
+        if (notarizationStep) {
+          const notarizationStepAny: any = notarizationStep;
+          notarizationStepAny.status = "IN_PROGRESS";
+          notarizationStepAny.note = "Đang chờ buyer & seller chọn lịch công chứng";
+          notarizationStepAny.appointmentRequired = true;
+          notarizationStepAny.appointmentId = appointmentIdStr;
+          notarizationStepAny.updatedAt = new Date();
+          notarizationStepAny.updatedBy = req.user?.id;
+          contract.markModified("paperworkTimeline");
+          await contract.save();
+        }
+      }
+    } catch (contractTimelineError) {
+      console.error(
+        "Error updating contract timeline for notarization request:",
+        contractTimelineError
+      );
+    }
+
+    try {
+      const [buyerInfo, sellerInfo, listingInfo] = await Promise.all([
+        User.findById(deal.buyerId),
+        User.findById(deal.sellerId),
+        Listing.findById(deal.listingId),
+      ]);
+
+      if (buyerInfo) {
+        await depositNotificationService.sendNotarizationRequestNotification(
+          buyerInfo._id.toString(),
+          appointment,
+          sellerInfo,
+          listingInfo
+        );
+      }
+
+      if (sellerInfo) {
+        await depositNotificationService.sendNotarizationRequestNotification(
+          sellerInfo._id.toString(),
+          appointment,
+          buyerInfo,
+          listingInfo
+        );
+      }
+    } catch (notificationError) {
+      console.error(
+        "Error sending notarization request notification:",
+        notificationError
+      );
+    }
+
+    res.status(201).json({
+      success: true,
+      message: 'Đã gửi yêu cầu công chứng tới người mua và người bán',
+      appointment: {
+        id: appointmentIdStr || appointment._id,
+        status: appointment.status,
+        proposedSlots: appointment.proposedSlots,
+        location: appointment.location,
+        dealId: appointment.dealId
+      }
+    });
+  } catch (error) {
+    console.error('Error requesting notarization appointment:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const requestHandoverAppointment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userRole = req.user?.role;
+    if (userRole !== "staff" && userRole !== "admin") {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền gửi yêu cầu bàn giao xe",
+      });
+    }
+
+    const { dealId } = req.params;
+    const { proposedSlots, location, notes } = req.body || {};
+
+    if (!dealId) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu dealId",
+      });
+    }
+
+    if (!Array.isArray(proposedSlots) || proposedSlots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui lòng cung cấp ít nhất 1 slot thời gian",
+      });
+    }
+
+    const normalizedSlots = proposedSlots
+      .map((slot: string) => new Date(slot))
+      .filter((slotDate) => !isNaN(slotDate.getTime()) && slotDate.getTime() > Date.now());
+
+    if (normalizedSlots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Các slot thời gian không hợp lệ hoặc đã qua",
+      });
+    }
+
+    if (normalizedSlots.length > 5) {
+      return res.status(400).json({
+        success: false,
+        message: "Chỉ cho phép tối đa 5 slot đề xuất",
+      });
+    }
+
+    const deal = await dealService.getDealById(dealId);
+    if (!deal) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy deal tương ứng",
+      });
+    }
+
+    const firstSlot = normalizedSlots[0];
+    const appointment = await Appointment.create({
+      dealId: deal._id?.toString(),
+      listingId: deal.listingId,
+      appointmentType: deal.dealType === "AUCTION" ? "AUCTION" : "NORMAL_DEPOSIT",
+      buyerId: deal.buyerId,
+      sellerId: deal.sellerId,
+      createdBy: "STAFF",
+      scheduledDate: firstSlot,
+      status: "PENDING_CONFIRMATION",
+      type: "VEHICLE_HANDOVER",
+      location: location || "Địa điểm bàn giao",
+      notes,
+      proposedSlots: normalizedSlots,
+      buyerConfirmed: false,
+      sellerConfirmed: false,
+    });
+
+    const appointmentIdStr = (appointment as any)?._id?.toString?.();
+
+    if (deal._id && appointmentIdStr) {
+      try {
+        await dealService.updatePaperworkStep(deal._id.toString(), "HANDOVER_PAPERS_AND_CAR", {
+          status: "IN_PROGRESS",
+          note: "Đang chờ chọn lịch bàn giao xe",
+          appointmentId: appointmentIdStr,
+        });
+      } catch (err) {
+        console.error("Error updating deal paperwork for handover:", err);
+      }
+
+      try {
+        await dealService.updateAppointmentMilestone(deal._id.toString(), "handover", {
+          appointmentId: appointmentIdStr,
+          status: "SCHEDULED",
+          scheduledAt: firstSlot,
+        });
+      } catch (err) {
+        console.error("Error updating deal milestone for handover:", err);
+      }
+    }
+
+    try {
+      const [buyerInfo, sellerInfo, listingInfo] = await Promise.all([
+        User.findById(deal.buyerId),
+        User.findById(deal.sellerId),
+        Listing.findById(deal.listingId),
+      ]);
+
+      if (buyerInfo) {
+        await depositNotificationService.sendHandoverRequestNotification(
+          buyerInfo._id.toString(),
+          appointment,
+          sellerInfo,
+          listingInfo
+        );
+      }
+
+      if (sellerInfo) {
+        await depositNotificationService.sendHandoverRequestNotification(
+          sellerInfo._id.toString(),
+          appointment,
+          buyerInfo,
+          listingInfo
+        );
+      }
+    } catch (notificationError) {
+      console.error("Error sending handover request notification:", notificationError);
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Đã gửi yêu cầu bàn giao xe tới người mua và người bán",
+      appointment: {
+        id: appointmentIdStr || appointment._id,
+        status: appointment.status,
+        proposedSlots: appointment.proposedSlots,
+        location: appointment.location,
+        dealId: appointment.dealId,
+      },
+    });
+  } catch (error) {
+    console.error("Error requesting handover appointment:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Buyer / Seller chọn slot công chứng
+export const selectAppointmentSlot = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập'
+      });
+    }
+
+    const { appointmentId } = req.params;
+    const { slot } = req.body || {};
+
+    if (!slot) {
+      return res.status(400).json({
+        success: false,
+        message: 'Thiếu thời gian slot'
+      });
+    }
+
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy lịch hẹn'
+      });
+    }
+
+    if (!appointment.proposedSlots || appointment.proposedSlots.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Lịch hẹn này không có slot lựa chọn'
+      });
+    }
+
+    const slotDate = new Date(slot);
+    if (isNaN(slotDate.getTime())) {
+      return res.status(400).json({
+        success: false,
+        message: 'Slot không hợp lệ'
+      });
+    }
+
+    const slotMatched = appointment.proposedSlots.some(
+      (proposed) => new Date(proposed).getTime() === slotDate.getTime()
+    );
+
+    if (!slotMatched) {
+      return res.status(400).json({
+        success: false,
+        message: 'Slot không nằm trong danh sách đề xuất'
+      });
+    }
+
+    const buyerId =
+      (appointment.buyerId && (appointment.buyerId as any)._id?.toString()) ||
+      appointment.buyerId?.toString();
+    const sellerId =
+      (appointment.sellerId && (appointment.sellerId as any)._id?.toString()) ||
+      appointment.sellerId?.toString();
+    const normalizedUserId = userId.toString();
+
+    const isBuyer = buyerId === normalizedUserId;
+    const isSeller = sellerId === normalizedUserId;
+    const isStaff = req.user?.role === 'staff' || req.user?.role === 'admin';
+
+    if (!isBuyer && !isSeller && !isStaff) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền thao tác lịch hẹn này'
+      });
+    }
+
+    const appointmentIdStr = (appointment as any)?._id?.toString?.();
+
+    if (isBuyer) {
+      const nowChoice = new Date();
+      appointment.buyerSlotChoice = slotDate;
+      appointment.buyerConfirmed = true;
+      appointment.buyerConfirmedAt = nowChoice;
+    } else if (isSeller) {
+      const nowChoice = new Date();
+      appointment.sellerSlotChoice = slotDate;
+      appointment.sellerConfirmed = true;
+      appointment.sellerConfirmedAt = nowChoice;
+    } else if (isStaff) {
+      const nowChoice = new Date();
+      appointment.buyerSlotChoice = slotDate;
+      appointment.sellerSlotChoice = slotDate;
+      appointment.buyerConfirmed = true;
+      appointment.sellerConfirmed = true;
+      appointment.buyerConfirmedAt = nowChoice;
+      appointment.sellerConfirmedAt = nowChoice;
+    }
+
+    let slotFinalized = false;
+    let message = 'Đã ghi nhận lựa chọn, đang chờ bên còn lại xác nhận';
+
+    if (
+      appointment.buyerSlotChoice &&
+      appointment.sellerSlotChoice &&
+      appointment.buyerSlotChoice.getTime() === appointment.sellerSlotChoice.getTime()
+    ) {
+      const now = new Date();
+      slotFinalized = true;
+      appointment.selectedSlot = appointment.buyerSlotChoice;
+      appointment.scheduledDate = appointment.selectedSlot;
+      appointment.status = 'CONFIRMED';
+      appointment.buyerConfirmed = true;
+      appointment.sellerConfirmed = true;
+      appointment.buyerConfirmedAt = now;
+      appointment.sellerConfirmedAt = now;
+      appointment.confirmedAt = now;
+      // Phân biệt message và step cập nhật theo loại appointment
+      if (appointment.type === 'CONTRACT_NOTARIZATION') {
+        message = 'Đã chốt lịch công chứng';
+
+        if (appointment.dealId && appointmentIdStr) {
+          try {
+            await dealService.updatePaperworkStep(appointment.dealId, 'NOTARIZATION', {
+              status: 'IN_PROGRESS',
+              note: 'Hai bên đã xác nhận lịch công chứng',
+              appointmentId: appointmentIdStr
+            });
+          } catch (err) {
+            console.error('Error updating deal paperwork after slot confirmation:', err);
+          }
+
+          try {
+            await dealService.updateAppointmentMilestone(appointment.dealId, 'notarization', {
+              appointmentId: appointmentIdStr,
+              status: 'SCHEDULED',
+              scheduledAt: appointment.selectedSlot,
+            });
+          } catch (err) {
+            console.error('Error updating deal milestone after slot confirmation:', err);
+          }
+
+          // Cập nhật Contract timeline
+          try {
+            const deal = await dealService.getDealById(appointment.dealId);
+            if (deal?.contractId) {
+              const contract: any = await Contract.findById(deal.contractId);
+              if (contract) {
+                if (!contract.paperworkTimeline || contract.paperworkTimeline.length === 0) {
+                  contract.paperworkTimeline = buildDefaultTimeline(
+                    contract.contractType || "DEPOSIT"
+                  ) as any;
+                }
+                const notarizationStep = contract.paperworkTimeline.find(
+                  (step: any) => step.step === "NOTARIZATION"
+                );
+                if (notarizationStep) {
+                  const notarizationStepAny: any = notarizationStep;
+                  notarizationStepAny.status = "IN_PROGRESS";
+                  notarizationStepAny.note = "Hai bên đã xác nhận lịch công chứng";
+                  notarizationStepAny.updatedAt = new Date();
+                  notarizationStepAny.updatedBy = userId?.toString();
+                  contract.markModified("paperworkTimeline");
+                  await contract.save();
+                }
+              }
+            }
+          } catch (contractErr) {
+            console.error('Error updating contract timeline after slot confirmation:', contractErr);
+          }
+        }
+      } else if (appointment.type === 'VEHICLE_HANDOVER') {
+        message = 'Đã chốt lịch bàn giao xe';
+
+        if (appointment.dealId && appointmentIdStr) {
+          try {
+            await dealService.updatePaperworkStep(appointment.dealId, 'HANDOVER_PAPERS_AND_CAR', {
+              status: 'IN_PROGRESS',
+              note: 'Hai bên đã xác nhận lịch bàn giao xe',
+              appointmentId: appointmentIdStr
+            });
+          } catch (err) {
+            console.error('Error updating deal paperwork after handover slot confirmation:', err);
+          }
+
+          try {
+            await dealService.updateAppointmentMilestone(appointment.dealId, 'handover', {
+              appointmentId: appointmentIdStr,
+              status: 'SCHEDULED',
+              scheduledAt: appointment.selectedSlot,
+            });
+          } catch (err) {
+            console.error('Error updating deal milestone after handover slot confirmation:', err);
+          }
+
+          // Cập nhật Contract timeline
+          try {
+            const deal = await dealService.getDealById(appointment.dealId);
+            if (deal?.contractId) {
+              const contract: any = await Contract.findById(deal.contractId);
+              if (contract) {
+                if (!contract.paperworkTimeline || contract.paperworkTimeline.length === 0) {
+                  contract.paperworkTimeline = buildDefaultTimeline(
+                    contract.contractType || "DEPOSIT"
+                  ) as any;
+                }
+                const handoverStep = contract.paperworkTimeline.find(
+                  (step: any) => step.step === "HANDOVER_PAPERS_AND_CAR"
+                );
+                if (handoverStep) {
+                  const handoverStepAny: any = handoverStep;
+                  handoverStepAny.status = "IN_PROGRESS";
+                  handoverStepAny.note = "Hai bên đã xác nhận lịch bàn giao xe";
+                  handoverStepAny.updatedAt = new Date();
+                  handoverStepAny.updatedBy = userId?.toString();
+                  contract.markModified("paperworkTimeline");
+                  await contract.save();
+                }
+              }
+            }
+          } catch (contractErr) {
+            console.error('Error updating contract timeline after handover slot confirmation:', contractErr);
+          }
+        }
+      }
+
+      if (buyerId && sellerId) {
+        try {
+          await emailService.sendAppointmentConfirmedNotification(
+            buyerId,
+            sellerId,
+            appointment
+          );
+        } catch (emailError) {
+          console.error(
+            'Error sending notarization confirmation email:',
+            emailError
+          );
+        }
+      }
+    }
+
+    await appointment.save();
+
+    res.json({
+      success: true,
+      message,
+      slotFinalized,
+      appointment: {
+        id: appointmentIdStr || appointment._id,
+        status: appointment.status,
+        selectedSlot: appointment.selectedSlot,
+        buyerSlotChoice: appointment.buyerSlotChoice,
+        sellerSlotChoice: appointment.sellerSlotChoice
+      }
+    });
+  } catch (error) {
+    console.error('Error selecting appointment slot:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const declineNotarizationAppointment = async (req: Request, res: Response): Promise<any> => {
+  try {
+    const userId = req.user?.id;
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'Chưa đăng nhập'
+      });
+    }
+
+    const { appointmentId } = req.params;
+    const { reason } = req.body || {};
+
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy lịch hẹn'
+      });
+    }
+
+    const buyerId =
+      (appointment.buyerId && (appointment.buyerId as any)._id?.toString()) ||
+      appointment.buyerId?.toString();
+    const sellerId =
+      (appointment.sellerId && (appointment.sellerId as any)._id?.toString()) ||
+      appointment.sellerId?.toString();
+    const normalizedUserId = userId.toString();
+    const isBuyer = buyerId === normalizedUserId;
+    const isSeller = sellerId === normalizedUserId;
+    const isStaff = req.user?.role === 'staff' || req.user?.role === 'admin';
+
+    if (!isBuyer && !isSeller && !isStaff) {
+      return res.status(403).json({
+        success: false,
+        message: 'Bạn không có quyền thao tác lịch hẹn này'
+      });
+    }
+
+    const appointmentIdStr = (appointment as any)?._id?.toString?.();
+
+    appointment.status = 'REJECTED' as any;
+    appointment.selectedSlot = undefined;
+    if (isBuyer) {
+      appointment.buyerSlotChoice = undefined;
+    }
+    if (isSeller) {
+      appointment.sellerSlotChoice = undefined;
+    }
+    appointment.notes = reason ? `${appointment.notes ? `${appointment.notes}\n` : ''}${reason}` : appointment.notes;
+
+    if (appointment.dealId && appointmentIdStr) {
+      try {
+        await dealService.updatePaperworkStep(appointment.dealId, 'NOTARIZATION', {
+          status: 'BLOCKED',
+          note: reason || 'Buyer/Seller không thể tham gia lịch công chứng',
+          appointmentId: appointmentIdStr
+        });
+      } catch (err) {
+        console.error('Error updating deal paperwork after decline:', err);
+      }
+
+      try {
+        await dealService.updateAppointmentMilestone(appointment.dealId, 'notarization', {
+          appointmentId: appointmentIdStr,
+          status: 'NOT_SCHEDULED',
+        });
+      } catch (err) {
+        console.error('Error updating deal milestone after decline:', err);
+      }
+    }
+
+    await appointment.save();
+
+    res.json({
+      success: true,
+      message: 'Đã thông báo không thể tham gia. Nhân viên sẽ liên hệ lại để sắp xếp lịch mới.',
+      appointment: {
+        id: appointmentIdStr || appointment._id,
+        status: appointment.status
+      }
+    });
+  } catch (error) {
+    console.error('Error declining appointment slot:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Lỗi hệ thống',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+export const uploadNotarizationProof = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!req.user || !["staff", "admin"].includes(req.user.role ?? "")) {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền upload bằng chứng công chứng",
+      });
+    }
+
+    const { appointmentId } = req.params;
+    const { note } = req.body as { note?: string };
+    const userId = req.user.id;
+
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy lịch hẹn",
+      });
+    }
+
+    const normalizedDealId =
+      typeof appointment.dealId === "string"
+        ? appointment.dealId
+        : (appointment.dealId as any)?.toString?.();
+    const dealDoc = normalizedDealId
+      ? await dealService.getDealById(normalizedDealId)
+      : null;
+
+    if (appointment.type !== "CONTRACT_NOTARIZATION") {
+      return res.status(400).json({
+        success: false,
+        message: "Chỉ áp dụng cho lịch công chứng",
+      });
+    }
+
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui lòng chọn ít nhất 1 ảnh bằng chứng",
+      });
+    }
+
+    const uploadedProofs: {
+      url: string;
+      publicId?: string;
+      description?: string;
+      uploadedAt: Date;
+      uploadedBy?: string;
+    }[] = [];
+
+    for (const file of files) {
+      if (!file.buffer || file.buffer.length === 0) {
+        continue;
+      }
+
+      const uploadResult = await uploadFromBuffer(
+        file.buffer,
+        `notarization-proof-${appointmentId}-${Date.now()}`,
+        {
+          folder: "secondhand-ev/notarization/proofs",
+          resource_type: "image",
+        }
+      );
+
+      uploadedProofs.push({
+        url: uploadResult.secureUrl,
+        publicId: uploadResult.publicId,
+        description: note || file.originalname || "Ảnh bằng chứng công chứng",
+        uploadedAt: new Date(),
+        uploadedBy: userId,
+      });
+    }
+
+    if (uploadedProofs.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: "Không thể upload ảnh nào",
+      });
+    }
+
+    appointment.notarizationProofs = [
+      ...(appointment.notarizationProofs || []),
+      ...uploadedProofs,
+    ];
+    appointment.status = "COMPLETED";
+    appointment.completedAt = new Date();
+    appointment.completedByStaffId = userId;
+    appointment.completedByStaffName = req.user.name || req.user.email;
+    appointment.completedByStaffEmail = req.user.email;
+
+    const appointmentIdStr = (appointment as any)?._id?.toString?.();
+
+    if (appointment.dealId && appointmentIdStr) {
+      try {
+        await dealService.updatePaperworkStep(appointment.dealId, "NOTARIZATION", {
+          status: "DONE",
+          note: note || "Đã hoàn tất công chứng",
+          appointmentId: appointmentIdStr,
+          attachments: uploadedProofs.map((proof) => ({
+            url: proof.url,
+            description: proof.description,
+            uploadedAt: proof.uploadedAt,
+          })),
+        });
+      } catch (err) {
+        console.error("Error updating deal paperwork after notarization proof:", err);
+      }
+
+      try {
+        await dealService.updateAppointmentMilestone(appointment.dealId, "notarization", {
+          appointmentId: appointmentIdStr,
+          status: "COMPLETED",
+          completedAt: new Date(),
+        });
+      } catch (err) {
+        console.error(
+          "Error updating deal milestone after notarization proof:",
+          err
+        );
+      }
+    }
+
+    try {
+      const contract =
+        (await Contract.findOne({ appointmentId: appointment._id })) ||
+        (appointment.dealId
+          ? await Contract.findOne({ dealId: appointment.dealId })
+          : null);
+
+      if (contract) {
+        if (!contract.paperworkTimeline || contract.paperworkTimeline.length === 0) {
+          contract.paperworkTimeline = buildDefaultTimeline(
+            contract.contractType || "DEPOSIT"
+          ) as any;
+        }
+
+        const notarizationStep = contract.paperworkTimeline.find(
+          (step: any) => step.step === "NOTARIZATION"
+        );
+
+        if (notarizationStep) {
+          const notarizationStepAny: any = notarizationStep;
+          notarizationStepAny.status = "DONE";
+          notarizationStepAny.updatedAt = new Date();
+          notarizationStepAny.updatedBy = userId;
+          notarizationStepAny.note = note || notarizationStepAny.note;
+          notarizationStepAny.appointmentRequired = true;
+          notarizationStepAny.appointmentId = appointmentIdStr;
+          notarizationStepAny.attachments = [
+            ...(notarizationStepAny.attachments || []),
+            ...uploadedProofs.map((proof) => ({
+              url: proof.url,
+              publicId: proof.publicId ?? "",
+              description: proof.description,
+              uploadedAt: proof.uploadedAt,
+              uploadedBy: userId ?? "staff",
+            })),
+          ];
+        }
+
+        contract.markModified("paperworkTimeline");
+        await contract.save();
+      }
+    } catch (contractError) {
+      console.error(
+        "Error updating contract timeline after notarization proof:",
+        contractError
+      );
+    }
+
+    await appointment.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Đã upload bằng chứng công chứng thành công",
+      data: {
+        appointmentId: appointmentIdStr || appointment._id,
+        proofs: uploadedProofs.map((proof) => ({
+          url: proof.url,
+          description: proof.description,
+          uploadedAt: proof.uploadedAt,
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error("Error uploading notarization proof:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Lỗi khi upload bằng chứng công chứng",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
+export const uploadHandoverProof = async (req: Request, res: Response): Promise<any> => {
+  try {
+    if (!req.user || !["staff", "admin"].includes(req.user.role ?? "")) {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền upload bằng chứng bàn giao xe",
+      });
+    }
+
+    const { appointmentId } = req.params;
+    const { note } = req.body as { note?: string };
+    const userId = req.user.id;
+
+    const appointment = await Appointment.findById(appointmentId);
+    if (!appointment) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy lịch hẹn",
+      });
+    }
+
+    const normalizedDealId =
+      typeof appointment.dealId === "string"
+        ? appointment.dealId
+        : (appointment.dealId as any)?.toString?.();
+    const dealDoc = normalizedDealId
+      ? await dealService.getDealById(normalizedDealId)
+      : null;
+
+    if (
+      appointment.type !== "VEHICLE_HANDOVER" &&
+      appointment.type !== "DELIVERY"
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: "Chỉ áp dụng cho lịch bàn giao xe",
+      });
+    }
+
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui lòng chọn ít nhất 1 ảnh bằng chứng",
+      });
+    }
+
+    const uploadedProofs: {
+      url: string;
+      publicId?: string;
+      description?: string;
+      uploadedAt: Date;
+      uploadedBy?: string;
+    }[] = [];
+
+    for (const file of files) {
+      if (!file.buffer || file.buffer.length === 0) {
+        continue;
+      }
+
+      const uploadResult = await uploadFromBuffer(
+        file.buffer,
+        `handover-proof-${appointmentId}-${Date.now()}`,
+        {
+          folder: "secondhand-ev/handover/proofs",
+          resource_type: "image",
+        }
+      );
+
+      uploadedProofs.push({
+        url: uploadResult.secureUrl,
+        publicId: uploadResult.publicId,
+        description: note || file.originalname || "Ảnh bàn giao xe",
+        uploadedAt: new Date(),
+        uploadedBy: userId,
+      });
+    }
+
+    if (uploadedProofs.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: "Không thể upload ảnh nào",
+      });
+    }
+
+    const appointmentAny = appointment as any;
+    appointmentAny.handoverProofs = [
+      ...(appointmentAny.handoverProofs || []),
+      ...uploadedProofs,
+    ];
+    appointment.status = "COMPLETED";
+    appointment.completedAt = new Date();
+    appointment.completedByStaffId = userId;
+    appointment.completedByStaffName = req.user.name || req.user.email;
+    appointment.completedByStaffEmail = req.user.email;
+
+    const appointmentIdStr = (appointment as any)?._id?.toString?.();
+
+    if (appointment.dealId && appointmentIdStr) {
+      let payoutAmount: number | undefined;
+      const vehiclePrice = dealDoc?.paymentPlan?.vehiclePrice;
+      if (vehiclePrice && vehiclePrice > 0) {
+        payoutAmount = Math.round(vehiclePrice * 0.9);
+        const sellerIdStr =
+          ((appointment.sellerId as any)?._id?.toString?.() ||
+            (appointment.sellerId as any)?.toString?.()) ??
+          appointment.sellerId?.toString();
+
+        if (sellerIdStr) {
+          try {
+            await systemWalletService.withdraw(
+              payoutAmount,
+              `Thanh toán 90% giá xe cho người bán ${sellerIdStr} (deal ${appointment.dealId})`
+            );
+            await walletService.deposit(
+              sellerIdStr,
+              payoutAmount,
+              "Thanh toán 90% giá trị xe sau bàn giao"
+            );
+          } catch (transferError) {
+            console.error(
+              "Error transferring payout to seller wallet:",
+              transferError
+            );
+          }
+        }
+      }
+
+      try {
+        await dealService.updatePaperworkStep(appointment.dealId, "HANDOVER_PAPERS_AND_CAR", {
+          status: "DONE",
+          note: note || "Đã hoàn tất bàn giao xe",
+          appointmentId: appointmentIdStr,
+          attachments: uploadedProofs.map((proof) => ({
+            url: proof.url,
+            description: proof.description,
+            uploadedAt: proof.uploadedAt,
+          })),
+        });
+      } catch (err) {
+        console.error("Error updating deal paperwork after handover proof:", err);
+      }
+
+      try {
+        await dealService.updateAppointmentMilestone(appointment.dealId, "handover", {
+          appointmentId: appointmentIdStr,
+          status: "COMPLETED",
+          completedAt: new Date(),
+        });
+      } catch (err) {
+        console.error("Error updating deal milestone after handover proof:", err);
+      }
+
+      try {
+        await dealService.releasePayout(appointment.dealId, {
+          amount: payoutAmount,
+          releasedBy: userId,
+          note:
+            note ||
+            (payoutAmount
+              ? `Tự động trả ${payoutAmount.toLocaleString("vi-VN")} VND (90% giá xe) sau bàn giao`
+              : "Tự động trả tiền sau bàn giao"),
+        });
+      } catch (payoutError) {
+        console.error("Error releasing payout after handover:", payoutError);
+      }
+    }
+
+    try {
+      const contract =
+        (await Contract.findOne({ appointmentId: appointment._id })) ||
+        (appointment.dealId
+          ? await Contract.findOne({ dealId: appointment.dealId })
+          : null);
+
+      if (contract) {
+        if (!contract.paperworkTimeline || contract.paperworkTimeline.length === 0) {
+          contract.paperworkTimeline = buildDefaultTimeline(
+            contract.contractType || "DEPOSIT"
+          ) as any;
+        }
+
+        const handoverStep = contract.paperworkTimeline.find(
+          (step: any) => step.step === "HANDOVER_PAPERS_AND_CAR"
+        );
+
+        if (handoverStep) {
+          const handoverStepAny: any = handoverStep;
+          handoverStepAny.status = "DONE";
+          handoverStepAny.updatedAt = new Date();
+          handoverStepAny.updatedBy = userId;
+          handoverStepAny.note = note || handoverStepAny.note;
+          handoverStepAny.attachments = [
+            ...(handoverStepAny.attachments || []),
+            ...uploadedProofs.map((proof) => ({
+              url: proof.url,
+              publicId: proof.publicId ?? "",
+              description: proof.description,
+              uploadedAt: proof.uploadedAt,
+              uploadedBy: userId ?? "staff",
+            })),
+          ];
+        }
+
+        contract.markModified("paperworkTimeline");
+        await contract.save();
+      }
+    } catch (contractError) {
+      console.error("Error updating contract timeline after handover proof:", contractError);
+    }
+
+    await appointment.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Đã upload bằng chứng bàn giao xe thành công",
+      data: {
+        appointmentId: appointmentIdStr || appointment._id,
+        proofs: uploadedProofs.map((proof) => ({
+          url: proof.url,
+          description: proof.description,
+          uploadedAt: proof.uploadedAt,
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error("Error uploading handover proof:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Lỗi khi upload bằng chứng bàn giao xe",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
 // Xác nhận lịch hẹn
 export const confirmAppointment = async (req: Request, res: Response): Promise<any> => {
   try {
@@ -348,7 +1552,12 @@ export const confirmAppointment = async (req: Request, res: Response): Promise<a
     }
 
     // ✅ Kiểm tra trạng thái - cho phép confirm nếu PENDING, CONFIRMED, hoặc RESCHEDULED
-    if (appointment.status !== 'PENDING' && appointment.status !== 'CONFIRMED' && appointment.status !== 'RESCHEDULED') {
+    if (
+      appointment.status !== 'PENDING' &&
+      appointment.status !== 'CONFIRMED' &&
+      appointment.status !== 'RESCHEDULED' &&
+      appointment.status !== 'PENDING_CONFIRMATION'
+    ) {
       return res.status(400).json({
         success: false,
         message: 'Lịch hẹn không thể xác nhận (chỉ có thể xác nhận lịch hẹn đang chờ xác nhận, đã xác nhận, hoặc đã dời lịch)'
@@ -1028,7 +2237,7 @@ export const getAppointmentByChatId = async (req: Request, res: Response): Promi
     // Tìm appointment active của chat này
     const appointment = await Appointment.findOne({
       chatId,
-      status: { $in: ['PENDING', 'CONFIRMED',  'RESCHEDULED'] },
+      status: { $in: ['PENDING', 'PENDING_CONFIRMATION', 'CONFIRMED',  'RESCHEDULED'] },
     })
       .populate('buyerId', 'fullName email phone avatar')
       .populate('sellerId', 'fullName email phone avatar')

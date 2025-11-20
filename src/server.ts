@@ -5,7 +5,11 @@ import { WebSocketService } from "./services/websocketService";
 import "dotenv/config";
 import { seedMembershipPackages } from "./services/membershipSeedService";
 import { startMembershipCron } from "./jobs/membershipCron";
-import { bootstrapAuctions, startAuctionSweepCron } from "./services/auctionService";
+import { startRemainingPaymentCron } from "./jobs/remainingPaymentCron";
+import {
+  bootstrapAuctions,
+  startAuctionSweepCron,
+} from "./services/auctionService";
 
 const PORT = process.env.PORT || 5000;
 
@@ -25,6 +29,13 @@ connectDB()
       startMembershipCron();
     } catch (error) {
       console.error("❌ Error starting membership cron:", error);
+    }
+
+    // Start remaining payment cron job
+    try {
+      startRemainingPaymentCron();
+    } catch (error) {
+      console.error("❌ Error starting remaining payment cron:", error);
     }
 
     // Initialize WebSocket service TRƯỚC

@@ -17,6 +17,7 @@ export interface IContract extends Document {
   buyerId: string;
   sellerId: string;
   listingId: string;
+  dealId?: string;
 
   // Contract details
   contractNumber: string;
@@ -108,6 +109,10 @@ const ContractSchema = new Schema(
       type: String,
       required: false,
       ref: "Auction",
+    },
+    dealId: {
+      type: String,
+      ref: "Deal",
     },
     buyerId: {
       type: String,
