@@ -5,11 +5,13 @@
 **API:** `POST /api/contracts/:contractId/pdf`
 
 **Headers:**
+
 ```
 Authorization: Bearer {token}
 ```
 
 **Response:**
+
 ```json
 {
   "success": true,
@@ -30,6 +32,7 @@ Authorization: Bearer {token}
 **API:** `GET /api/contracts/:contractId/pdf`
 
 **Headers:**
+
 ```
 Authorization: Bearer {token}
 ```
@@ -37,22 +40,23 @@ Authorization: Bearer {token}
 **Cách sử dụng:**
 
 ### Option 1: Tải xuống trực tiếp (Khuyến nghị)
+
 ```javascript
 // Khi user click nút "In hợp đồng"
 const downloadContractPdf = async (contractId) => {
   const response = await fetch(`/api/contracts/${contractId}/pdf`, {
-    method: 'GET',
+    method: "GET",
     headers: {
-      'Authorization': `Bearer ${token}`
-    }
+      Authorization: `Bearer ${token}`,
+    },
   });
-  
+
   // Backend sẽ tự động trả về file PDF với headers download
   // Browser sẽ tự động tải xuống file: hop-dong-CT-{contractNumber}.pdf
-  
+
   const blob = await response.blob();
   const url = window.URL.createObjectURL(blob);
-  const a = document.createElement('a');
+  const a = document.createElement("a");
   a.href = url;
   a.download = `hop-dong-${contractId}.pdf`;
   document.body.appendChild(a);
@@ -63,9 +67,10 @@ const downloadContractPdf = async (contractId) => {
 ```
 
 ### Option 2: Mở trong tab mới
+
 ```javascript
 // Nếu muốn mở PDF trong tab mới thay vì download
-window.open(`/api/contracts/${contractId}/pdf`, '_blank');
+window.open(`/api/contracts/${contractId}/pdf`, "_blank");
 ```
 
 ---
@@ -73,10 +78,12 @@ window.open(`/api/contracts/${contractId}/pdf`, '_blank');
 ## Flow hoàn chỉnh
 
 1. **Kiểm tra PDF đã tồn tại chưa:**
+
    - Gọi `GET /api/contracts/:contractId` để lấy thông tin contract
    - Kiểm tra field `contractPdfUrl` có tồn tại không
 
 2. **Nếu chưa có PDF:**
+
    - Staff gọi `POST /api/contracts/:contractId/pdf` để tạo PDF
    - Đợi response thành công
 
@@ -98,30 +105,29 @@ const ContractActions = ({ contractId, isStaff }) => {
       // 1. Kiểm tra PDF đã có chưa
       const contractRes = await api.get(`/contracts/${contractId}`);
       const contract = contractRes.data;
-      
+
       if (!contract.contractPdfUrl && isStaff) {
         // 2. Tạo PDF nếu chưa có (chỉ staff)
         await api.post(`/contracts/${contractId}/pdf`);
       }
-      
+
       // 3. Tải PDF
       const pdfRes = await fetch(`${API_URL}/contracts/${contractId}/pdf`, {
         headers: {
-          'Authorization': `Bearer ${token}`
-        }
+          Authorization: `Bearer ${token}`,
+        },
       });
-      
+
       const blob = await pdfRes.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
+      const a = document.createElement("a");
       a.href = url;
       a.download = `hop-dong-${contractId}.pdf`;
       a.click();
       window.URL.revokeObjectURL(url);
-      
     } catch (error) {
-      console.error('Error:', error);
-      alert('Không thể tải PDF hợp đồng');
+      console.error("Error:", error);
+      alert("Không thể tải PDF hợp đồng");
     } finally {
       setLoading(false);
     }
@@ -129,7 +135,7 @@ const ContractActions = ({ contractId, isStaff }) => {
 
   return (
     <button onClick={handlePrintContract} disabled={loading}>
-      {loading ? 'Đang tải...' : 'In hợp đồng'}
+      {loading ? "Đang tải..." : "In hợp đồng"}
     </button>
   );
 };

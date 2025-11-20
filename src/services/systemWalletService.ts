@@ -7,6 +7,7 @@ import DepositRequest from "../models/DepositRequest";
 import Listing from "../models/Listing";
 import { User } from "../models/User";
 import EscrowAccount from "../models/EscrowAccount";
+import { Payment } from "../models/Payment";
 
 export class SystemWalletService {
   private static instance: SystemWalletService;
@@ -270,18 +271,183 @@ export class SystemWalletService {
 
       const total = await SystemWalletTransaction.countDocuments(query);
 
+      // Helper function để parse appointmentId và userId từ description
+      const parseDescription = (description: string) => {
+        // Format: "Thanh toán toàn bộ 100% từ user {userId} cho appointment {appointmentId}"
+        const userMatch = description.match(/user\s+([a-f0-9]{24})/i);
+        const appointmentMatch = description.match(/appointment\s+([a-f0-9]{24})/i);
+        
+        return {
+          userId: userMatch ? userMatch[1] : null,
+          appointmentId: appointmentMatch ? appointmentMatch[1] : null,
+        };
+      };
+
+      // Populate thông tin appointment, buyer, và listing cho từng transaction
+      const transactionsWithDetails = await Promise.all(
+        transactions.map(async (tx) => {
+          const result: any = {
+            id: tx._id.toString(),
+            type: tx.type,
+            amount: tx.amount,
+            depositRequestId: tx.depositRequestId,
+            appointmentId: tx.appointmentId,
+            description: tx.description,
+            balanceAfter: tx.balanceAfter,
+            createdAt: tx.createdAt,
+            updatedAt: tx.updatedAt,
+            appointment: null,
+            buyer: null,
+            listing: null,
+          };
+
+          // Lấy appointmentId từ transaction hoặc parse từ description
+          let appointmentId = tx.appointmentId;
+          let userId: string | null = null;
+
+          if (!appointmentId && tx.description) {
+            const parsed = parseDescription(tx.description);
+            appointmentId = parsed.appointmentId || null;
+            userId = parsed.userId || null;
+            
+            // Cập nhật appointmentId trong result nếu parse được
+            if (appointmentId) {
+              result.appointmentId = appointmentId;
+            }
+          }
+
+          // Populate appointment nếu có
+          if (appointmentId) {
+            const appointment = await Appointment.findById(
+              appointmentId
+            ).lean();
+
+            if (appointment) {
+              // Populate buyer
+              const buyer = await User.findById(appointment.buyerId)
+                .select("_id fullName email phone avatar")
+                .lean();
+
+              result.buyer = buyer
+                ? {
+                    id: buyer._id.toString(),
+                    fullName: (buyer as any).fullName,
+                    email: (buyer as any).email,
+                    phone: (buyer as any).phone,
+                    avatar: (buyer as any).avatar,
+                  }
+                : null;
+
+              // Populate appointment info
+              result.appointment = {
+                id: appointment._id.toString(),
+                appointmentType: appointment.appointmentType,
+                scheduledDate: appointment.scheduledDate,
+                status: appointment.status,
+                type: appointment.type,
+                location: appointment.location,
+              };
+
+              // Populate listing - ưu tiên từ appointment.listingId, sau đó từ depositRequest
+              let listingId: string | null = null;
+              
+              if (appointment.listingId) {
+                listingId = appointment.listingId;
+              } else if (appointment.depositRequestId) {
+                const depositRequest = await DepositRequest.findById(
+                  appointment.depositRequestId
+                ).lean();
+                listingId = depositRequest?.listingId || null;
+              }
+
+              if (listingId) {
+                const listing = await Listing.findById(listingId)
+                  .select("_id title price images make model year condition type")
+                  .lean();
+
+                result.listing = listing
+                  ? {
+                      id: listing._id.toString(),
+                      title: (listing as any).title,
+                      price: (listing as any).price,
+                      images: (listing as any).images,
+                      make: (listing as any).make,
+                      model: (listing as any).model,
+                      year: (listing as any).year,
+                      condition: (listing as any).condition,
+                      type: (listing as any).type,
+                    }
+                  : null;
+              }
+            }
+          } else if (tx.depositRequestId) {
+            // Nếu không có appointment nhưng có depositRequest
+            const depositRequest = await DepositRequest.findById(
+              tx.depositRequestId
+            ).lean();
+
+            if (depositRequest) {
+              // Populate buyer
+              const buyer = await User.findById(depositRequest.buyerId)
+                .select("_id fullName email phone avatar")
+                .lean();
+
+              result.buyer = buyer
+                ? {
+                    id: buyer._id.toString(),
+                    fullName: (buyer as any).fullName,
+                    email: (buyer as any).email,
+                    phone: (buyer as any).phone,
+                    avatar: (buyer as any).avatar,
+                  }
+                : null;
+
+              // Populate listing
+              if (depositRequest.listingId) {
+                const listing = await Listing.findById(
+                  depositRequest.listingId
+                )
+                  .select("_id title price images make model year condition type")
+                  .lean();
+
+                result.listing = listing
+                  ? {
+                      id: listing._id.toString(),
+                      title: (listing as any).title,
+                      price: (listing as any).price,
+                      images: (listing as any).images,
+                      make: (listing as any).make,
+                      model: (listing as any).model,
+                      year: (listing as any).year,
+                      condition: (listing as any).condition,
+                      type: (listing as any).type,
+                    }
+                  : null;
+              }
+            }
+          } else if (userId) {
+            // Nếu không có appointment nhưng có userId từ description, populate buyer trực tiếp
+            const buyer = await User.findById(userId)
+              .select("_id fullName email phone avatar")
+              .lean();
+
+            result.buyer = buyer
+              ? {
+                  id: buyer._id.toString(),
+                  fullName: (buyer as any).fullName,
+                  email: (buyer as any).email,
+                  phone: (buyer as any).phone,
+                  avatar: (buyer as any).avatar,
+                }
+              : null;
+          }
+
+          return result;
+        })
+      );
+
       return {
-        transactions: transactions.map((tx) => ({
-          id: tx._id.toString(),
-          type: tx.type,
-          amount: tx.amount,
-          depositRequestId: tx.depositRequestId,
-          appointmentId: tx.appointmentId,
-          description: tx.description,
-          balanceAfter: tx.balanceAfter,
-          createdAt: tx.createdAt,
-          updatedAt: tx.updatedAt,
-        })),
+        transactions: transactionsWithDetails,
         pagination: {
           current: page,
           pages: Math.ceil(total / limit),
@@ -635,6 +801,198 @@ export class SystemWalletService {
       return formattedData;
     } catch (error) {
       console.error("Error getting transaction chart data:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Lấy dữ liệu doanh thu tổng hợp (giao dịch mua bán + membership) để vẽ chart
+   * @param filters Bộ lọc: period (day/month/year), startDate, endDate
+   */
+  public async getTotalRevenueChartData(
+    filters: {
+      period?: "day" | "month" | "year";
+      startDate?: Date;
+      endDate?: Date;
+    } = {}
+  ) {
+    try {
+      const { period = "day", startDate, endDate } = filters;
+
+      // Tạo query filter theo thời gian
+      const dateFilter: any = {};
+      if (startDate || endDate) {
+        dateFilter.createdAt = {};
+        if (startDate) {
+          dateFilter.createdAt.$gte = startDate;
+        }
+        if (endDate) {
+          dateFilter.createdAt.$lte = endDate;
+        }
+      } else {
+        // Nếu không có startDate/endDate, mặc định lấy 30 ngày gần nhất
+        const thirtyDaysAgo = new Date();
+        thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+        dateFilter.createdAt = { $gte: thirtyDaysAgo };
+      }
+
+      // Tạo format date theo period
+      let dateFormat: any;
+      if (period === "day") {
+        dateFormat = {
+          $dateToString: {
+            format: "%Y-%m-%d",
+            date: "$createdAt",
+          },
+        };
+      } else if (period === "month") {
+        dateFormat = {
+          $dateToString: {
+            format: "%Y-%m",
+            date: "$createdAt",
+          },
+        };
+      } else {
+        // year
+        dateFormat = {
+          $dateToString: {
+            format: "%Y",
+            date: "$createdAt",
+          },
+        };
+      }
+
+      // 1. Aggregate doanh thu từ SystemWalletTransaction (giao dịch mua bán xe)
+      // Chỉ tính COMPLETED và CANCELLED (hoa hồng từ giao dịch)
+      const transactionRevenue = await SystemWalletTransaction.aggregate([
+        { $match: { ...dateFilter, type: { $in: ["COMPLETED", "CANCELLED"] } } },
+        {
+          $group: {
+            _id: {
+              date: dateFormat,
+            },
+            totalAmount: { $sum: "$amount" },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $sort: { "_id.date": 1 },
+        },
+      ]);
+
+      // 2. Aggregate doanh thu từ Payment (membership)
+      // Chỉ tính payment có metadata.type = MEMBERSHIP hoặc MEMBERSHIP_RENEW và status = COMPLETED
+      const membershipRevenue = await Payment.aggregate([
+        {
+          $match: {
+            ...dateFilter,
+            status: "COMPLETED",
+            "metadata.type": { $in: ["MEMBERSHIP", "MEMBERSHIP_RENEW"] },
+          },
+        },
+        {
+          $group: {
+            _id: {
+              date: dateFormat,
+            },
+            totalAmount: { $sum: "$amount" },
+            count: { $sum: 1 },
+          },
+        },
+        {
+          $sort: { "_id.date": 1 },
+        },
+      ]);
+
+      // Format lại dữ liệu để dễ dùng cho chart
+      const formattedData: any = {
+        labels: [],
+        datasets: [
+          {
+            label: "Doanh thu giao dịch",
+            data: [],
+            backgroundColor: "rgba(34, 197, 94, 0.2)",
+            borderColor: "rgba(34, 197, 94, 1)",
+            borderWidth: 2,
+          },
+          {
+            label: "Doanh thu membership",
+            data: [],
+            backgroundColor: "rgba(59, 130, 246, 0.2)",
+            borderColor: "rgba(59, 130, 246, 1)",
+            borderWidth: 2,
+          },
+          {
+            label: "Tổng doanh thu",
+            data: [],
+            backgroundColor: "rgba(168, 85, 247, 0.2)",
+            borderColor: "rgba(168, 85, 247, 1)",
+            borderWidth: 2,
+          },
+        ],
+        summary: {
+          totalTransactionRevenue: 0,
+          totalMembershipRevenue: 0,
+          totalRevenue: 0,
+          totalTransactions: 0,
+          totalMemberships: 0,
+        },
+      };
+
+      // Tạo map để track các ngày đã có
+      const dateMap = new Map<
+        string,
+        { transaction: number; membership: number }
+      >();
+
+      // Thêm dữ liệu từ transaction revenue
+      transactionRevenue.forEach((item) => {
+        const date = item._id.date;
+        const amount = item.totalAmount;
+
+        if (!dateMap.has(date)) {
+          dateMap.set(date, { transaction: 0, membership: 0 });
+        }
+
+        const dateData = dateMap.get(date)!;
+        dateData.transaction = amount;
+        formattedData.summary.totalTransactionRevenue += amount;
+        formattedData.summary.totalTransactions += item.count;
+      });
+
+      // Thêm dữ liệu từ membership revenue
+      membershipRevenue.forEach((item) => {
+        const date = item._id.date;
+        const amount = item.totalAmount;
+
+        if (!dateMap.has(date)) {
+          dateMap.set(date, { transaction: 0, membership: 0 });
+        }
+
+        const dateData = dateMap.get(date)!;
+        dateData.membership = amount;
+        formattedData.summary.totalMembershipRevenue += amount;
+        formattedData.summary.totalMemberships += item.count;
+      });
+
+      // Sắp xếp và format lại dữ liệu
+      const sortedDates = Array.from(dateMap.keys()).sort();
+      sortedDates.forEach((date) => {
+        formattedData.labels.push(date);
+        const dateData = dateMap.get(date)!;
+        const total = dateData.transaction + dateData.membership;
+        formattedData.datasets[0].data.push(dateData.transaction);
+        formattedData.datasets[1].data.push(dateData.membership);
+        formattedData.datasets[2].data.push(total);
+      });
+
+      formattedData.summary.totalRevenue =
+        formattedData.summary.totalTransactionRevenue +
+        formattedData.summary.totalMembershipRevenue;
+
+      return formattedData;
+    } catch (error) {
+      console.error("Error getting total revenue chart data:", error);
       throw error;
     }
   }
