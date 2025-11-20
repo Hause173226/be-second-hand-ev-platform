@@ -9,17 +9,18 @@ export interface IAppointment extends Document {
   appointmentType: "NORMAL_DEPOSIT" | "AUCTION";
   buyerId: string;
   sellerId: string;
-  createdBy?: "BUYER" | "SELLER"; // ✅ Người tạo appointment (để xác định chỉ cần bên còn lại confirm)
+  createdBy?: "BUYER" | "SELLER" | "STAFF"; // ✅ Người tạo appointment (để xác định chỉ cần bên còn lại confirm)
   scheduledDate: Date;
   status:
     | "PENDING"
+    | "PENDING_CONFIRMATION"
     | "CONFIRMED"
     | "RESCHEDULED"
     | "AWAITING_REMAINING_PAYMENT"
     | "COMPLETED"
     | "CANCELLED"
     | "REJECTED";
-  type: "CONTRACT_SIGNING" | "VEHICLE_INSPECTION" | "DELIVERY";
+  type: "CONTRACT_SIGNING" | "VEHICLE_INSPECTION" | "DELIVERY" | "CONTRACT_NOTARIZATION" | "VEHICLE_HANDOVER";
   location?: string;
   notes?: string;
   rescheduledCount: number;
@@ -47,6 +48,18 @@ export interface IAppointment extends Document {
   };
   createdAt: Date;
   updatedAt: Date;
+  dealId?: string;
+  proposedSlots?: Date[];
+  selectedSlot?: Date;
+  buyerSlotChoice?: Date;
+  sellerSlotChoice?: Date;
+  notarizationProofs?: {
+    url: string;
+    publicId?: string;
+    description?: string;
+    uploadedAt: Date;
+    uploadedBy?: string;
+  }[];
 }
 
 const AppointmentSchema = new Schema(
@@ -84,7 +97,7 @@ const AppointmentSchema = new Schema(
     },
     createdBy: {
       type: String,
-      enum: ["BUYER", "SELLER"],
+      enum: ["BUYER", "SELLER", "STAFF"],
       default: "SELLER", // ✅ Mặc định là seller (vì thường seller tạo lịch)
     },
     scheduledDate: {
@@ -95,6 +108,7 @@ const AppointmentSchema = new Schema(
       type: String,
       enum: [
         "PENDING",
+        "PENDING_CONFIRMATION",
         "CONFIRMED",
         "RESCHEDULED",
         "AWAITING_REMAINING_PAYMENT",
@@ -106,7 +120,7 @@ const AppointmentSchema = new Schema(
     },
     type: {
       type: String,
-      enum: ["CONTRACT_SIGNING", "VEHICLE_INSPECTION", "DELIVERY"],
+      enum: ["CONTRACT_SIGNING", "VEHICLE_INSPECTION", "DELIVERY", "CONTRACT_NOTARIZATION", "VEHICLE_HANDOVER"],
       default: "CONTRACT_SIGNING",
     },
     location: {
@@ -171,6 +185,42 @@ const AppointmentSchema = new Schema(
       fullPaymentPaidAt: Date,
       completedAt: Date,
     },
+    dealId: {
+      type: String,
+      ref: "Deal",
+    },
+    proposedSlots: [
+      {
+        type: Date,
+      },
+    ],
+    selectedSlot: {
+      type: Date,
+    },
+    buyerSlotChoice: {
+      type: Date,
+    },
+    sellerSlotChoice: {
+      type: Date,
+    },
+    notarizationProofs: [
+      {
+        url: { type: String, required: true },
+        publicId: { type: String },
+        description: { type: String },
+        uploadedAt: { type: Date, default: Date.now },
+        uploadedBy: { type: String, ref: "User" },
+      },
+    ],
+    handoverProofs: [
+      {
+        url: { type: String, required: true },
+        publicId: { type: String },
+        description: { type: String },
+        uploadedAt: { type: Date, default: Date.now },
+        uploadedBy: { type: String, ref: "User" },
+      },
+    ],
   },
   {
     timestamps: true,
