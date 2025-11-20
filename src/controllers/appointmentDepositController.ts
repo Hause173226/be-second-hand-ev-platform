@@ -108,13 +108,25 @@ export const createFullPayment = async (req: Request, res: Response) => {
       return;
     }
 
-    // Kiểm tra appointment phải ở trạng thái CONFIRMED
-    if (appointment.status !== "CONFIRMED") {
+    // Kiểm tra appointment phải ở trạng thái CONFIRMED hoặc cả buyer và seller đã confirm
+    const isConfirmed = appointment.status === "CONFIRMED" || 
+                       (appointment.buyerConfirmed && appointment.sellerConfirmed);
+    
+    if (!isConfirmed) {
       res.status(400).json({
         error: "Appointment phải được xác nhận (CONFIRMED) trước khi tạo thanh toán toàn bộ",
         currentStatus: appointment.status,
+        buyerConfirmed: appointment.buyerConfirmed,
+        sellerConfirmed: appointment.sellerConfirmed,
       });
       return;
+    }
+    
+    // Nếu status chưa là CONFIRMED nhưng cả 2 đã confirm → tự động set CONFIRMED
+    if (appointment.status !== "CONFIRMED" && appointment.buyerConfirmed && appointment.sellerConfirmed) {
+      appointment.status = "CONFIRMED";
+      appointment.confirmedAt = new Date();
+      await appointment.save();
     }
 
     // Tạo payment URL

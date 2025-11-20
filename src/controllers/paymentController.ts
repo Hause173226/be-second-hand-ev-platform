@@ -351,14 +351,14 @@ export const appointmentDeposit10Return = async (
     const result = await handleAppointmentDeposit10Return(req.query);
 
     if (result.success) {
-      // Redirect về frontend success page
+      // Redirect về trang staff appointments với success message
       res.redirect(
-        `http://localhost:5173/appointments?success=true&type=deposit&amount=${result.amount}&appointmentId=${result.appointmentId}`
+        `http://localhost:5173/staff/appointments?success=true&type=deposit&amount=${result.amount}&appointmentId=${result.appointmentId}`
       );
     } else {
       let message = "Thanh toán đặt cọc thất bại";
       res.redirect(
-        `http://localhost:5173/appointments?success=false&message=${encodeURIComponent(
+        `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}`
       );
@@ -366,7 +366,7 @@ export const appointmentDeposit10Return = async (
   } catch (error: any) {
     console.error("❌ Appointment Deposit 10% return error:", error);
     res.redirect(
-      `http://localhost:5173/appointments?success=false&message=${encodeURIComponent(
+      `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
@@ -385,14 +385,14 @@ export const appointmentFullPaymentReturn = async (
     const result = await handleAppointmentFullPaymentReturn(req.query);
 
     if (result.success) {
-      // Redirect về frontend success page
+      // Redirect về trang staff appointments với success message
       res.redirect(
-        `http://localhost:5173/appointments?success=true&type=full&amount=${result.amount}&appointmentId=${result.appointmentId}`
+        `http://localhost:5173/staff/appointments?success=true&type=full&amount=${result.amount}&appointmentId=${result.appointmentId}`
       );
     } else {
       let message = "Thanh toán toàn bộ thất bại";
       res.redirect(
-        `http://localhost:5173/appointments?success=false&message=${encodeURIComponent(
+        `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}`
       );
@@ -400,7 +400,7 @@ export const appointmentFullPaymentReturn = async (
   } catch (error: any) {
     console.error("❌ Appointment Full Payment 100% return error:", error);
     res.redirect(
-      `http://localhost:5173/appointments?success=false&message=${encodeURIComponent(
+      `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
