@@ -14,6 +14,12 @@ import {
     getAuctionAppointments,
     getAppointmentByChatId,
     completeAppointment,
+    requestNotarizationAppointment,
+    selectAppointmentSlot,
+    declineNotarizationAppointment,
+    uploadNotarizationProof,
+    requestHandoverAppointment,
+    uploadHandoverProof,
 } from "../controllers/appointmentController";
 import {
     createDeposit,
@@ -23,6 +29,22 @@ import {
 } from "../controllers/appointmentDepositController";
 import { authenticate } from "../middlewares/authenticate";
 import { requireRole } from "../middlewares/role";
+import multer from "multer";
+
+const memoryUpload = multer({
+    storage: multer.memoryStorage(),
+    limits: {
+        fileSize: 10 * 1024 * 1024,
+        files: 10,
+    },
+    fileFilter: (_req, file, cb) => {
+        const ok =
+            /^image\/(png|jpe?g|webp|gif)$/i.test(file.mimetype) ||
+            /\.(png|jpe?g|webp|gif)$/i.test(file.originalname);
+        if (ok) cb(null, true);
+        else cb(new Error("Invalid image type"));
+    },
+});
 
 // Router cho các API endpoints liên quan đến appointments và lịch hẹn
 const router = express.Router();
@@ -999,6 +1021,48 @@ router.post(
   authenticate,
   requireRole(['staff', 'admin']),
   createDeposit as unknown as RequestHandler
+);
+
+router.post(
+  '/deals/:dealId/notarization-request',
+  authenticate,
+  requireRole(['staff', 'admin']),
+  requestNotarizationAppointment as unknown as RequestHandler
+);
+
+router.post(
+  '/:appointmentId/select-slot',
+  authenticate,
+  selectAppointmentSlot as unknown as RequestHandler
+);
+
+router.post(
+  '/:appointmentId/decline-slot',
+  authenticate,
+  declineNotarizationAppointment as unknown as RequestHandler
+);
+
+router.post(
+  '/deals/:dealId/handover-request',
+  authenticate,
+  requireRole(['staff', 'admin']),
+  requestHandoverAppointment as unknown as RequestHandler
+);
+
+router.post(
+  '/:appointmentId/notarization-proof',
+  authenticate,
+  requireRole(['staff', 'admin']),
+  memoryUpload.array('photos', 10),
+  uploadNotarizationProof as unknown as RequestHandler
+);
+
+router.post(
+  '/:appointmentId/handover-proof',
+  authenticate,
+  requireRole(['staff', 'admin']),
+  memoryUpload.array('photos', 10),
+  uploadHandoverProof as unknown as RequestHandler
 );
 
 /**

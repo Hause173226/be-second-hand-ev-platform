@@ -10,6 +10,7 @@ import depositNotificationService from "../services/depositNotificationService";
 import emailService from "../services/emailService";
 import auctionDepositService from "../services/auctionDepositService";
 import axios from "axios";
+import dealServiceInstance from "../services/dealService";
 
 type ContractContext = {
   appointment: any;
@@ -68,6 +69,8 @@ export const createContract = async (req: Request, res: Response) => {
       });
     }
 
+    const appointmentDealId = appointment.dealId ?? undefined;
+
     const context = await resolveContractContext(appointment);
     const normalizedContractType: ContractType = CONTRACT_TYPES.includes(
       (contractType as ContractType) ?? "DEPOSIT"
@@ -82,6 +85,7 @@ export const createContract = async (req: Request, res: Response) => {
       buyerId: appointment.buyerId,
       sellerId: appointment.sellerId,
       listingId: context.listingId,
+      dealId: appointmentDealId,
       contractNumber: `CT-${Date.now()}`,
       contractDate: new Date(),
       buyerName: context.buyer.fullName || context.buyer.email,
@@ -126,6 +130,20 @@ export const createContract = async (req: Request, res: Response) => {
     });
 
     await contract.save();
+
+    if (appointmentDealId) {
+      const contractId = (contract._id as any)?.toString?.();
+      if (contractId) {
+        try {
+          await dealServiceInstance.linkContract(
+            appointmentDealId,
+            contractId
+          );
+        } catch (err) {
+          console.error("Error linking deal with contract:", err);
+        }
+      }
+    }
 
     if (appointment.type !== "CONTRACT_SIGNING") {
       appointment.type = "CONTRACT_SIGNING";
@@ -413,6 +431,8 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       });
     }
 
+    const appointmentDealId = appointment.dealId ?? undefined;
+
     const allowedStatuses = [
       "CONFIRMED",
       "AWAITING_REMAINING_PAYMENT",
@@ -530,6 +550,7 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
         listingId: listingId,
         contractNumber: `CT-${Date.now()}`,
         contractDate: new Date(),
+        dealId: appointmentDealId,
         buyerName: context.buyer.fullName || context.buyer.email,
         buyerIdNumber: context.buyer.citizenId || "N/A",
         buyerIdIssuedDate: context.buyer.citizenIdIssuedDate || new Date(),
@@ -585,6 +606,9 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       contract.signedAt = new Date();
       contract.staffId = staffId!;
       contract.staffName = req.user?.name || req.user?.email;
+      if (appointmentDealId && contract.dealId !== appointmentDealId) {
+        contract.dealId = appointmentDealId;
+      }
     }
 
     ensureTimeline(contract, contract.contractType || "DEPOSIT");
@@ -609,6 +633,47 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
 
     applyTimelineAutoProgress(contract);
     await contract.save();
+
+    if (appointmentDealId) {
+      const contractId = (contract._id as any)?.toString?.();
+      const appointmentIdForDeal = contract.appointmentId?.toString();
+      const dealAttachments = uploadedPhotos.map((photo) => ({
+        url: photo.url,
+        description: photo.description,
+        uploadedAt: photo.uploadedAt,
+      }));
+      if (contractId) {
+        try {
+          await dealServiceInstance.linkContract(
+            appointmentDealId,
+            contractId
+          );
+        } catch (err) {
+          console.error(
+            "Error linking deal with contract after uploading photos:",
+            err
+          );
+        }
+      }
+
+      try {
+        await dealServiceInstance.updatePaperworkStep(
+          appointmentDealId,
+          "SIGN_CONTRACT",
+          {
+            status: "DONE",
+            note: "Staff uploaded signed contract photos",
+            appointmentId: appointmentIdForDeal,
+            attachments: dealAttachments,
+          }
+        );
+      } catch (err) {
+        console.error(
+          "Error syncing deal paperwork after contract photo upload:",
+          err
+        );
+      }
+    }
 
     res.json({
       success: true,
@@ -754,6 +819,22 @@ export const uploadContractSignature = async (req: Request, res: Response) => {
     timelineStep.updatedBy = userId;
 
     await contract.save();
+    if (contract.dealId) {
+      try {
+        await dealServiceInstance.updatePaperworkStep(contract.dealId, "SIGN_CONTRACT", {
+          status: timelineStep.status,
+          note: `Đã upload chữ ký ${party}`,
+          appointmentId: contract.appointmentId?.toString(),
+          attachments: uploadedAttachments.map((att) => ({
+            url: att.url,
+            description: att.description,
+            uploadedAt: att.uploadedAt,
+          })),
+        });
+      } catch (err) {
+        console.error("Error updating deal paperwork after signature upload:", err);
+      }
+    }
 
     return res.status(200).json({
       success: true,

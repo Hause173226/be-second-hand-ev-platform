@@ -438,6 +438,181 @@ export class DepositNotificationService {
     }
 
     /**
+     * Gửi notification khi staff đề xuất lịch công chứng
+     */
+    public async sendNotarizationRequestNotification(
+        receiverId: string,
+        appointment: any,
+        otherPartyInfo?: any,
+        listingInfo?: any
+    ) {
+        try {
+            const wsService = this.getWsService();
+            const proposedSlots: string[] = (appointment.proposedSlots || []).map(
+                (slot: Date | string) => {
+                    const slotDate = slot instanceof Date ? slot : new Date(slot);
+                    return slotDate.toLocaleString("vi-VN", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    });
+                }
+            );
+
+            const notification = new NotificationDeposit({
+                userId: receiverId,
+                type: "notarization_request",
+                title: "Yêu cầu xác nhận lịch công chứng",
+                message:
+                    proposedSlots.length > 0
+                        ? `Nhân viên đã đề xuất ${proposedSlots.length} khung giờ công chứng tại ${appointment.location}. Vui lòng lựa chọn trong ứng dụng.`
+                        : `Nhân viên đã đề xuất lịch công chứng tại ${appointment.location}. Vui lòng lựa chọn trong ứng dụng.`,
+                appointmentId: appointment._id?.toString(),
+                metadata: {
+                    appointmentId: appointment._id,
+                    dealId: appointment.dealId,
+                    proposedSlots: appointment.proposedSlots,
+                    location: appointment.location,
+                    status: appointment.status,
+                    type: appointment.type,
+                    otherPartyId: otherPartyInfo?._id,
+                    otherPartyName:
+                        otherPartyInfo?.fullName ||
+                        otherPartyInfo?.name ||
+                        otherPartyInfo?.email,
+                    listingTitle: listingInfo?.title,
+                    listingBrand: listingInfo?.make,
+                    listingModel: listingInfo?.model,
+                    listingYear: listingInfo?.year,
+                },
+                isRead: false,
+            });
+
+            await notification.save();
+
+            if (wsService) {
+                wsService.sendToUser(receiverId, "notarization_request", {
+                    notificationId: notification._id,
+                    type: "notarization_request",
+                    title: notification.title,
+                    message: notification.message,
+                    appointmentId: appointment._id,
+                    metadata: notification.metadata,
+                    timestamp: notification.createdAt,
+                });
+
+                wsService.sendToUser(receiverId, "new_notification", {
+                    _id: notification._id,
+                    type: "notarization_request",
+                    title: notification.title,
+                    message: notification.message,
+                    actionUrl: `/appointments/${appointment._id}`,
+                    actionText: "Xem lịch công chứng",
+                    metadata: notification.metadata,
+                    createdAt: notification.createdAt,
+                    isRead: false,
+                });
+            }
+
+            return notification;
+        } catch (error) {
+            console.error(
+                "Error sending notarization request notification:",
+                error
+            );
+            throw error;
+        }
+    }
+
+    public async sendHandoverRequestNotification(
+        receiverId: string,
+        appointment: any,
+        otherPartyInfo?: any,
+        listingInfo?: any
+    ) {
+        try {
+            const wsService = this.getWsService();
+            const proposedSlots: string[] = (appointment.proposedSlots || []).map(
+                (slot: Date | string) => {
+                    const slotDate = slot instanceof Date ? slot : new Date(slot);
+                    return slotDate.toLocaleString("vi-VN", {
+                        year: "numeric",
+                        month: "2-digit",
+                        day: "2-digit",
+                        hour: "2-digit",
+                        minute: "2-digit",
+                    });
+                }
+            );
+
+            const notification = new NotificationDeposit({
+                userId: receiverId,
+                type: "handover_request",
+                title: "Yêu cầu xác nhận lịch bàn giao xe",
+                message:
+                    proposedSlots.length > 0
+                        ? `Nhân viên đã đề xuất ${proposedSlots.length} khung giờ bàn giao tại ${appointment.location}. Vui lòng lựa chọn trong ứng dụng.`
+                        : `Nhân viên đã đề xuất lịch bàn giao xe tại ${appointment.location}. Vui lòng lựa chọn trong ứng dụng.`,
+                appointmentId: appointment._id?.toString(),
+                metadata: {
+                    appointmentId: appointment._id,
+                    dealId: appointment.dealId,
+                    proposedSlots: appointment.proposedSlots,
+                    location: appointment.location,
+                    status: appointment.status,
+                    type: appointment.type,
+                    otherPartyId: otherPartyInfo?._id,
+                    otherPartyName:
+                        otherPartyInfo?.fullName ||
+                        otherPartyInfo?.name ||
+                        otherPartyInfo?.email,
+                    listingTitle: listingInfo?.title,
+                    listingBrand: listingInfo?.make,
+                    listingModel: listingInfo?.model,
+                    listingYear: listingInfo?.year,
+                },
+                isRead: false,
+            });
+
+            await notification.save();
+
+            if (wsService) {
+                wsService.sendToUser(receiverId, "handover_request", {
+                    notificationId: notification._id,
+                    type: "handover_request",
+                    title: notification.title,
+                    message: notification.message,
+                    appointmentId: appointment._id,
+                    metadata: notification.metadata,
+                    timestamp: notification.createdAt,
+                });
+
+                wsService.sendToUser(receiverId, "new_notification", {
+                    _id: notification._id,
+                    type: "handover_request",
+                    title: notification.title,
+                    message: notification.message,
+                    actionUrl: `/appointments/${appointment._id}`,
+                    actionText: "Xem lịch bàn giao",
+                    metadata: notification.metadata,
+                    createdAt: notification.createdAt,
+                    isRead: false,
+                });
+            }
+
+            return notification;
+        } catch (error) {
+            console.error(
+                "Error sending handover request notification:",
+                error
+            );
+            throw error;
+        }
+    }
+
+    /**
      * Gửi notification khi hủy lịch hẹn (có thể kèm hủy giao dịch)
      */
     public async sendAppointmentCancelledNotification(

@@ -17,8 +17,11 @@ export interface IAppointment {
             lng: number;
         };
     };
-    status: "pending" | "confirmed" | "cancelled" | "completed";
+    status: "pending" | "confirmed" | "cancelled" | "completed" | "pending_confirmation" | "rescheduled";
     notes?: string;
     createdAt?: Date;
     updatedAt?: Date;
+    proposedSlots?: Date[];
+    selectedSlot?: Date;
+    dealId?: Types.ObjectId;
 }
