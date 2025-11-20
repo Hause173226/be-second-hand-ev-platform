@@ -127,7 +127,9 @@ export const getSystemWalletTransactionDetail = async (
       return;
     }
 
-    const transactionDetail = await SystemWalletService.getTransactionDetail(id);
+    const transactionDetail = await SystemWalletService.getTransactionDetail(
+      id
+    );
 
     res.json({
       success: true,
@@ -208,6 +210,71 @@ export const getSystemWalletChartData = async (
     return;
   } catch (error) {
     console.error("Error getting system wallet chart data:", error);
+    res.status(500).json({
+      success: false,
+      message: "Lỗi hệ thống",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+    return;
+  }
+};
+
+// [SYSTEM_WALLET_API] - Admin xem dữ liệu chart doanh thu tổng hợp (giao dịch + membership)
+export const getTotalRevenueChartData = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
+  try {
+    const isAdmin = req.user?.role === "admin" || req.user?.role === "staff";
+    if (!isAdmin) {
+      res.status(403).json({
+        success: false,
+        message: "Chỉ admin/staff mới có quyền xem dữ liệu chart",
+      });
+      return;
+    }
+
+    const { period, startDate, endDate } = req.query;
+
+    // Parse dates nếu có
+    let parsedStartDate: Date | undefined;
+    let parsedEndDate: Date | undefined;
+
+    if (startDate) {
+      parsedStartDate = new Date(startDate as string);
+      if (isNaN(parsedStartDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "startDate không hợp lệ",
+        });
+        return;
+      }
+    }
+
+    if (endDate) {
+      parsedEndDate = new Date(endDate as string);
+      if (isNaN(parsedEndDate.getTime())) {
+        res.status(400).json({
+          success: false,
+          message: "endDate không hợp lệ",
+        });
+        return;
+      }
+    }
+
+    const chartData = await SystemWalletService.getTotalRevenueChartData({
+      period: (period as "day" | "month" | "year") || "day",
+      startDate: parsedStartDate,
+      endDate: parsedEndDate,
+    });
+
+    res.json({
+      success: true,
+      data: chartData,
+    });
+    return;
+  } catch (error) {
+    console.error("Error getting total revenue chart data:", error);
     res.status(500).json({
       success: false,
       message: "Lỗi hệ thống",

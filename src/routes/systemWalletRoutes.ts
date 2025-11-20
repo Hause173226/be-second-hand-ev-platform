@@ -6,6 +6,7 @@ import {
   getSystemWalletTransactions,
   getSystemWalletTransactionDetail,
   getSystemWalletChartData,
+  getTotalRevenueChartData,
 } from "../controllers/systemWalletController";
 
 const router = express.Router();
@@ -67,7 +68,12 @@ const router = express.Router();
  *       500:
  *         description: Lỗi server
  */
-router.get("/", authenticate, requireRole(["admin", "staff"]), getSystemWalletInfo);
+router.get(
+  "/",
+  authenticate,
+  requireRole(["admin", "staff"]),
+  getSystemWalletInfo
+);
 
 /**
  * @swagger
@@ -398,6 +404,103 @@ router.get(
   authenticate,
   requireRole(["admin", "staff"]),
   getSystemWalletChartData
+);
+
+/**
+ * @swagger
+ * /api/system-wallet/revenue-chart:
+ *   get:
+ *     summary: Admin/staff xem dữ liệu chart doanh thu tổng hợp (giao dịch + membership)
+ *     tags: [SystemWallet]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: period
+ *         schema:
+ *           type: string
+ *           enum: [day, month, year]
+ *           default: day
+ *         description: Chu kỳ thống kê (day = theo ngày, month = theo tháng, year = theo năm)
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Ngày bắt đầu (ISO 8601). Nếu không có, mặc định lấy 30 ngày gần nhất
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date-time
+ *         description: Ngày kết thúc (ISO 8601). Nếu không có, mặc định là hôm nay
+ *     responses:
+ *       200:
+ *         description: Dữ liệu chart doanh thu tổng hợp
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     labels:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       description: Danh sách các nhãn thời gian (ngày/tháng/năm)
+ *                     datasets:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           label:
+ *                             type: string
+ *                           data:
+ *                             type: array
+ *                             items:
+ *                               type: number
+ *                           backgroundColor:
+ *                             type: string
+ *                           borderColor:
+ *                             type: string
+ *                           borderWidth:
+ *                             type: number
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalTransactionRevenue:
+ *                           type: number
+ *                           description: Tổng doanh thu từ giao dịch mua bán xe
+ *                         totalMembershipRevenue:
+ *                           type: number
+ *                           description: Tổng doanh thu từ membership
+ *                         totalRevenue:
+ *                           type: number
+ *                           description: Tổng doanh thu (giao dịch + membership)
+ *                         totalTransactions:
+ *                           type: number
+ *                           description: Tổng số giao dịch
+ *                         totalMemberships:
+ *                           type: number
+ *                           description: Tổng số membership đã bán
+ *       401:
+ *         description: Chưa đăng nhập
+ *       403:
+ *         description: Không có quyền (chỉ admin/staff)
+ *       400:
+ *         description: Tham số không hợp lệ
+ *       500:
+ *         description: Lỗi server
+ */
+router.get(
+  "/revenue-chart",
+  authenticate,
+  requireRole(["admin", "staff"]),
+  getTotalRevenueChartData
 );
 
 export default router;

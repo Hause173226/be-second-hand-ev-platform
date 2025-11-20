@@ -586,7 +586,7 @@ export const handleDeposit10Callback = async (vnp_Params: any) => {
         `Đặt cọc 10% từ user ${appointment.buyerId} cho appointment ${appointmentId}`,
         "COMPLETED",
         undefined,
-        undefined
+        appointmentId
       );
 
       // Cập nhật Appointment: timeline.depositPaidAt + status
@@ -923,7 +923,7 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
         `Thanh toán toàn bộ 100% từ user ${appointment.buyerId} cho appointment ${appointmentId}`,
         "COMPLETED",
         undefined,
-        undefined
+        appointmentId
       );
 
       // Cập nhật Appointment: timeline.fullPaymentPaidAt, timeline.completedAt, status = COMPLETED
@@ -1254,7 +1254,7 @@ export const handleRemaining90Callback = async (vnp_Params: any) => {
         `Thanh toán còn lại 90% từ user ${appointment.buyerId} cho appointment ${appointmentId}`,
         "COMPLETED",
         undefined,
-        undefined
+        appointmentId
       );
 
       // Cập nhật Appointment: timeline.remainingPaidAt, timeline.completedAt, status = COMPLETED
