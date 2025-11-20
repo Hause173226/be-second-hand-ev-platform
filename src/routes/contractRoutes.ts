@@ -10,6 +10,7 @@ import {
   updateContractTimelineStep,
   generateContractPdfFile,
   getContractPdfFile,
+  uploadContractSignature,
 } from "../controllers/contractController";
 import { authenticate } from "../middlewares/authenticate";
 import { requireRole } from "../middlewares/role";
@@ -103,6 +104,15 @@ router.post(
   authenticate,
   memoryUpload.array("photos", 10), // ✅ Tối đa 10 ảnh, lưu vào memory để có buffer
   uploadContractPhotos as unknown as RequestHandler
+);
+
+// Staff upload ảnh ký hợp đồng cho từng bên (BUYER/SELLER) vào bước SIGN_CONTRACT
+router.post(
+  "/:contractId/signatures",
+  authenticate,
+  requireRole(["staff", "admin"]),
+  memoryUpload.array("photos", 6), // Phải đủ 6 ảnh (FE nên kiểm tra trước)
+  uploadContractSignature as unknown as RequestHandler
 );
 
 /**

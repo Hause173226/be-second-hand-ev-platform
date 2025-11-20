@@ -127,6 +127,11 @@ export const createContract = async (req: Request, res: Response) => {
 
     await contract.save();
 
+    if (appointment.type !== "CONTRACT_SIGNING") {
+      appointment.type = "CONTRACT_SIGNING";
+      await appointment.save();
+    }
+
     res.json({
       success: true,
       message: "Tạo hợp đồng thành công",
@@ -258,6 +263,7 @@ import {
   isValidTimelineStep,
 } from "../constants/contractTimeline";
 import { generateContractPdf as buildContractPdfFile } from "../services/contractPdfService";
+import { log } from "console";
 
 // Lấy thông tin hợp đồng (người mua/bán và xe)
 export const getContractInfo = async (req: Request, res: Response) => {
@@ -407,10 +413,17 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
       });
     }
 
-    if (appointment.status !== "CONFIRMED") {
+    const allowedStatuses = [
+      "CONFIRMED",
+      "AWAITING_REMAINING_PAYMENT",
+      "COMPLETED",
+      "CONTRACT_SIGNING",
+    ];
+    if (!allowedStatuses.includes(appointment.status)) {
       return res.status(400).json({
         success: false,
-        message: "Lịch hẹn chưa được xác nhận hoặc đã hoàn thành",
+        message:
+          "Lịch hẹn phải đang được xử lý (đã xác nhận/thanh toán) mới được upload ảnh",
       });
     }
 
@@ -616,6 +629,152 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Lỗi hệ thống",
+      error: error?.message || "Unknown error",
+    });
+  }
+};
+
+// Staff upload ảnh ký hợp đồng (theo từng bên BUYER/SELLER) vào bước SIGN_CONTRACT của timeline
+export const uploadContractSignature = async (req: Request, res: Response) => {
+  try {
+    const { contractId } = req.params;
+    const userId = req.user?.id;
+    const { party } = req.body as { party?: "BUYER" | "SELLER" };
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: "Chưa đăng nhập",
+      });
+    }
+
+    // Chỉ staff/admin mới được quyền upload chữ ký
+    if (!isStaff(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: "Chỉ nhân viên mới có quyền upload ảnh ký hợp đồng",
+      });
+    }
+
+    if (!party || (party !== "BUYER" && party !== "SELLER")) {
+      return res.status(400).json({
+        success: false,
+        message: "Thiếu hoặc sai tham số 'party' (BUYER hoặc SELLER)",
+      });
+    }
+
+    // Tìm contract
+    const contract = await Contract.findById(contractId);
+    if (!contract) {
+      return res.status(404).json({
+        success: false,
+        message: "Không tìm thấy hợp đồng",
+      });
+    }
+
+    const files = req.files as Express.Multer.File[];
+    if (!files || files.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Vui lòng chọn ít nhất 1 ảnh hợp đồng đã ký",
+      });
+    }
+
+    if (files.length !== 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Cần upload chính xác 6 ảnh ký hợp đồng",
+        currentCount: files.length,
+      });
+    }
+
+    // Đảm bảo timeline đã được khởi tạo
+    ensureTimeline(contract, contract.contractType || "DEPOSIT");
+
+    // Tìm bước SIGN_CONTRACT trong timeline
+    const timelineStep = contract.paperworkTimeline.find(
+      (item: any) => item.step === "SIGN_CONTRACT"
+    );
+
+    if (!timelineStep) {
+      return res.status(400).json({
+        success: false,
+        message: "Không tìm thấy bước ký hợp đồng trong timeline",
+      });
+    }
+
+    const uploadedAttachments: ContractTimelineAttachment[] = [];
+
+    for (const file of files) {
+      try {
+        if (!file.buffer || file.buffer.length === 0) {
+          console.error("Empty file buffer:", file.originalname);
+          continue;
+        }
+
+        const uploadResult = await uploadFromBuffer(
+          file.buffer,
+          `contract-signature-${contractId}-${Date.now()}`,
+          {
+            folder: "secondhand-ev/contracts/signatures",
+            resource_type: "image",
+          }
+        );
+
+        const attachment: ContractTimelineAttachment = {
+          url: uploadResult.secureUrl,
+          publicId: uploadResult.publicId,
+          // Ghi rõ bên ký trong description để FE phân biệt BUYER/SELLER
+          description:
+            `[${party}] ` + (file.originalname || "Ảnh hợp đồng đã ký"),
+          uploadedAt: new Date(),
+          uploadedBy: userId,
+        };
+
+        timelineStep.attachments.push(attachment);
+        uploadedAttachments.push(attachment);
+      } catch (uploadError) {
+        console.error("Error uploading signature photo:", uploadError);
+        // Tiếp tục với các file khác
+      }
+    }
+
+    if (uploadedAttachments.length === 0) {
+      return res.status(500).json({
+        success: false,
+        message: "Không thể upload ảnh nào",
+      });
+    }
+
+    // Nếu bước đang PENDING thì chuyển sang IN_PROGRESS để staff biết là đã có ảnh chờ duyệt
+    if (timelineStep.status === "PENDING") {
+      timelineStep.status = "IN_PROGRESS";
+    }
+    timelineStep.updatedAt = new Date();
+    timelineStep.updatedBy = userId;
+
+    await contract.save();
+
+    return res.status(200).json({
+      success: true,
+      message:
+        "Upload ảnh ký hợp đồng thành công. Đang chờ nhân viên xác nhận hoàn thành.",
+      data: {
+        contractId: contract._id,
+        step: "SIGN_CONTRACT",
+        status: timelineStep.status,
+        attachments: uploadedAttachments.map((att) => ({
+          url: att.url,
+          description: att.description,
+          uploadedAt: att.uploadedAt,
+        })),
+      },
+    });
+  } catch (error: any) {
+    console.error("Error uploading contract signature:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Lỗi khi upload ảnh ký hợp đồng",
       error: error?.message || "Unknown error",
     });
   }

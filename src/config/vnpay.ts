@@ -9,7 +9,7 @@ const VNPAY_BASE_URL = process.env.VNPAY_BASE_URL || "http://localhost:8081";
 export const VNPayConfig = {
   vnp_TmnCode: process.env.VNPAY_TMN_CODE || "UY28ABIO",
   vnp_HashSecret:
-    process.env.VNPAY_HASH_SECRET || "HCE60T7GQYDZUJJ216XKP1Z8KHZN69PX",
+    process.env.VNPAY_HASH_SECRET || "QOLPNWKOOS4BAMY1CTAI9V00W3XZAB6J",
   vnp_Url: "https://sandbox.vnpayment.vn/paymentv2/vpcpay.html",
   vnp_ApiUrl: "https://sandbox.vnpayment.vn/merchant_webapi/api/transaction",
 
