@@ -157,7 +157,6 @@ export const getTransactionDetails = async (req: Request, res: Response) => {
     }
 
     const appointment = await Appointment.findById(appointmentId)
-      .populate('depositRequestId')
       .populate('buyerId', 'fullName email phone')
       .populate('sellerId', 'fullName email phone');
 
@@ -186,20 +185,22 @@ export const getTransactionDetails = async (req: Request, res: Response) => {
     }
 
     // Lấy thông tin hợp đồng và listing
-    const contract = await Contract.findOne({ appointmentId });
-    const depositRequest = appointment.depositRequestId as any;
-    const listing = depositRequest?.listingId
-      ? await Listing.findById(depositRequest.listingId)
-      : null;
+    const transaction =
+      await transactionHistoryService.getTransactionById(appointmentId, {
+        currentUserId: userIdStr,
+        adminView: isStaff,
+      });
+
+    if (!transaction) {
+      return res.status(404).json({
+        success: false,
+        message: 'Không tìm thấy giao dịch',
+      });
+    }
 
     res.json({
       success: true,
-      data: {
-        appointment,
-        contract: contract || null,
-        depositRequest: appointment.depositRequestId,
-        listing: listing || null
-      }
+      data: transaction,
     });
 
   } catch (error) {
@@ -220,10 +221,6 @@ export const getUserTransactionHistory = async (req: Request, res: Response) => 
     // Lấy userId từ JWT token (đã được set bởi authenticate middleware)
     // JWT token chứa userId, middleware authenticate decode và set vào req.user.id
     const userId = req.user?.id || req.user?._id;
-    
-    // Debug: Log để kiểm tra userId có được lấy đúng không
-    console.log('[Transaction History] User ID từ JWT token:', userId);
-    console.log('[Transaction History] Full req.user:', JSON.stringify(req.user, null, 2));
     
     if (!userId) {
       return res.status(401).json({

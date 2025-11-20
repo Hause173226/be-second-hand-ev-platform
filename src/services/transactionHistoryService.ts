@@ -4,7 +4,6 @@
 
 import Appointment from "../models/Appointment";
 import Contract from "../models/Contract";
-import DepositRequest from "../models/DepositRequest";
 import Listing from "../models/Listing";
 
 export interface TransactionHistoryItem {
@@ -20,6 +19,9 @@ export interface TransactionHistoryItem {
     price?: number;
     priceListed?: number;
     images?: string[];
+    location?: any;
+    licensePlate?: string;
+    vehicleType?: string;
   };
   contract?: {
     id: string;
@@ -36,6 +38,9 @@ export interface TransactionHistoryItem {
       id: string;
       name: string;
     };
+    contractPdfUrl?: string;
+    paperworkTimeline?: any;
+    contractType?: string;
   };
   depositRequest: {
     id: string;
@@ -57,11 +62,164 @@ export interface TransactionHistoryItem {
   amount: {
     deposit: number;
     total: number;
+    remaining: number;
   };
   appointmentId: string;
 }
 
 class TransactionHistoryService {
+  private async resolveListingDocument(
+    depositListingRef: any,
+    appointmentListingRef: any
+  ) {
+    let listingDoc: any = null;
+
+    const loadListing = async (ref: any) => {
+      if (!ref) return null;
+      if (typeof ref === "object" && ref._id) {
+        return ref;
+      }
+      try {
+        return await Listing.findById(ref);
+      } catch (err) {
+        console.error("[TransactionHistory] Cannot load listing:", ref, err);
+        return null;
+      }
+    };
+
+    listingDoc = await loadListing(depositListingRef);
+    if (!listingDoc) {
+      listingDoc = await loadListing(appointmentListingRef);
+    }
+
+    return listingDoc;
+  }
+
+  private normalizeUserId(user: any) {
+    if (!user) return "";
+    if (typeof user === "string") return user;
+    if (user._id) return user._id.toString();
+    if (user.id) return user.id.toString();
+    return String(user);
+  }
+
+  private buildListingPayload(listing: any) {
+    return {
+      id: listing?._id?.toString() || "",
+      title: listing?.title || "N/A",
+      make: listing?.make,
+      model: listing?.model,
+      year: listing?.year,
+      price: listing?.price,
+      priceListed: listing?.priceListed,
+      images: listing?.photos?.map((photo: any) => photo?.url) || listing?.images || [],
+      location: listing?.location,
+      licensePlate: listing?.licensePlate,
+      vehicleType: listing?.vehicleType,
+    };
+  }
+
+  private computeDeposit(
+    depositRequest: any,
+    listing: any
+  ) {
+    if (depositRequest?.depositAmount && depositRequest.depositAmount > 0) {
+      return depositRequest.depositAmount;
+    }
+    const price = listing?.priceListed || listing?.price || 0;
+    return price > 0 ? Math.ceil(price * 0.1) : 0;
+  }
+
+  private async buildTransactionItem(
+    appointment: any,
+    options: {
+      currentUserId?: string;
+      adminView?: boolean;
+    } = {}
+  ): Promise<TransactionHistoryItem> {
+    const { currentUserId, adminView = false } = options;
+    const depositRequest = appointment.depositRequestId as any;
+    const buyer = appointment.buyerId as any;
+    const seller = appointment.sellerId as any;
+
+    const listingDoc = await this.resolveListingDocument(
+      depositRequest?.listingId,
+      appointment.listingId
+    );
+
+    const contract = await Contract.findOne({
+      appointmentId: appointment._id,
+    }).select(
+      "status contractNumber contractPhotos signedAt completedAt staffId staffName contractPdfUrl paperworkTimeline contractType"
+    );
+
+    const depositAmount = this.computeDeposit(depositRequest, listingDoc);
+    const totalAmount = listingDoc?.priceListed || listingDoc?.price || 0;
+    const remaining = totalAmount - depositAmount;
+
+    let userType: "buyer" | "seller" = "buyer";
+    if (!adminView && currentUserId) {
+      const buyerIdStr = this.normalizeUserId(buyer);
+      const currentIdStr = currentUserId.toString();
+      userType = buyerIdStr === currentIdStr ? "buyer" : "seller";
+    }
+
+    const counterparty = userType === "buyer" ? seller : buyer;
+
+    return {
+      id: appointment._id.toString(),
+      type: userType,
+      status: appointment.status,
+      listing: this.buildListingPayload(listingDoc),
+      contract: contract
+        ? {
+            id: contract._id.toString(),
+            status: contract.status,
+            contractNumber: contract.contractNumber,
+            photos: (contract.contractPhotos as any[])?.map((photo) => ({
+              url: photo.url,
+              publicId: photo.publicId,
+              uploadedAt: photo.uploadedAt,
+            })),
+            signedAt: contract.signedAt,
+            completedAt: contract.completedAt,
+            staff: contract.staffId
+              ? {
+                  id: contract.staffId.toString(),
+                  name: contract.staffName || "N/A",
+                }
+              : undefined,
+            contractPdfUrl: contract.contractPdfUrl,
+            paperworkTimeline: contract.paperworkTimeline,
+            contractType: contract.contractType,
+          }
+        : undefined,
+      depositRequest: {
+        id: depositRequest?._id?.toString() || "",
+        depositAmount,
+        status: depositRequest?.status || "UNKNOWN",
+      },
+      counterparty: {
+        id: this.normalizeUserId(counterparty),
+        name: counterparty?.fullName || counterparty?.name || "N/A",
+        email: counterparty?.email || "N/A",
+        phone: counterparty?.phone,
+      },
+      dates: {
+        createdAt: appointment.createdAt,
+        scheduledDate: appointment.scheduledDate,
+        completedAt: appointment.completedAt,
+        cancelledAt: appointment.cancelledAt,
+      },
+      amount: {
+        deposit: depositAmount,
+        total: totalAmount,
+        remaining,
+      },
+      appointmentId: appointment._id.toString(),
+    };
+  }
+
   /**
    * Lấy lịch sử giao dịch của user - chỉ trả về danh sách giao dịch của user đó
    */
@@ -97,6 +255,7 @@ class TransactionHistoryService {
       .populate("depositRequestId")
       .populate("buyerId", "fullName email phone")
       .populate("sellerId", "fullName email phone")
+      .populate("listingId")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -105,94 +264,11 @@ class TransactionHistoryService {
 
     // Get contracts and listings
     const transactions = await Promise.all(
-      appointments.map(async (appointment) => {
-        const depositRequest = appointment.depositRequestId as any;
-        const buyer = appointment.buyerId as any;
-        const seller = appointment.sellerId as any;
-
-        // Determine user's role - đảm bảo so sánh string
-        const buyerIdStr = buyer?._id?.toString() || (buyer as any)?._id?.toString() || String(buyer?._id || buyer);
-        const userIdStr = String(userId);
-        const userType: "buyer" | "seller" =
-          buyerIdStr === userIdStr ? "buyer" : "seller";
-        const counterparty = userType === "buyer" ? seller : buyer;
-
-        // Get listing
-        const listing = depositRequest?.listingId
-          ? await Listing.findById(depositRequest.listingId)
-          : null;
-
-        // Get contract (bao gồm thông tin staff)
-        const contract = await Contract.findOne({
-          appointmentId: appointment._id,
-        }).select('status contractNumber contractPhotos signedAt completedAt staffId staffName');
-
-        // Calculate amounts
-        const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
-          ? depositRequest.depositAmount
-          : (listing as any)?.priceListed && (listing as any)?.priceListed > 0
-            ? Math.ceil((listing as any).priceListed * 0.1)
-            : 0;
-        const totalAmount = (listing as any)?.priceListed || (listing as any)?.price || 0;
-        const remaining = totalAmount - depositAmount;
-
-        return {
-          id: (appointment._id as any).toString(),
-          type: userType,
-          status: appointment.status,
-          listing: {
-            id: (listing?._id as any)?.toString() || "",
-            title: (listing as any)?.title || "N/A",
-            make: (listing as any)?.make,
-            model: (listing as any)?.model,
-            year: (listing as any)?.year,
-            price: (listing as any)?.price,
-            priceListed: (listing as any)?.priceListed,
-            images: (listing as any)?.images || [],
-          },
-          contract: contract
-            ? {
-                id: (contract._id as any).toString(),
-                status: contract.status,
-                contractNumber: contract.contractNumber,
-                photos: (contract.contractPhotos as any[])?.map((photo) => ({
-                  url: photo.url,
-                  publicId: photo.publicId,
-                  uploadedAt: photo.uploadedAt,
-                })),
-                signedAt: contract.signedAt,
-                completedAt: contract.completedAt,
-                staff: contract.staffId ? {
-                  id: contract.staffId.toString(),
-                  name: contract.staffName || 'N/A'
-                } : undefined,
-              }
-            : undefined,
-          depositRequest: {
-            id: depositRequest?._id?.toString() || "",
-            depositAmount,
-            status: depositRequest?.status || "UNKNOWN",
-          },
-          counterparty: {
-            id: counterparty?._id?.toString() || "",
-            name: counterparty?.fullName || counterparty?.name || "N/A",
-            email: counterparty?.email || "N/A",
-            phone: counterparty?.phone,
-          },
-          dates: {
-            createdAt: appointment.createdAt,
-            scheduledDate: appointment.scheduledDate,
-            completedAt: appointment.completedAt,
-            cancelledAt: appointment.cancelledAt,
-          },
-          amount: {
-            deposit: depositAmount,
-            total: totalAmount,
-            remaining: remaining,
-          },
-          appointmentId: (appointment._id as any).toString(),
-        } as TransactionHistoryItem;
-      })
+      appointments.map((appointment) =>
+        this.buildTransactionItem(appointment, {
+          currentUserId: userId.toString(),
+        })
+      )
     );
 
     return {
@@ -234,6 +310,7 @@ class TransactionHistoryService {
       .populate("depositRequestId")
       .populate("buyerId", "fullName email phone")
       .populate("sellerId", "fullName email phone")
+      .populate("listingId")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -241,80 +318,9 @@ class TransactionHistoryService {
     const total = await Appointment.countDocuments(filter);
 
     const transactions = await Promise.all(
-      appointments.map(async (appointment) => {
-        const depositRequest = appointment.depositRequestId as any;
-        const buyer = appointment.buyerId as any;
-        const seller = appointment.sellerId as any;
-
-        const listing = depositRequest?.listingId
-          ? await Listing.findById(depositRequest.listingId)
-          : null;
-
-        const contract = await Contract.findOne({
-          appointmentId: appointment._id,
-        });
-
-        const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
-          ? depositRequest.depositAmount
-          : (listing as any)?.priceListed && (listing as any)?.priceListed > 0
-            ? Math.ceil((listing as any).priceListed * 0.1)
-            : 0;
-        const totalAmount = (listing as any)?.priceListed || (listing as any)?.price || 0;
-        const remaining = totalAmount - depositAmount;
-
-        return {
-          id: (appointment._id as any).toString(),
-          type: "buyer" as const, // Admin view
-          status: appointment.status,
-          listing: {
-            id: (listing?._id as any)?.toString() || "",
-            title: (listing as any)?.title || "N/A",
-            make: (listing as any)?.make,
-            model: (listing as any)?.model,
-            year: (listing as any)?.year,
-            price: (listing as any)?.price,
-            priceListed: (listing as any)?.priceListed,
-            images: (listing as any)?.images || [],
-          },
-          contract: contract
-            ? {
-                id: (contract._id as any).toString(),
-                status: contract.status,
-                contractNumber: contract.contractNumber,
-                photos: (contract.contractPhotos as any[])?.map((photo) => ({
-                  url: photo.url,
-                  publicId: photo.publicId,
-                  uploadedAt: photo.uploadedAt,
-                })),
-                signedAt: contract.signedAt,
-                completedAt: contract.completedAt,
-              }
-            : undefined,
-          depositRequest: {
-            id: depositRequest?._id?.toString() || "",
-            depositAmount,
-            status: depositRequest?.status || "UNKNOWN",
-          },
-          counterparty: {
-            id: seller?._id?.toString() || "",
-            name: seller?.fullName || seller?.name || "N/A",
-            email: seller?.email || "N/A",
-            phone: seller?.phone,
-          },
-          dates: {
-            createdAt: appointment.createdAt,
-            scheduledDate: appointment.scheduledDate,
-            completedAt: appointment.completedAt,
-            cancelledAt: appointment.cancelledAt,
-          },
-          amount: {
-            deposit: depositAmount,
-            total: totalAmount,
-            remaining: remaining,
-          },
-          appointmentId: (appointment._id as any).toString(),
-        } as TransactionHistoryItem;
-      })
+      appointments.map((appointment) =>
+        this.buildTransactionItem(appointment, { adminView: true })
+      )
     );
 
     return {
@@ -352,6 +358,7 @@ class TransactionHistoryService {
       .populate("depositRequestId")
       .populate("buyerId", "fullName email phone")
       .populate("sellerId", "fullName email phone")
+      .populate("listingId")
       .sort({ createdAt: -1 })
       .limit(limit * 1)
       .skip((page - 1) * limit);
@@ -359,84 +366,9 @@ class TransactionHistoryService {
     const total = await Appointment.countDocuments({});
 
     const transactions = await Promise.all(
-      appointments.map(async (appointment) => {
-        const depositRequest = appointment.depositRequestId as any;
-        const buyer = appointment.buyerId as any;
-        const seller = appointment.sellerId as any;
-
-        const listing = depositRequest?.listingId
-          ? await Listing.findById(depositRequest.listingId)
-          : null;
-
-        const contract = await Contract.findOne({
-          appointmentId: appointment._id,
-        });
-
-        const depositAmount = depositRequest?.depositAmount && depositRequest.depositAmount > 0
-          ? depositRequest.depositAmount
-          : (listing as any)?.priceListed && (listing as any)?.priceListed > 0
-            ? Math.ceil((listing as any).priceListed * 0.1)
-            : 0;
-        const totalAmount = (listing as any)?.priceListed || (listing as any)?.price || 0;
-        const remaining = totalAmount - depositAmount;
-
-        return {
-          id: (appointment._id as any).toString(),
-          type: "buyer" as const,
-          status: appointment.status,
-          listing: {
-            id: (listing?._id as any)?.toString() || "",
-            title: (listing as any)?.title || "N/A",
-            make: (listing as any)?.make,
-            model: (listing as any)?.model,
-            year: (listing as any)?.year,
-            price: (listing as any)?.price,
-            priceListed: (listing as any)?.priceListed,
-            images: (listing as any)?.images || [],
-          },
-          contract: contract
-            ? {
-                id: (contract._id as any).toString(),
-                status: contract.status,
-                contractNumber: contract.contractNumber,
-                photos: (contract.contractPhotos as any[])?.map((photo) => ({
-                  url: photo.url,
-                  publicId: photo.publicId,
-                  uploadedAt: photo.uploadedAt,
-                })),
-                signedAt: contract.signedAt,
-                completedAt: contract.completedAt,
-                staff: contract.staffId ? {
-                  id: contract.staffId.toString(),
-                  name: contract.staffName || 'N/A'
-                } : undefined,
-              }
-            : undefined,
-          depositRequest: {
-            id: depositRequest?._id?.toString() || "",
-            depositAmount,
-            status: depositRequest?.status || "UNKNOWN",
-          },
-          counterparty: {
-            id: seller?._id?.toString() || "",
-            name: seller?.fullName || seller?.name || "N/A",
-            email: seller?.email || "N/A",
-            phone: seller?.phone,
-          },
-          dates: {
-            createdAt: appointment.createdAt,
-            scheduledDate: appointment.scheduledDate,
-            completedAt: appointment.completedAt,
-            cancelledAt: appointment.cancelledAt,
-          },
-          amount: {
-            deposit: depositAmount,
-            total: totalAmount,
-            remaining: remaining,
-          },
-          appointmentId: (appointment._id as any).toString(),
-        } as TransactionHistoryItem;
-      })
+      appointments.map((appointment) =>
+        this.buildTransactionItem(appointment, { adminView: true })
+      )
     );
 
     return {
@@ -448,6 +380,26 @@ class TransactionHistoryService {
         limit,
       },
     };
+  }
+
+  async getTransactionById(
+    appointmentId: string,
+    options: {
+      currentUserId?: string;
+      adminView?: boolean;
+    } = {}
+  ): Promise<TransactionHistoryItem | null> {
+    const appointment = await Appointment.findById(appointmentId)
+      .populate("depositRequestId")
+      .populate("buyerId", "fullName email phone")
+      .populate("sellerId", "fullName email phone")
+      .populate("listingId");
+
+    if (!appointment) {
+      return null;
+    }
+
+    return this.buildTransactionItem(appointment, options);
   }
 }
 

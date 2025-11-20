@@ -104,10 +104,13 @@ export async function uploadFromBuffer(
 
 /** ---------- Delete helpers ---------- */
 
-export async function deleteByPublicId(publicId: string): Promise<boolean> {
+export async function deleteByPublicId(
+  publicId: string,
+  resourceType: "image" | "raw" = "image"
+): Promise<boolean> {
   if (!publicId) return false;
   try {
-    await cloudinary.uploader.destroy(publicId, { resource_type: "image" });
+    await cloudinary.uploader.destroy(publicId, { resource_type: resourceType });
     return true;
   } catch (e) {
     console.warn("[cloudinary] destroy failed:", publicId, e);
@@ -115,12 +118,15 @@ export async function deleteByPublicId(publicId: string): Promise<boolean> {
   }
 }
 
-export async function deleteMany(publicIds: string[]): Promise<{ ok: string[]; fail: string[] }> {
+export async function deleteMany(
+  publicIds: string[],
+  resourceType: "image" | "raw" = "image"
+): Promise<{ ok: string[]; fail: string[] }> {
   const ok: string[] = [];
   const fail: string[] = [];
   await Promise.all(
     (publicIds || []).map(async (pid) => {
-      const done = await deleteByPublicId(pid);
+      const done = await deleteByPublicId(pid, resourceType);
       (done ? ok : fail).push(pid);
     })
   );
