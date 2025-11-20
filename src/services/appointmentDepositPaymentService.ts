@@ -16,7 +16,7 @@ import NotificationMessage from "../models/NotificationMessage";
 import { Types } from "mongoose";
 import { WebSocketService } from "./websocketService";
 
-// Helper function để sort object
+// Helper function để sort object (giống wallet service - đã hoạt động)
 function sortObject(obj: any) {
   let sorted: any = {};
   let str = [];
@@ -263,8 +263,10 @@ export const createFullPaymentUrl = async (
   vnp_Params["vnp_OrderType"] = "other";
   vnp_Params["vnp_Amount"] = fullAmount * 100;
   // Dùng Return URL giống wallet service (đã hoạt động với localhost)
+  // walletVNPayReturn sẽ route đến appointmentFullPaymentReturn nếu vnpOrderId bắt đầu bằng "FULL_"
   vnp_Params["vnp_ReturnUrl"] = VNPayConfig.vnp_WalletReturnUrl;
-  // Không thêm IPN URL (giống wallet service - đã hoạt động)
+  // Không thêm IPN URL vì VNPay sandbox không chấp nhận localhost cho IPN
+  // Return URL sẽ xử lý logic cập nhật appointment
   vnp_Params["vnp_IpAddr"] = ipAddr;
   vnp_Params["vnp_CreateDate"] = createDate;
 
@@ -768,31 +770,41 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
   let amount = parseInt(vnp_Params["vnp_Amount"]) / 100;
   let vnp_TransactionNo = vnp_Params["vnp_TransactionNo"];
 
-  // Lấy appointmentId từ vnpOrderId: FULL_appointmentIdShort_timestamp
-  // Format: FULL_{appointmentIdShort}_{timestamp} (giống wallet service)
-  if (!vnpOrderId.startsWith("FULL_") || !vnpOrderId.includes("_")) {
+  // Tìm Payment để lấy appointmentId từ metadata (chính xác hơn)
+  const payment = await Payment.findOne({
+    transactionId: vnpOrderId,
+    "metadata.type": "FULL_PAYMENT",
+  });
+
+  if (!payment || !payment.metadata?.appointmentId) {
+    console.error(
+      `[Full Payment] ❌ Payment not found or no appointmentId for orderId: ${vnpOrderId}`
+    );
     return {
       success: false,
       responseCode: "99",
-      message: "Không thể xác định appointmentId từ vnpOrderId",
+      message: "Không tìm thấy payment hoặc appointmentId từ vnpOrderId",
     };
   }
-  // Lấy appointmentIdShort từ vnpOrderId (phần giữa "FULL_" và dấu gạch dưới cuối)
-  const parts = vnpOrderId.split("_");
-  const appointmentIdShort = parts[1]; // Phần sau "FULL"
-  // Tìm appointment có _id kết thúc bằng appointmentIdShort
-  const appointments = await Appointment.find({});
-  const appointment = appointments.find((apt: any) =>
-    apt._id.toString().endsWith(appointmentIdShort)
+
+  const appointmentId = payment.metadata.appointmentId.toString();
+  console.log(
+    `[Full Payment] 🔍 Found appointmentId from Payment: ${appointmentId}`
   );
+
+  // Tìm Appointment
+  const appointment = await Appointment.findById(appointmentId);
   if (!appointment) {
+    console.error(`[Full Payment] ❌ Appointment not found: ${appointmentId}`);
     return {
       success: false,
       responseCode: "99",
-      message: "Không tìm thấy appointment từ vnpOrderId",
+      message: "Không tìm thấy appointment từ appointmentId",
     };
   }
-  const appointmentId = (appointment as any)._id.toString();
+  console.log(
+    `[Full Payment] ✅ Found appointment: ${appointmentId}, current status: ${appointment.status}`
+  );
 
   // Tìm PaymentTransaction
   let paymentTransaction = await PaymentTransaction.findOne({
@@ -807,15 +819,28 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
     };
   }
 
-  // Nếu đã xử lý rồi
+  // Nếu đã xử lý rồi, kiểm tra xem appointment đã được cập nhật chưa
   if (paymentTransaction.status === "SUCCESS") {
-    return {
-      success: true,
-      responseCode: paymentTransaction.responseCode,
-      appointmentId,
-      amount: paymentTransaction.amount,
-      message: "Giao dịch đã được xử lý trước đó",
-    };
+    // Kiểm tra appointment có status COMPLETED chưa
+    const existingAppointment = await Appointment.findById(appointmentId);
+    if (existingAppointment && existingAppointment.status === "COMPLETED") {
+      // Đã xử lý đầy đủ, return
+      console.log(
+        `[Full Payment] ✅ Already processed: appointment ${appointmentId} is COMPLETED`
+      );
+      return {
+        success: true,
+        responseCode: paymentTransaction.responseCode,
+        appointmentId,
+        amount: paymentTransaction.amount,
+        message: "Giao dịch đã được xử lý trước đó",
+      };
+    } else {
+      // PaymentTransaction đã SUCCESS nhưng appointment chưa được cập nhật → tiếp tục xử lý
+      console.log(
+        `[Full Payment] ⚠️ PaymentTransaction SUCCESS but appointment ${appointmentId} not COMPLETED (status: ${existingAppointment?.status}), continuing...`
+      );
+    }
   }
 
   // Cập nhật PaymentTransaction
@@ -827,16 +852,13 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
 
   if (responseCode === "00") {
     try {
-      // Appointment đã được tìm ở trên
+      // Appointment và Payment đã được tìm ở trên
       if (!appointment) {
         throw new Error("Appointment not found");
       }
-
-      // Tìm Payment với type FULL_PAYMENT
-      const payment = await Payment.findOne({
-        transactionId: vnpOrderId,
-        "metadata.type": "FULL_PAYMENT",
-      });
+      if (!payment) {
+        throw new Error("Payment not found");
+      }
 
       if (payment) {
         // Cập nhật Payment
@@ -854,7 +876,10 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
         undefined
       );
 
-      // Cập nhật Appointment: timeline.fullPaymentPaidAt, timeline.completedAt
+      // Cập nhật Appointment: timeline.fullPaymentPaidAt, timeline.completedAt, status = COMPLETED
+      console.log(
+        `[Full Payment] 📝 Updating appointment ${appointmentId} status to COMPLETED...`
+      );
       if (!appointment.timeline) {
         appointment.timeline = {};
       }
@@ -862,6 +887,21 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
       appointment.timeline.completedAt = new Date();
       appointment.status = "COMPLETED";
       await appointment.save();
+      console.log(
+        `[Full Payment] ✅ Appointment ${appointmentId} saved with status COMPLETED`
+      );
+
+      // Verify appointment was saved correctly
+      const savedAppointment = await Appointment.findById(appointmentId);
+      if (savedAppointment) {
+        console.log(
+          `[Full Payment] ✅ Verified: Appointment ${appointmentId} status in DB: ${savedAppointment.status}`
+        );
+      } else {
+        console.error(
+          `[Full Payment] ❌ ERROR: Appointment ${appointmentId} not found after save!`
+        );
+      }
 
       // Gửi email và notification
       const buyer = await User.findById(appointment.buyerId);
