@@ -20,7 +20,12 @@ export interface IAppointment extends Document {
     | "COMPLETED"
     | "CANCELLED"
     | "REJECTED";
-  type: "CONTRACT_SIGNING" | "VEHICLE_INSPECTION" | "DELIVERY" | "CONTRACT_NOTARIZATION" | "VEHICLE_HANDOVER";
+  type:
+    | "CONTRACT_SIGNING"
+    | "VEHICLE_INSPECTION"
+    | "DELIVERY"
+    | "CONTRACT_NOTARIZATION"
+    | "VEHICLE_HANDOVER";
   location?: string;
   notes?: string;
   rescheduledCount: number;
@@ -41,10 +46,12 @@ export interface IAppointment extends Document {
     depositRequestAt?: Date;
     depositPaidAt?: Date;
     remainingPaymentRequestAt?: Date;
+    remainingPaymentReminderSent?: boolean;
     remainingPaidAt?: Date;
     fullPaymentRequestAt?: Date;
     fullPaymentPaidAt?: Date;
     completedAt?: Date;
+    overdueProcessedAt?: Date;
   };
   createdAt: Date;
   updatedAt: Date;
@@ -120,7 +127,13 @@ const AppointmentSchema = new Schema(
     },
     type: {
       type: String,
-      enum: ["CONTRACT_SIGNING", "VEHICLE_INSPECTION", "DELIVERY", "CONTRACT_NOTARIZATION", "VEHICLE_HANDOVER"],
+      enum: [
+        "CONTRACT_SIGNING",
+        "VEHICLE_INSPECTION",
+        "DELIVERY",
+        "CONTRACT_NOTARIZATION",
+        "VEHICLE_HANDOVER",
+      ],
       default: "CONTRACT_SIGNING",
     },
     location: {
@@ -180,10 +193,12 @@ const AppointmentSchema = new Schema(
       depositRequestAt: Date,
       depositPaidAt: Date,
       remainingPaymentRequestAt: Date,
+      remainingPaymentReminderSent: Boolean,
       remainingPaidAt: Date,
       fullPaymentRequestAt: Date,
       fullPaymentPaidAt: Date,
       completedAt: Date,
+      overdueProcessedAt: Date,
     },
     dealId: {
       type: String,
