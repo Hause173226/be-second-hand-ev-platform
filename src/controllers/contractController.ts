@@ -662,7 +662,7 @@ export const uploadContractPhotos = async (req: Request, res: Response) => {
           "SIGN_CONTRACT",
           {
             status: "DONE",
-            note: "Staff uploaded signed contract photos",
+            note: "Nhân viên đã tải lên ảnh hợp đồng đã ký",
             appointmentId: appointmentIdForDeal,
             attachments: dealAttachments,
           }

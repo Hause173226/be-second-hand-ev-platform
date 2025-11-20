@@ -66,6 +66,7 @@ export interface PaperworkProgressItem {
   note?: string;
   appointmentRequired?: boolean;
   appointmentId?: string;
+  createdAt?: Date;
   updatedAt?: Date;
   updatedBy?: string;
   attachments?: {
@@ -183,6 +184,10 @@ const PaperworkProgressSchema = new Schema<PaperworkProgressItem>(
     appointmentId: {
       type: String,
       ref: "Appointment",
+    },
+    createdAt: {
+      type: Date,
+      default: Date.now,
     },
     updatedAt: {
       type: Date,
@@ -351,15 +356,18 @@ const DealSchema = new Schema<IDeal>(
     },
     paperworkProgress: {
       type: [PaperworkProgressSchema],
-      default: () =>
-        buildDefaultTimeline().map((item) => ({
+      default: () => {
+        const now = new Date();
+        return buildDefaultTimeline().map((item) => ({
           step: item.step,
           status: item.status,
           appointmentRequired:
             item.step === "SIGN_CONTRACT" ||
             item.step === "NOTARIZATION" ||
             item.step === "HANDOVER_PAPERS_AND_CAR",
-        })),
+          createdAt: now,
+        }));
+      },
     },
     appointmentMilestones: {
       signContract: {
