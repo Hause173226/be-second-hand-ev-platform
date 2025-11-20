@@ -318,6 +318,8 @@ async function renderPdfBuffer(contract: IContract, body: string) {
           }
           // Xử lý text thường
           else {
+            // Đảm bảo font được set đúng trước khi render
+            doc.font(defaultFont).fontSize(11);
             // Xử lý indent (dòng bắt đầu bằng dấu cách hoặc dấu gạch)
             const isIndented =
               line.startsWith("   ") ||
