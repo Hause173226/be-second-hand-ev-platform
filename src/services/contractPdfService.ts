@@ -1,5 +1,6 @@
 import path from "path";
 import fs from "fs/promises";
+import fsSync from "fs";
 import Handlebars from "handlebars";
 import PDFDocument from "pdfkit";
 import { v2 as cloudinary } from "cloudinary";
@@ -8,7 +9,10 @@ import { ContractType, CONTRACT_TYPES } from "../constants/contractTimeline";
 import { deleteByPublicId } from "./cloudinaryService";
 
 // Đường dẫn font hỗ trợ tiếng Việt
-const FONT_REGULAR = path.resolve(process.cwd(), "src/fonts/NotoSans-Regular.ttf");
+const FONT_REGULAR = path.resolve(
+  process.cwd(),
+  "src/fonts/NotoSans-Regular.ttf"
+);
 const FONT_BOLD = path.resolve(process.cwd(), "src/fonts/NotoSans-Bold.ttf");
 
 type TemplateCache = Record<ContractType, HandlebarsTemplateDelegate | null>;
@@ -58,9 +62,31 @@ Handlebars.registerHelper("formatDate", (value?: Date | string) => {
 Handlebars.registerHelper("numberToWords", (value: number) => {
   if (typeof value !== "number") return "";
   // Tạm thời trả về số bằng chữ đơn giản, có thể tích hợp thư viện sau
-  const units = ["", "một", "hai", "ba", "bốn", "năm", "sáu", "bảy", "tám", "chín"];
-  const tens = ["", "mười", "hai mươi", "ba mươi", "bốn mươi", "năm mươi", "sáu mươi", "bảy mươi", "tám mươi", "chín mươi"];
-  
+  const units = [
+    "",
+    "một",
+    "hai",
+    "ba",
+    "bốn",
+    "năm",
+    "sáu",
+    "bảy",
+    "tám",
+    "chín",
+  ];
+  const tens = [
+    "",
+    "mười",
+    "hai mươi",
+    "ba mươi",
+    "bốn mươi",
+    "năm mươi",
+    "sáu mươi",
+    "bảy mươi",
+    "tám mươi",
+    "chín mươi",
+  ];
+
   if (value === 0) return "không";
   if (value < 10) return units[value];
   if (value < 100) {
@@ -68,17 +94,17 @@ Handlebars.registerHelper("numberToWords", (value: number) => {
     const unit = value % 10;
     return tens[ten] + (unit > 0 ? " " + units[unit] : "");
   }
-  
+
   // Với số lớn, tạm thời trả về format đơn giản
   const millions = Math.floor(value / 1000000);
   const thousands = Math.floor((value % 1000000) / 1000);
   const remainder = value % 1000;
-  
+
   let result = "";
   if (millions > 0) result += `${millions} triệu `;
   if (thousands > 0) result += `${thousands} nghìn `;
   if (remainder > 0) result += `${remainder}`;
-  
+
   return result.trim() || value.toString();
 });
 
@@ -155,8 +181,10 @@ function buildTemplateData(contract: IContract, context?: ContractPdfContext) {
       chassisNumber: contract.chassisNumber,
       engineDisplacement: 0, // Có thể lấy từ listing sau
       registrationNumber: contract.registrationNumber || "N/A",
-      registrationIssuedBy: contract.registrationIssuedBy || "Cơ quan có thẩm quyền",
-      registrationIssuedDate: contract.registrationIssuedDate || contract.contractDate,
+      registrationIssuedBy:
+        contract.registrationIssuedBy || "Cơ quan có thẩm quyền",
+      registrationIssuedDate:
+        contract.registrationIssuedDate || contract.contractDate,
     },
     staff: {
       name: contract.staffName || "Chưa xác định",
@@ -168,22 +196,34 @@ function buildTemplateData(contract: IContract, context?: ContractPdfContext) {
 async function renderPdfBuffer(contract: IContract, body: string) {
   return new Promise<Buffer>(async (resolve, reject) => {
     try {
-      // Kiểm tra font file tồn tại
-      let fontRegularExists = false;
-      let fontBoldExists = false;
+      // Kiểm tra và đọc font file
+      let fontRegularBuffer: Buffer | null = null;
+      let fontBoldBuffer: Buffer | null = null;
 
       try {
-        await fs.access(FONT_REGULAR);
-        fontRegularExists = true;
-      } catch {
-        console.warn(`[PDF] Font file not found: ${FONT_REGULAR}, using Helvetica`);
+        if (fsSync.existsSync(FONT_REGULAR)) {
+          fontRegularBuffer = fsSync.readFileSync(FONT_REGULAR);
+          console.log(`[PDF] Loaded font: ${FONT_REGULAR}`);
+        } else {
+          console.warn(
+            `[PDF] Font file not found: ${FONT_REGULAR}, using Helvetica`
+          );
+        }
+      } catch (error) {
+        console.warn(`[PDF] Error reading font file ${FONT_REGULAR}:`, error);
       }
 
       try {
-        await fs.access(FONT_BOLD);
-        fontBoldExists = true;
-      } catch {
-        console.warn(`[PDF] Font file not found: ${FONT_BOLD}, using Helvetica-Bold`);
+        if (fsSync.existsSync(FONT_BOLD)) {
+          fontBoldBuffer = fsSync.readFileSync(FONT_BOLD);
+          console.log(`[PDF] Loaded font: ${FONT_BOLD}`);
+        } else {
+          console.warn(
+            `[PDF] Font file not found: ${FONT_BOLD}, using Helvetica-Bold`
+          );
+        }
+      } catch (error) {
+        console.warn(`[PDF] Error reading font file ${FONT_BOLD}:`, error);
       }
 
       const doc = new PDFDocument({
@@ -193,32 +233,47 @@ async function renderPdfBuffer(contract: IContract, body: string) {
       });
 
       const chunks: Buffer[] = [];
-      doc.on("data", (chunk) => chunks.push(chunk));
-      doc.on("error", (err) => {
+      doc.on("data", (chunk: Buffer) => chunks.push(chunk));
+      doc.on("error", (err: Error) => {
         console.error("[PDF] PDFDocument error:", err);
         reject(err);
       });
       doc.on("end", () => resolve(Buffer.concat(chunks)));
 
       // Register font hỗ trợ tiếng Việt nếu có
-      if (fontRegularExists && fontBoldExists) {
+      let fontRegularExists = false;
+      let fontBoldExists = false;
+
+      if (fontRegularBuffer && fontBoldBuffer) {
         try {
-          doc.registerFont("NotoSans", FONT_REGULAR);
-          doc.registerFont("NotoSansBold", FONT_BOLD);
-          console.log("[PDF] Using Noto Sans font for Vietnamese support");
+          doc.registerFont("NotoSans", fontRegularBuffer);
+          doc.registerFont("NotoSansBold", fontBoldBuffer);
+          fontRegularExists = true;
+          fontBoldExists = true;
+          console.log(
+            "[PDF] ✅ Successfully registered Noto Sans fonts for Vietnamese support"
+          );
         } catch (fontError) {
-          console.warn("[PDF] Failed to register Noto Sans font, using Helvetica:", fontError);
+          console.warn(
+            "[PDF] Failed to register Noto Sans font, using Helvetica:",
+            fontError
+          );
           fontRegularExists = false;
           fontBoldExists = false;
         }
+      } else {
+        console.warn(
+          "[PDF] Font files not available, using Helvetica (may not support Vietnamese)"
+        );
       }
 
       // Set font mặc định (Noto Sans nếu có, nếu không thì dùng Helvetica)
       const defaultFont = fontRegularExists ? "NotoSans" : "Helvetica";
       const boldFont = fontBoldExists ? "NotoSansBold" : "Helvetica-Bold";
-      
+
       try {
         doc.font(defaultFont).fontSize(11);
+        console.log(`[PDF] Using default font: ${defaultFont}`);
       } catch (fontError) {
         console.error("[PDF] Error setting font:", fontError);
         // Fallback to Helvetica
@@ -226,10 +281,10 @@ async function renderPdfBuffer(contract: IContract, body: string) {
       }
 
       const lines = body.split("\n");
-      
+
       lines.forEach((line) => {
         const trimmedLine = line.trim();
-        
+
         if (trimmedLine.length === 0) {
           doc.moveDown(0.3);
           return;
@@ -238,27 +293,38 @@ async function renderPdfBuffer(contract: IContract, body: string) {
         try {
           // Xử lý tiêu đề chính
           if (trimmedLine.includes("HỢP ĐỒNG MUA BÁN XE")) {
-            doc.fontSize(16).font(boldFont).text(trimmedLine, { align: "center" });
+            doc
+              .fontSize(16)
+              .font(boldFont)
+              .text(trimmedLine, { align: "center" });
             doc.fontSize(11).font(defaultFont);
             doc.moveDown(0.5);
-          } 
+          }
           // Xử lý ĐIỀU (heading)
           else if (trimmedLine.match(/^ĐIỀU \d+\./)) {
             doc.moveDown(0.3);
             doc.fontSize(12).font(boldFont).text(trimmedLine);
             doc.fontSize(11).font(defaultFont);
             doc.moveDown(0.2);
-          } 
+          }
           // Xử lý BÊN A, BÊN B (sub-heading)
-          else if (trimmedLine.match(/^BÊN [AB]/) || trimmedLine.match(/^[A-Z][A-Z\s]+:$/)) {
+          else if (
+            trimmedLine.match(/^BÊN [AB]/) ||
+            trimmedLine.match(/^[A-Z][A-Z\s]+:$/)
+          ) {
             doc.fontSize(11).font(boldFont).text(trimmedLine);
             doc.fontSize(11).font(defaultFont);
             doc.moveDown(0.1);
-          } 
+          }
           // Xử lý text thường
           else {
+            // Đảm bảo font được set đúng trước khi render
+            doc.font(defaultFont).fontSize(11);
             // Xử lý indent (dòng bắt đầu bằng dấu cách hoặc dấu gạch)
-            const isIndented = line.startsWith("   ") || line.startsWith("-") || line.startsWith("  ");
+            const isIndented =
+              line.startsWith("   ") ||
+              line.startsWith("-") ||
+              line.startsWith("  ");
             doc.text(trimmedLine, {
               align: isIndented ? "left" : "justify",
               lineGap: 2,
@@ -266,7 +332,10 @@ async function renderPdfBuffer(contract: IContract, body: string) {
             });
           }
         } catch (textError) {
-          console.warn(`[PDF] Error rendering line: "${trimmedLine.substring(0, 50)}..."`, textError);
+          console.warn(
+            `[PDF] Error rendering line: "${trimmedLine.substring(0, 50)}..."`,
+            textError
+          );
           // Fallback: render với font mặc định
           try {
             doc.font("Helvetica").fontSize(11).text(trimmedLine);
@@ -295,10 +364,12 @@ export async function generateContractPdf(
 
     console.log(`[PDF] Loading template for type: ${type}`);
     const template = await loadTemplate(type);
-    
-    console.log(`[PDF] Building template data for contract: ${contract.contractNumber}`);
+
+    console.log(
+      `[PDF] Building template data for contract: ${contract.contractNumber}`
+    );
     const data = buildTemplateData(contract, context);
-    
+
     console.log(`[PDF] Rendering template...`);
     const body = template(data);
 
@@ -319,7 +390,10 @@ export async function generateContractPdf(
       try {
         await deleteByPublicId(contract.contractPdfPublicId, "raw");
       } catch (deleteError) {
-        console.warn(`[PDF] Failed to delete old PDF (non-critical):`, deleteError);
+        console.warn(
+          `[PDF] Failed to delete old PDF (non-critical):`,
+          deleteError
+        );
       }
     }
 
@@ -370,4 +444,3 @@ export async function generateContractPdf(
     throw error;
   }
 }
-

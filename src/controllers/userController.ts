@@ -3,6 +3,7 @@ import { userService } from "../services/userService";
 import { uploadFromBuffer } from "../services/cloudinaryService";
 import { membershipService } from "../services/membershipService";
 import { MembershipPackage } from "../models/MembershipPackage";
+import { User } from "../models/User";
 
 export const signUp = async (req: Request, res: Response) => {
   try {
@@ -74,11 +75,33 @@ export const signUp = async (req: Request, res: Response) => {
 export const signIn = async (req: Request, res: Response) => {
   try {
     const { email, password } = req.body;
+
     if (!email || !password) {
       res.status(400).json({ error: "Thiếu email hoặc mật khẩu" });
       return;
     }
+
+    // 🔍 Lấy user theo email để kiểm tra trạng thái
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+
+    if (!user) {
+      res.status(400).json({ error: "Email hoặc mật khẩu không đúng" });
+      return;
+    }
+
+    // 🔥 CHECK TRẠNG THÁI TÀI KHOẢN
+    if (user.status === "SUSPENDED" || user.status === "DELETED") {
+      res.status(403).json({
+        code: "ACCOUNT_DISABLED",
+        message:
+          "Tài khoản của bạn đã bị khoá. Vui lòng liên hệ bộ phận hỗ trợ hoặc quản trị viên.",
+      });
+      return;
+    }
+
+    // Nếu tài khoản đang ACTIVE → dùng service signIn để kiểm tra mật khẩu + tạo token
     const result = await userService.signIn(email, password);
+
     res.json(result);
   } catch (err) {
     if (err instanceof Error) {
@@ -140,7 +163,10 @@ export const resendOTP = async (req: Request, res: Response) => {
   }
 };
 
-export const resetPasswordWithOTP = async (req: Request, res: Response) => {
+export const resetPasswordWithOTP = async (
+  req: Request,
+  res: Response
+) => {
   try {
     const { email, otp, newPassword } = req.body;
     if (!email || !otp || !newPassword) {
@@ -240,7 +266,9 @@ export const changePassword = async (req: Request, res: Response) => {
     }
 
     if (newPassword.length < 6) {
-      res.status(400).json({ error: "Mật khẩu mới phải có ít nhất 6 ký tự" });
+      res
+        .status(400)
+        .json({ error: "Mật khẩu mới phải có ít nhất 6 ký tự" });
       return;
     }
 
@@ -292,7 +320,10 @@ export const getProfile = async (req: Request, res: Response) => {
 
 // ===== EMAIL VERIFICATION CONTROLLERS =====
 
-export const sendEmailVerification = async (req: Request, res: Response) => {
+export const sendEmailVerification = async (
+  req: Request,
+  res: Response
+) => {
   try {
     const { email } = req.body;
 
