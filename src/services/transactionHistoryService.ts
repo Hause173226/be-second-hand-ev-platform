@@ -173,7 +173,7 @@ class TransactionHistoryService {
       listing: this.buildListingPayload(listingDoc),
       contract: contract
         ? {
-            id: contract._id.toString(),
+            id: (contract._id as any).toString(),
             status: contract.status,
             contractNumber: contract.contractNumber,
             photos: (contract.contractPhotos as any[])?.map((photo) => ({

@@ -218,16 +218,18 @@ export class AppointmentService {
       // Thông báo cho người tạo (đã tự động confirmed)
       const creatorId = isWinner ? winnerId : sellerId;
       const creatorRole = isWinner ? 'buyer' : 'seller';
+      const appointmentId = (appointment._id as any).toString();
+      
       await NotificationMessage.create({
         userId: creatorId,
         type: 'system',
         title: 'Lịch hẹn đã được tạo',
         message: `Bạn đã tạo lịch hẹn ký hợp đồng cho xe ${vehicleInfo} vào ${scheduledDateStr}. Chờ ${creatorRole === 'buyer' ? 'người bán' : 'người thắng đấu giá'} xác nhận.`,
-        relatedId: appointment._id.toString(),
-        actionUrl: `/appointments/${appointment._id}`,
+        relatedId: appointmentId,
+        actionUrl: `/appointments/${appointmentId}`,
         actionText: 'Xem lịch hẹn',
         metadata: {
-          appointmentId: appointment._id.toString(),
+          appointmentId: appointmentId,
           auctionId: data.auctionId,
           appointmentType: 'AUCTION',
           scheduledDate: appointmentDate,
@@ -236,7 +238,7 @@ export class AppointmentService {
       });
 
       wsService.sendToUser(creatorId, 'appointment_created', {
-        appointmentId: appointment._id.toString(),
+        appointmentId: appointmentId,
         title: 'Lịch hẹn đã được tạo',
         message: 'Lịch hẹn ký hợp đồng đã được tạo thành công',
         scheduledDate: appointmentDate
@@ -252,11 +254,11 @@ export class AppointmentService {
         type: 'system',
         title: 'Lịch hẹn mới từ đấu giá',
         message: `${creatorName} đã tạo lịch hẹn ký hợp đồng cho xe ${vehicleInfo} vào ${scheduledDateStr}. Vui lòng xác nhận lịch hẹn.`,
-        relatedId: appointment._id.toString(),
-        actionUrl: `/appointments/${appointment._id}`,
+        relatedId: appointmentId,
+        actionUrl: `/appointments/${appointmentId}`,
         actionText: 'Xác nhận lịch hẹn',
         metadata: {
-          appointmentId: appointment._id.toString(),
+          appointmentId: appointmentId,
           auctionId: data.auctionId,
           appointmentType: 'AUCTION',
           scheduledDate: appointmentDate,
@@ -266,7 +268,7 @@ export class AppointmentService {
       });
 
       wsService.sendToUser(recipientId, 'new_appointment', {
-        appointmentId: appointment._id.toString(),
+        appointmentId: appointmentId,
         title: 'Lịch hẹn mới từ đấu giá',
         message: `${creatorName} đã tạo lịch hẹn ký hợp đồng`,
         scheduledDate: appointmentDate,

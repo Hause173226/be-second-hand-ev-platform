@@ -8,6 +8,7 @@ import Appointment from "../models/Appointment";
 import NotificationMessage from "../models/NotificationMessage";
 import { WebSocketService } from "./websocketService";
 import auctionDepositService from "./auctionDepositService";
+import walletService from "./walletService";
 import cron from "node-cron";
 
 type AnyId = string | { toString(): string };
@@ -81,11 +82,10 @@ export async function sendAuctionStartNotifications(auction: any) {
           auctionId,
           listingId: listing._id.toString(),
           vehicleInfo,
-          participantCount: participantIds.length,
           startAt: auction.startAt,
           endAt: auction.endAt,
           notificationType: 'auction_started_seller'
-        }
+        } as any
       });
     }
 
@@ -137,7 +137,7 @@ export async function sendAuctionStartNotifications(auction: any) {
         message: `Phiên đấu giá cho xe ${vehicleInfo} đã bắt đầu với ${participantIds.length} người tham gia`,
         actionUrl: `/auctions/${auctionId}`,
         actionText: 'Xem phiên đấu giá',
-        metadata: { auctionId, participantCount: participantIds.length }
+        metadata: { auctionId, participantCount: participantIds.length } as any
       });
     }
   } catch (error) {
@@ -243,7 +243,7 @@ export async function sendAuctionEndNotifications(
           participantCount: participantIds.length,
           endAt: auction.endAt,
           notificationType: winnerId ? 'auction_sold' : 'auction_ended_no_winner'
-        }
+        } as any
       });
     }
 

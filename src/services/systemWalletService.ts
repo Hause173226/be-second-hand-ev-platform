@@ -302,12 +302,12 @@ export class SystemWalletService {
           };
 
           // Lấy appointmentId từ transaction hoặc parse từ description
-          let appointmentId = tx.appointmentId;
+          let appointmentId: string | undefined = tx.appointmentId;
           let userId: string | null = null;
 
           if (!appointmentId && tx.description) {
             const parsed = parseDescription(tx.description);
-            appointmentId = parsed.appointmentId || null;
+            appointmentId = parsed.appointmentId || undefined;
             userId = parsed.userId || null;
             
             // Cập nhật appointmentId trong result nếu parse được
