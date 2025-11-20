@@ -177,6 +177,12 @@ router.get(
   getUserTransactionHistory as unknown as RequestHandler
 );
 
+router.get(
+  "/user/history/:appointmentId",
+  authenticate,
+  getTransactionDetails as unknown as RequestHandler
+);
+
 /**
  * @swagger
  * /api/transactions/admin/history:

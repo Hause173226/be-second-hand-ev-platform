@@ -860,6 +860,7 @@ export const handleFullPaymentCallback = async (vnp_Params: any) => {
       }
       appointment.timeline.fullPaymentPaidAt = new Date();
       appointment.timeline.completedAt = new Date();
+      appointment.status = "COMPLETED";
       await appointment.save();
 
       // Gửi email và notification
