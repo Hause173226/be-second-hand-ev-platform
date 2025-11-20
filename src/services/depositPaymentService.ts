@@ -541,7 +541,7 @@ export const handleFullPaymentReturn = async (vnp_Params: any) => {
 
             // Tạo Appointment với status = "COMPLETED" để hiển thị trong Transaction History
             const appointment = await Appointment.create({
-              depositRequestId: depositRequest._id.toString(),
+              depositRequestId: (depositRequest._id as any).toString(),
               appointmentType: "NORMAL_DEPOSIT",
               buyerId: buyerIdStr,
               sellerId: sellerId,
