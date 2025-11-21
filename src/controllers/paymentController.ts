@@ -16,6 +16,9 @@ import {
   handleFullPaymentReturn as handleAppointmentFullPaymentReturn,
   handleRemaining90Return as handleAppointmentRemaining90Return,
 } from "../services/appointmentDepositPaymentService";
+import { VNPayConfig } from "../config/vnpay";
+
+const FRONTEND_URL = VNPayConfig.frontendUrl;
 
 // Handler cho Wallet VNPay Return (cũng xử lý appointment payments vì dùng chung Return URL)
 export const walletVNPayReturn = async (req: Request, res: Response) => {
@@ -70,7 +73,7 @@ export const walletVNPayReturn = async (req: Request, res: Response) => {
     if (result.success) {
       // Redirect về frontend success page
       res.redirect(
-        `http://localhost:5173/wallet?success=true&amount=${result.amount}&orderId=${result.orderId}`
+        `${FRONTEND_URL}/wallet?success=true&amount=${result.amount}&orderId=${result.orderId}`
       );
     } else {
       let message = "Thanh toán thất bại";
@@ -93,7 +96,7 @@ export const walletVNPayReturn = async (req: Request, res: Response) => {
       }
 
       res.redirect(
-        `http://localhost:5173/wallet?success=false&message=${encodeURIComponent(
+        `${FRONTEND_URL}/wallet?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}`
       );
@@ -101,7 +104,7 @@ export const walletVNPayReturn = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("❌ VNPay return error:", error);
     res.redirect(
-      `http://localhost:5173/wallet?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/wallet?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
@@ -138,7 +141,7 @@ export const depositVNPayReturn = async (req: Request, res: Response) => {
 
     if (result.success) {
       res.redirect(
-        `http://localhost:5173/deposits?success=true&amount=${result.amount}&orderId=${result.orderId}`
+        `${FRONTEND_URL}/deposits?success=true&amount=${result.amount}&orderId=${result.orderId}`
       );
     } else {
       let message = "Thanh toán thất bại";
@@ -160,7 +163,7 @@ export const depositVNPayReturn = async (req: Request, res: Response) => {
       }
 
       res.redirect(
-        `http://localhost:5173/deposits?success=false&message=${encodeURIComponent(
+        `${FRONTEND_URL}/deposits?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}`
       );
@@ -168,7 +171,7 @@ export const depositVNPayReturn = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("❌ Deposit VNPay return error:", error);
     res.redirect(
-      `http://localhost:5173/deposits?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/deposits?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
@@ -188,7 +191,7 @@ export const remainingAmountVNPayReturn = async (
 
     if (result.success) {
       res.redirect(
-        `http://localhost:5173/payments?success=true&amount=${result.amount}&orderId=${result.orderId}&type=remaining`
+        `${FRONTEND_URL}/payments?success=true&amount=${result.amount}&orderId=${result.orderId}&type=remaining`
       );
     } else {
       let message = "Thanh toán thất bại";
@@ -210,7 +213,7 @@ export const remainingAmountVNPayReturn = async (
       }
 
       res.redirect(
-        `http://localhost:5173/payments?success=false&message=${encodeURIComponent(
+        `${FRONTEND_URL}/payments?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}&type=remaining`
       );
@@ -218,7 +221,7 @@ export const remainingAmountVNPayReturn = async (
   } catch (error: any) {
     console.error("❌ Remaining Amount VNPay return error:", error);
     res.redirect(
-      `http://localhost:5173/payments?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/payments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}&type=remaining`
     );
@@ -235,7 +238,7 @@ export const fullPaymentVNPayReturn = async (req: Request, res: Response) => {
 
     if (result.success) {
       res.redirect(
-        `http://localhost:5173/payments?success=true&amount=${result.amount}&orderId=${result.orderId}&type=full`
+        `${FRONTEND_URL}/payments?success=true&amount=${result.amount}&orderId=${result.orderId}&type=full`
       );
     } else {
       // Sử dụng message từ result nếu có, nếu không thì dùng message mặc định
@@ -262,7 +265,7 @@ export const fullPaymentVNPayReturn = async (req: Request, res: Response) => {
       }
 
       res.redirect(
-        `http://localhost:5173/payments?success=false&message=${encodeURIComponent(
+        `${FRONTEND_URL}/payments?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}&type=full`
       );
@@ -270,7 +273,7 @@ export const fullPaymentVNPayReturn = async (req: Request, res: Response) => {
   } catch (error: any) {
     console.error("❌ Full Payment VNPay return error:", error);
     res.redirect(
-      `http://localhost:5173/payments?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/payments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}&type=full`
     );
@@ -353,12 +356,12 @@ export const appointmentDeposit10Return = async (
     if (result.success) {
       // Redirect về trang staff appointments với success message
       res.redirect(
-        `http://localhost:5173/staff/appointments?success=true&type=deposit&amount=${result.amount}&appointmentId=${result.appointmentId}`
+        `${FRONTEND_URL}/staff/appointments?success=true&type=deposit&amount=${result.amount}&appointmentId=${result.appointmentId}`
       );
     } else {
       let message = "Thanh toán đặt cọc thất bại";
       res.redirect(
-        `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
+        `${FRONTEND_URL}/staff/appointments?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}`
       );
@@ -366,7 +369,7 @@ export const appointmentDeposit10Return = async (
   } catch (error: any) {
     console.error("❌ Appointment Deposit 10% return error:", error);
     res.redirect(
-      `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/staff/appointments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
@@ -387,12 +390,12 @@ export const appointmentFullPaymentReturn = async (
     if (result.success) {
       // Redirect về trang staff appointments với success message
       res.redirect(
-        `http://localhost:5173/staff/appointments?success=true&type=full&amount=${result.amount}&appointmentId=${result.appointmentId}`
+        `${FRONTEND_URL}/staff/appointments?success=true&type=full&amount=${result.amount}&appointmentId=${result.appointmentId}`
       );
     } else {
       let message = "Thanh toán toàn bộ thất bại";
       res.redirect(
-        `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
+        `${FRONTEND_URL}/staff/appointments?success=false&message=${encodeURIComponent(
           message
         )}&code=${result.responseCode}`
       );
@@ -400,7 +403,7 @@ export const appointmentFullPaymentReturn = async (
   } catch (error: any) {
     console.error("❌ Appointment Full Payment 100% return error:", error);
     res.redirect(
-      `http://localhost:5173/staff/appointments?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/staff/appointments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
@@ -452,12 +455,12 @@ export const appointmentRemaining90Return = async (
     if (result.success) {
       // Redirect về frontend success page
       res.redirect(
-        `http://localhost:5173/appointments/${result.appointmentId}?success=true&type=remaining&amount=${result.amount}`
+        `${FRONTEND_URL}/appointments/${result.appointmentId}?success=true&type=remaining&amount=${result.amount}`
       );
     } else {
       let message = result.message || "Thanh toán còn lại thất bại";
       res.redirect(
-        `http://localhost:5173/appointments/${
+        `${FRONTEND_URL}/appointments/${
           result.appointmentId
         }?success=false&message=${encodeURIComponent(message)}&code=${
           result.responseCode
@@ -467,7 +470,7 @@ export const appointmentRemaining90Return = async (
   } catch (error: any) {
     console.error("❌ Appointment Remaining 90% return error:", error);
     res.redirect(
-      `http://localhost:5173/appointments?success=false&message=${encodeURIComponent(
+      `${FRONTEND_URL}/appointments?success=false&message=${encodeURIComponent(
         "Có lỗi xảy ra: " + error.message
       )}`
     );
