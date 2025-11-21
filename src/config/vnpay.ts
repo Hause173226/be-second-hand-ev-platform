@@ -4,7 +4,13 @@
 // 1. Dùng ngrok: npx ngrok http 8081 → copy URL vào VNPAY_BASE_URL
 // 2. Hoặc dùng public domain/deployment URL
 // 3. Hoặc đăng ký Return URL trong VNPay merchant portal
-const VNPAY_BASE_URL = process.env.VNPAY_BASE_URL || "http://localhost:8081";
+const VNPAY_BASE_URL =
+  process.env.VNPAY_BASE_URL ||
+  "https://be-second-hand-ev-platform.onrender.com";
+
+// Frontend URL để redirect sau khi thanh toán
+const FRONTEND_URL =
+  process.env.FRONTEND_URL || "https://market-place-eta-sand.vercel.app";
 
 export const VNPayConfig = {
   vnp_TmnCode: process.env.VNPAY_TMN_CODE || "UY28ABIO",
@@ -32,4 +38,7 @@ export const VNPayConfig = {
   // Appointment payment IPN URLs (cho callbacks từ VNPay)
   vnp_AppointmentDepositIpnUrl: `${VNPAY_BASE_URL}/api/payment/appointment-deposit-callback`,
   vnp_AppointmentFullPaymentIpnUrl: `${VNPAY_BASE_URL}/api/payment/appointment-full-payment-callback`,
+
+  // Frontend URL để redirect sau khi thanh toán
+  frontendUrl: FRONTEND_URL,
 };
