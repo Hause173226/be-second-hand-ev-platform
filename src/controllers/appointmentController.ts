@@ -2112,10 +2112,19 @@ export const completeAppointment = async (req: Request, res: Response): Promise<
       });
     }
 
-    if (appointment.status !== 'CONFIRMED') {
+    // Cho phép complete appointment từ auction ở trạng thái PENDING hoặc PENDING_CONFIRMATION
+    // Và cho phép complete appointment thông thường ở trạng thái CONFIRMED
+    const isAuctionAppointment = appointment.appointmentType === 'AUCTION';
+    const allowedStatuses = isAuctionAppointment 
+      ? ['PENDING', 'PENDING_CONFIRMATION', 'CONFIRMED']
+      : ['CONFIRMED'];
+    
+    if (!allowedStatuses.includes(appointment.status)) {
       return res.status(400).json({
         success: false,
-        message: 'Chỉ có thể hoàn thành lịch hẹn đã được xác nhận',
+        message: isAuctionAppointment
+          ? 'Chỉ có thể hoàn thành lịch hẹn đấu giá ở trạng thái đang chờ hoặc đã xác nhận'
+          : 'Chỉ có thể hoàn thành lịch hẹn đã được xác nhận',
       });
     }
 
@@ -2471,6 +2480,7 @@ export const getStaffAppointments = async (req: Request, res: Response): Promise
       status: appointment.status,
       location: appointment.location,
       type: appointment.type,
+      appointmentType: appointment.appointmentType, // ✅ Thêm appointmentType
       rescheduledCount: appointment.rescheduledCount,
       maxReschedules: appointment.maxReschedules,
       

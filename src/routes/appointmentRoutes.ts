@@ -519,7 +519,10 @@ router.put('/:appointmentId/cancel', authenticate, cancelAppointment as unknown 
  * @swagger
  * /api/appointments/{appointmentId}/complete:
  *   post:
- *     summary: Staff/Admin xác nhận buổi xem xe đã hoàn thành
+ *     summary: Staff/Admin xác nhận lịch hẹn đã hoàn thành
+ *     description: |
+ *       - Đối với lịch hẹn từ đấu giá (AUCTION): Có thể update từ PENDING, PENDING_CONFIRMATION hoặc CONFIRMED sang COMPLETED
+ *       - Đối với lịch hẹn thông thường: Chỉ có thể update từ CONFIRMED sang COMPLETED
  *     tags: [Appointments]
  *     security:
  *       - bearerAuth: []
@@ -532,13 +535,47 @@ router.put('/:appointmentId/cancel', authenticate, cancelAppointment as unknown 
  *         description: ID của lịch hẹn cần đánh dấu hoàn thành
  *     responses:
  *       200:
- *         description: Đã đánh dấu hoàn thành
+ *         description: Đã đánh dấu hoàn thành thành công
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Đã đánh dấu buổi xem xe hoàn thành"
+ *                 appointment:
+ *                   type: object
+ *                   properties:
+ *                     id:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                       example: "COMPLETED"
+ *                     completedAt:
+ *                       type: string
+ *                       format: date-time
+ *                     completedByStaff:
+ *                       type: object
+ *                       nullable: true
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         email:
+ *                           type: string
+ *                         phone:
+ *                           type: string
  *       400:
- *         description: Lịch hẹn chưa được xác nhận
+ *         description: Lịch hẹn không ở trạng thái hợp lệ để hoàn thành
  *       401:
  *         description: Chưa đăng nhập
  *       403:
- *         description: Không có quyền thực hiện
+ *         description: Không có quyền thực hiện (chỉ staff/admin)
  *       404:
  *         description: Không tìm thấy lịch hẹn
  *       500:
